@@ -156,6 +156,42 @@ def test_folded_description_is_parsed():
     assert fm["name"] == "test-skill"
 
 
+def test_cross_kind_name_collision_rejected_and_native_copy_preserved():
+    def check(home, tmp):
+        skill = VALID_SKILL.replace("name: test-skill", "name: clash")
+        antiskill = VALID_ANTISKILL.replace("name: test-trap", "name: clash")
+        rc1 = save_skill.main([write_draft(tmp, skill), "--scope", "global"])
+        assert rc1 == 0
+        rc2 = save_skill.main([write_draft(tmp, antiskill), "--scope", "global"])
+        assert rc2 == 1
+        native = home / ".claude/skills/skillforge-hot/clash/SKILL.md"
+        assert native.exists()
+        assert native.read_text(encoding="utf-8") == skill
+        assert not (home / ".claude/skillforge/antiskills/clash").exists()
+    in_sandbox(check)
+
+
+def test_invalid_kind_rejected():
+    def check(home, tmp):
+        bad = VALID_SKILL.replace("kind: skill", "kind: bogus")
+        rc = save_skill.main([write_draft(tmp, bad), "--scope", "global"])
+        assert rc == 1
+    in_sandbox(check)
+
+
+def test_crlf_frontmatter_is_parsed():
+    def check(home, tmp):
+        crlf = VALID_SKILL.replace("\n", "\r\n")
+        assert save_skill.validate(crlf) == []
+    in_sandbox(check)
+
+
+def test_frontmatter_fence_without_trailing_newline_is_detected():
+    draft = "---\nname: x\nkind: skill\ndescription: d\n---"
+    errors = save_skill.validate(draft)
+    assert "missing frontmatter (--- fenced block)" not in errors
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

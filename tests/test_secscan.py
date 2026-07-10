@@ -1,9 +1,12 @@
 """Tests for the blocking secret scan (spec 11.1). Run: python3 tests/test_secscan.py"""
 import pathlib
+import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 from secscan import scan_text
+
+SECSCAN = str(pathlib.Path(__file__).resolve().parent.parent / "scripts" / "secscan.py")
 
 
 def rules_hit(text):
@@ -49,6 +52,22 @@ def test_detects_quoted_secret_assignment():
     assert "assigned-secret" in rules_hit("password: 'correct-horse-battery'")
 
 
+def test_detects_compound_name_secret_assignment():
+    assert "assigned-secret" in rules_hit(
+        'AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI7MDENGbPxRfiCY"')
+    assert "assigned-secret" in rules_hit(
+        "client_secret: '9f8e7d6c5b4a3210ffff'")
+    assert "assigned-secret" in rules_hit('DB_PASSWORD="hunter2secret99"')
+    assert "assigned-secret" in rules_hit('stripe_api_key = "9f8e7d6c5b4a3210ffff"')
+
+
+def test_detects_provider_api_key_prefixes():
+    assert "provider-api-key" in rules_hit("sk-ant-" + "a1B2" * 5)
+    assert "provider-api-key" in rules_hit("sk-proj-" + "a1B2" * 5)
+    assert "provider-api-key" in rules_hit("AIza" + "a1B2c3D4" * 3)
+    assert "provider-api-key" in rules_hit("github_pat_" + "a1B2c3D4" * 3)
+
+
 def test_reports_line_numbers():
     hits = scan_text("clean line\nkey = AKIAIOSFODNN7EXAMPLE\n")
     assert hits[0][0] == 2
@@ -81,6 +100,15 @@ def test_plain_urls_are_not_connection_strings():
 
 def test_unquoted_prose_about_secrets_passes():
     assert scan_text("Read the webhook signing secret from the Stripe dashboard.") == []
+
+
+def test_main_missing_file_exits_2_without_traceback():
+    result = subprocess.run(
+        [sys.executable, SECSCAN, "/no/such/file/here.md"],
+        capture_output=True, text=True)
+    assert result.returncode == 2
+    assert "Traceback" not in result.stderr
+    assert "cannot read" in result.stderr
 
 
 if __name__ == "__main__":

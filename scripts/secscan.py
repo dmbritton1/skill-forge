@@ -20,9 +20,15 @@ RULES = [
     ("bearer-token", re.compile(r"(?i)\bbearer\s+[A-Za-z0-9_\-.=]{16,}")),
     # user:password@host — plain URLs without credentials don't match
     ("connection-string", re.compile(r"\b[a-z][a-z0-9+.-]*://[^/\s:@]+:[^@\s]+@")),
-    # quoted value assigned to a secret-ish name; unquoted prose passes
+    # quoted value assigned to a secret-ish name; unquoted prose passes.
+    # No leading/trailing \b: \b fails inside snake_case, so compound
+    # names like AWS_SECRET_ACCESS_KEY or stripe_api_key would be missed.
     ("assigned-secret", re.compile(
-        r"(?i)\b(api[_-]?key|secret|token|passwd|password)\b\s*[:=]\s*['\"][^'\"]{8,}['\"]")),
+        r"(?i)(api[_-]?key|secret|token|passwd|password)[\w-]*\s*[:=]\s*['\"][^'\"]{8,}['\"]")),
+    # known provider key prefixes, regardless of quoting/assignment context
+    ("provider-api-key", re.compile(
+        r"\b(sk-ant-[A-Za-z0-9_-]{16,}|sk-proj-[A-Za-z0-9_-]{16,}|"
+        r"AIza[0-9A-Za-z_-]{20,}|github_pat_[A-Za-z0-9_]{20,})")),
 ]
 
 
@@ -39,8 +45,12 @@ def scan_text(text):
 def main(paths):
     failed = False
     for path in paths:
-        with open(path, encoding="utf-8", errors="replace") as f:
-            text = f.read()
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                text = f.read()
+        except OSError as e:
+            print("secscan: cannot read %s: %s" % (path, e), file=sys.stderr)
+            return 2
         for lineno, rule, line in scan_text(text):
             print("%s:%d: %s: %s" % (path, lineno, rule, line))
             failed = True

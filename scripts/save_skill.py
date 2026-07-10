@@ -29,12 +29,18 @@ def parse_frontmatter(text):
     format. Handles top-level `key: value` and folded scalars (`key: >`);
     nested maps (e.g. preconditions) are skipped, not needed for validation.
     """
+    text = text.replace("\r\n", "\n")
     if not text.startswith("---\n"):
         return None, text
     try:
         end = text.index("\n---\n", 4)
+        body_start = end + 5
     except ValueError:
-        return None, text
+        if text.endswith("\n---"):
+            end = len(text) - 4
+            body_start = len(text)
+        else:
+            return None, text
     fm = {}
     lines = text[4:end].split("\n")
     i = 0
@@ -52,7 +58,7 @@ def parse_frontmatter(text):
                 continue
             fm[key] = val
         i += 1
-    return fm, text[end + 5:]
+    return fm, text[body_start:]
 
 
 def validate(text):
@@ -119,6 +125,19 @@ def main(argv=None):
         return 1
 
     fm, _ = parse_frontmatter(text)
+
+    # Skills and antiskills of the same name share one native dir
+    # (skills/skillforge-hot/<name>); a same-named pair from opposite
+    # kinds would silently clobber each other's native copy there even
+    # though their store dirs differ. Reject the second save instead.
+    other_kind = "skill" if fm["kind"] == "antiskill" else "antiskill"
+    other_dir = store_dir(args.scope, other_kind, fm["name"], args.project_root)
+    if other_dir.exists():
+        print("REJECTED: name %r already used by a %s in this scope "
+              "(native copies would collide); pick a different name"
+              % (fm["name"], other_kind))
+        return 1
+
     dest = store_dir(args.scope, fm["kind"], fm["name"], args.project_root)
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "SKILL.md").write_text(text, encoding="utf-8")
