@@ -81,6 +81,18 @@ def test_cli_log_and_show():
         assert rc == 0
 
 
+def test_aggregate_view_zero_not_null_for_outcome_free_skills():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("injection", "quiet", path=db)
+        con = ledger.connect(db)
+        row = con.execute(
+            "SELECT uses, successes, failures, injections FROM skill_aggregates WHERE skill='quiet'"
+        ).fetchone()
+        con.close()
+        assert row == (0, 0, 0, 1)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

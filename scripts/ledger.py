@@ -27,10 +27,10 @@ CREATE TABLE IF NOT EXISTS events (
 );
 CREATE VIEW IF NOT EXISTS skill_aggregates AS
 SELECT skill,
-  SUM(event_type = 'detection')  AS uses,
-  SUM(outcome = 'success')       AS successes,
-  SUM(outcome = 'failure')       AS failures,
-  SUM(event_type = 'injection')  AS injections,
+  COALESCE(SUM(event_type = 'detection'), 0)  AS uses,
+  COALESCE(SUM(outcome = 'success'), 0)       AS successes,
+  COALESCE(SUM(outcome = 'failure'), 0)       AS failures,
+  COALESCE(SUM(event_type = 'injection'), 0)  AS injections,
   MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
 FROM events GROUP BY skill;
 """
@@ -49,7 +49,7 @@ def connect(path=None):
     return con
 
 
-def log_event(event_type, skill, outcome=None, session=None, turn=None,
+def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
               tier=None, trigger=None, detection=None,
               preexisting_fingerprint=None, ts=None, path=None):
     ts = ts or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
