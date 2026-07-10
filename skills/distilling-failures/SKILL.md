@@ -37,7 +37,13 @@ miss is a repeated multi-hour debugging pit.
    machine-matchable trigger, so specificity matters: never a bare
    "Error" or a single common word.
 
-5. **Assign scope** (same heuristic as skills: repo-specific → project,
+5. **Emit fingerprints from the Fix.** Add a `fingerprints:` frontmatter
+   list with 2–3 distinctive fragments of the Fix — "using" an anti-skill
+   means the Fix lands in the code, so fingerprint the correction itself.
+   `verification.command` is optional for anti-skills: include it only
+   when the Fix has a single checkable command.
+
+6. **Assign scope** (same heuristic as skills: repo-specific → project,
    else global), **secret-scan the draft**
    (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/secscan.py" <draft-path>`),
    and redact any hits.
@@ -56,6 +62,9 @@ description: >
   One-line summary of the trap.
   Use when: <symptom or situation that should trigger this>.
   Do NOT use when: <situations that look similar but aren't this trap>.
+fingerprints:
+  - "<distinctive fragment of the Fix 1>"
+  - "<distinctive fragment of the Fix 2>"
 provenance:
   repo: <org/repo or local dir name>
   distilled: <YYYY-MM-DD>

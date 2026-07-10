@@ -52,7 +52,16 @@ one line and stop.
    contain "Use when:" cases AND "Do NOT use when:" cases. Negative
    triggers fight over-injection; save_skill.py rejects drafts without them.
 
-8. **Secret scan the draft yourself** before showing it:
+8. **Emit attribution artifacts.** Add two frontmatter fields:
+   `verification.command` — the single machine-runnable command from your
+   `## Verification` section (save_skill.py rejects skills without it) —
+   and `fingerprints`, a list of 2–3 distinctive code fragments from the
+   procedure. Distinctive means it would not appear in unrelated code:
+   `express.raw({type: 'application/json'})` qualifies; `npm install`
+   does not. These power usage detection; a skill without them is
+   invisible to outcome tracking.
+
+9. **Secret scan the draft yourself** before showing it:
    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/secscan.py" <draft-path>`
    Session transcripts routinely contain keys, tokens, and connection
    strings. Redact hits (replace with `<REDACTED>` placeholders that keep
@@ -69,6 +78,10 @@ description: >
   One-line summary.
   Use when: <positive triggers>.
   Do NOT use when: <negative triggers>.
+verification.command: "<single runnable command from ## Verification>"
+fingerprints:
+  - "<distinctive fragment 1>"
+  - "<distinctive fragment 2>"
 provenance:
   repo: <org/repo or local dir name>
   commit: <short sha if in git, else omit>
