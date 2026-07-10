@@ -15,6 +15,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from secscan import scan_text
+import ledger
+import sync
+import trust
 
 REQUIRED_KEYS = ("name", "kind", "description")
 KINDS = ("skill", "antiskill", "preference")
@@ -45,7 +48,7 @@ def parse_frontmatter(text):
     lines = text[4:end].split("\n")
     i = 0
     while i < len(lines):
-        m = re.match(r"^([A-Za-z][\w-]*):\s*(.*)$", lines[i])
+        m = re.match(r"^([A-Za-z][\w.-]*):\s*(.*)$", lines[i])
         if m:
             key, val = m.group(1), m.group(2).strip()
             if val in (">", "|", ">-", "|-"):
@@ -56,6 +59,19 @@ def parse_frontmatter(text):
                     i += 1
                 fm[key] = " ".join(b for b in block if b)
                 continue
+            if val == "":
+                items = []
+                j = i + 1
+                while j < len(lines) and re.match(r"^\s+-\s+", lines[j]):
+                    item = re.sub(r"^\s+-\s+", "", lines[j]).strip()
+                    if len(item) >= 2 and item[0] == item[-1] and item[0] in "'\"":
+                        item = item[1:-1]
+                    items.append(item)
+                    j += 1
+                if items:
+                    fm[key] = items
+                    i = j
+                    continue
             fm[key] = val
         i += 1
     return fm, text[body_start:]
@@ -81,6 +97,8 @@ def validate(text):
         errors.append("description must include a 'Do NOT use when' clause (spec 4.1)")
     if kind == "skill" and "## Verification" not in body:
         errors.append("skills require a '## Verification' section (spec 4.1)")
+    if kind == "skill" and not fm.get("verification.command"):
+        errors.append("skills require frontmatter 'verification.command' (v0.2 slice A design §4)")
     if kind == "antiskill":
         for section in ANTISKILL_SECTIONS:
             if section not in body:
@@ -138,13 +156,19 @@ def main(argv=None):
               % (fm["name"], other_kind))
         return 1
 
+    fps = fm.get("fingerprints")
+    if not isinstance(fps, list) or len(fps) < 2:
+        print("WARNING: fewer than 2 fingerprints; outcome tracking (v0.2 slice C) will not see this skill")
+
     dest = store_dir(args.scope, fm["kind"], fm["name"], args.project_root)
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "SKILL.md").write_text(text, encoding="utf-8")
 
+    trust.record(fm["name"], text, "self")
+    ledger.log_event("save", fm["name"], outcome="saved")
+
     native = native_dir(args.scope, fm["name"], args.project_root)
-    native.mkdir(parents=True, exist_ok=True)
-    (native / "SKILL.md").write_text(text, encoding="utf-8")
+    sync.materialize_one(dest / "SKILL.md", native)
 
     print("saved: %s" % (dest / "SKILL.md"))
     print("materialized: %s" % (native / "SKILL.md"))

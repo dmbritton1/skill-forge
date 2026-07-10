@@ -1,11 +1,16 @@
 """Tests for the enforced save path (spec 4, 6, 11.1). Run: python3 tests/test_save_skill.py"""
+import io
 import os
 import pathlib
 import sys
 import tempfile
+from contextlib import redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import save_skill
+
+import ledger
+import trust
 
 VALID_SKILL = """---
 name: test-skill
@@ -15,6 +20,10 @@ description: >
   A test skill for the save path.
   Use when: testing SkillForge.
   Do NOT use when: doing anything real.
+verification.command: "true"
+fingerprints:
+  - "do_the_thing --alpha"
+  - "thing_output=42"
 provenance:
   repo: local/skill-forge
   distilled: 2026-07-09
@@ -190,6 +199,53 @@ def test_frontmatter_fence_without_trailing_newline_is_detected():
     draft = "---\nname: x\nkind: skill\ndescription: d\n---"
     errors = save_skill.validate(draft)
     assert "missing frontmatter (--- fenced block)" not in errors
+
+
+def test_missing_verification_command_rejected():
+    def check(home, tmp):
+        bad = VALID_SKILL.replace('verification.command: "true"\n', "")
+        rc = save_skill.main([write_draft(tmp, bad), "--scope", "global"])
+        assert rc == 1
+    in_sandbox(check)
+
+
+def test_antiskill_without_verification_command_ok():
+    def check(home, tmp):
+        rc = save_skill.main([write_draft(tmp, VALID_ANTISKILL), "--scope", "global"])
+        assert rc == 0
+    in_sandbox(check)
+
+
+def test_parse_dotted_key_and_list():
+    fm, _ = save_skill.parse_frontmatter(VALID_SKILL)
+    assert fm["verification.command"] == '"true"' or fm["verification.command"] == "true"
+    assert fm["fingerprints"] == ["do_the_thing --alpha", "thing_output=42"]
+
+
+def test_save_auto_trusts_and_logs():
+    def check(home, tmp):
+        rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+        assert rc == 0
+        reg = trust.load()
+        assert reg["test-skill"]["origin"] == "self"
+        con = ledger.connect()
+        rows = con.execute(
+            "SELECT event_type, outcome FROM events WHERE skill='test-skill'").fetchall()
+        con.close()
+        assert ("save", "saved") in rows
+    in_sandbox(check)
+
+
+def test_few_fingerprints_warns_but_saves():
+    def check(home, tmp):
+        bad = VALID_SKILL.replace('  - "thing_output=42"\n', "")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = save_skill.main([write_draft(tmp, bad), "--scope", "global"])
+        assert rc == 0
+        assert "WARNING" in out.getvalue()
+        assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+    in_sandbox(check)
 
 
 if __name__ == "__main__":
