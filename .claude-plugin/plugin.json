@@ -1,0 +1,5 @@
+{
+  "name": "skillforge",
+  "version": "0.1.0",
+  "description": "Self-improving skill library: distills coding sessions into skills and anti-skills, scans them for secrets, and serves them back natively in future sessions."
+}
