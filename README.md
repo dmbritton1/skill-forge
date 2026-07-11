@@ -22,6 +22,15 @@ Engine (this plugin) and knowledge (learned skills) are separate:
   into a skill. Shows a draft for approval, then saves.
 - `/skillforge:learn-failure [optional topic hint]` — distill a debugging
   trap into an anti-skill (Trap/Symptom/Cause/Fix format).
+- `/skillforge:review` — review and approve quarantined skills (anything
+  pulled or modified outside the save path). Untrusted skills are never
+  loaded natively until approved.
+
+Trust model (v0.2): every skill's content hash is registered in a local,
+never-committed `~/.claude/skillforge/trust.json` (self-saves auto-trust).
+A SessionStart hook syncs native copies from the store: trusted skills are
+materialized, unknown/modified ones are evicted and flagged for review.
+Usage and review events land in `~/.claude/skillforge/ledger.db`.
 
 ## Tests
 
