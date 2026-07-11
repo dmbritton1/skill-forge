@@ -3,9 +3,10 @@
 
 A skill file is instructions destined for the model's context, so pulled
 files are payloads until locally approved. trust.json lives only in the
-global store and is NEVER committed. Hashes are computed after stripping
-ledger-owned frontmatter lines (status/confidence) so bookkeeping churn
-never invalidates a trust decision; body/trigger changes always do.
+global store and is NEVER committed. Hashes cover the exact bytes that get
+materialized (CRLF-normalized, no stripping): mutable state lives in the
+ledger, never in SKILL.md, so any file change -- including status lines --
+re-quarantines (spec 11.2 "modification re-quarantines").
 """
 import argparse
 import datetime
@@ -18,8 +19,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
 
-STRIP_RX = re.compile(r"^(status|confidence)\s*:")
-
 
 def default_path():
     return Path.home() / ".claude" / "skillforge" / "trust.json"
@@ -27,22 +26,18 @@ def default_path():
 
 def content_hash(text):
     text = text.replace("\r\n", "\n")
-    lines = text.split("\n")
-    if lines and lines[0] == "---":
-        try:
-            close = lines.index("---", 1)
-        except ValueError:
-            close = None
-        if close is not None:
-            fm = [l for l in lines[1:close] if not STRIP_RX.match(l)]
-            lines = ["---"] + fm + lines[close:]
-    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def load(path=None):
     p = Path(path) if path else default_path()
     if p.is_file():
-        return json.loads(p.read_text(encoding="utf-8"))
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as e:
+            print("trust: WARNING unreadable trust.json (%s); treating all skills as untrusted"
+                  % e, file=sys.stderr)
+            return {}
     return {}
 
 

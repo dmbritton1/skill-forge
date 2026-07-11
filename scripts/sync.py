@@ -20,24 +20,29 @@ def native_root(base):
     return Path(base) / ".claude" / "skills" / "skillforge-hot"
 
 
-def materialize_one(md_path, native_dir):
-    """Idempotent write-through of one SKILL.md into its native dir."""
+def materialize_one_text(text, native_dir):
+    """Idempotent write-through of skill text into its native dir."""
     native_dir = Path(native_dir)
     native_dir.mkdir(parents=True, exist_ok=True)
-    text = Path(md_path).read_text(encoding="utf-8")
     target = native_dir / "SKILL.md"
     if not target.exists() or target.read_text(encoding="utf-8") != text:
         target.write_text(text, encoding="utf-8")
+
+
+def materialize_one(md_path, native_dir):
+    """Read one SKILL.md and delegate to materialize_one_text. Used by save_skill.py."""
+    materialize_one_text(Path(md_path).read_text(encoding="utf-8"), native_dir)
 
 
 def sync_base(base, counts):
     base = Path(base)
     trusted = set()
     for md in trust.store_skill_files(base):
-        name = md.parent.name
-        if trust.check(md) == "trusted":
+        text = md.read_text(encoding="utf-8")
+        name = trust.skill_name(text, md.parent.name)
+        if trust.check_text(name, text) == "trusted":
             trusted.add(name)
-            materialize_one(md, native_root(base) / name)
+            materialize_one_text(text, native_root(base) / name)
             counts["materialized"] += 1
         else:
             counts["quarantined"] += 1
@@ -64,10 +69,13 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--project-root")
     args = ap.parse_args(argv)
-    counts = sync(project_root=args.project_root)
-    if counts["quarantined"]:
-        print("skillforge: %d skill(s) quarantined pending /skillforge:review"
-              % counts["quarantined"])
+    try:
+        counts = sync(project_root=args.project_root)
+        if counts["quarantined"]:
+            print("skillforge: %d skill(s) quarantined pending /skillforge:review"
+                  % counts["quarantined"])
+    except Exception as e:
+        print("skillforge: sync failed: %s" % e, file=sys.stderr)
     return 0
 
 

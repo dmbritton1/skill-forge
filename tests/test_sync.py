@@ -94,6 +94,18 @@ def test_project_root_store_synced():
     in_sandbox(check)
 
 
+def test_corrupt_trust_json_quarantines_and_exits_zero():
+    def check(home):
+        put_skill(home, "alpha")
+        reg = home / ".claude" / "skillforge" / "trust.json"
+        reg.parent.mkdir(parents=True, exist_ok=True)
+        reg.write_text("{not json", encoding="utf-8")
+        rc = sync.main([])
+        assert rc == 0
+        assert not native_md(home, "alpha").exists()
+    in_sandbox(check)
+
+
 def test_sync_is_idempotent():
     def check(home):
         md = put_skill(home, "alpha")
