@@ -109,6 +109,79 @@ def search(topic, limit=10):
     return 0
 
 
+def load_state(session):
+    try:
+        p = state_dir() / ("session-%s.json" % session)
+        return set(json.loads(p.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return set()
+
+
+def save_state(session, names):
+    d = state_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    (d / ("session-%s.json" % session)).write_text(
+        json.dumps(sorted(names)), encoding="utf-8")
+
+
+def eligible(e, cwd):
+    if e.get("tier") != "warm":
+        return False
+    root = e.get("root", "")
+    if not root:
+        return False
+    if Path(root) == Path.home():
+        return True
+    return cwd == root or cwd.startswith(root.rstrip("/") + "/")
+
+
+def run_hook(data):
+    prompt = data.get("prompt", "")
+    session = re.sub(r"[^A-Za-z0-9_-]", "", str(data.get("session_id", ""))) or "unknown"
+    cwd = data.get("cwd") or os.getcwd()
+    idx = load_index()
+    if not idx:
+        return 0
+    warm = [e for e in idx.get("entries", []) if eligible(e, cwd)]
+    seen = load_state(session)
+    picked = []
+    skills = 0
+    budget = INJECT_BUDGET_TOKENS
+    for e, score, matched in rank(prompt, warm):
+        if score <= 0 or matched < MIN_MATCHED_TERMS:
+            continue
+        if e.get("name") in seen:
+            continue
+        if e.get("kind") != "antiskill" and skills >= MAX_SKILLS:
+            continue
+        try:
+            body = Path(e["path"]).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        cost = max(1, len(body) // 4)
+        if cost > budget:
+            continue
+        budget -= cost
+        picked.append((e, body))
+        if e.get("kind") != "antiskill":
+            skills += 1
+    if not picked:
+        return 0
+    parts = ["--- SkillForge retrieved skill '%s' (apply if relevant): ---\n%s"
+             % (e["name"], body) for e, body in picked]
+    print(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": "\n\n".join(parts)}}))
+    save_state(session, seen | {e["name"] for e, _ in picked})
+    for e, _ in picked:
+        try:
+            ledger.log_event("injection", e["name"], tier="warm",
+                             trigger="prompt", session=session)
+        except Exception as err:
+            print("skillforge: ledger write failed: %s" % err, file=sys.stderr)
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--search")
@@ -117,7 +190,7 @@ def main(argv=None):
     try:
         if args.search is not None:
             return search(args.search, args.limit)
-        return 0  # hook mode lands in the next task
+        return run_hook(json.load(sys.stdin))
     except Exception as e:
         print("skillforge: retrieve failed: %s" % e, file=sys.stderr)
         return 0

@@ -114,6 +114,131 @@ def test_search_no_match_says_so():
     in_sandbox(check)
 
 
+def run_hook_capture(data):
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = retrieve.run_hook(data)
+    return rc, out.getvalue()
+
+
+def hook_data(home, prompt, session="sess1"):
+    return {"prompt": prompt, "session_id": session, "cwd": str(home)}
+
+
+def injected_names(output):
+    if not output.strip():
+        return []
+    ctx = json.loads(output)["hookSpecificOutput"]["additionalContext"]
+    return [line.split("'")[1] for line in ctx.splitlines()
+            if line.startswith("--- SkillForge retrieved skill '")]
+
+
+def test_hook_injects_matching_warm_skill():
+    def check(home):
+        write_index(home, [
+            entry(home, "stripe-webhook", "stripe webhook signature verification"),
+            entry(home, "csv-import", "bulk csv import with schema mapping")])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert rc == 0
+        assert injected_names(out) == ["stripe-webhook"]
+        payload = json.loads(out)["hookSpecificOutput"]
+        assert payload["hookEventName"] == "UserPromptSubmit"
+        assert "## Procedure" in payload["additionalContext"]
+        import ledger
+        con = ledger.connect()
+        rows = con.execute(
+            "SELECT event_type, tier, \"trigger\", session FROM events WHERE skill='stripe-webhook'"
+        ).fetchall()
+        con.close()
+        assert ("injection", "warm", "prompt", "sess1") in rows
+    in_sandbox(check)
+
+
+def test_hot_entries_never_hook_injected():
+    def check(home):
+        write_index(home, [entry(home, "stripe-webhook",
+                                  "stripe webhook signature verification", tier="hot")])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert rc == 0 and out.strip() == ""
+    in_sandbox(check)
+
+
+def test_single_matched_term_rejected():
+    def check(home):
+        write_index(home, [entry(home, "vercel-deploy",
+                                  "vercel deploy pipeline for static sites")])
+        rc, out = run_hook_capture(hook_data(home, "deploy the thing now please"))
+        assert rc == 0 and out.strip() == ""
+    in_sandbox(check)
+
+
+def test_max_three_skills_antiskill_exempt():
+    def check(home):
+        ents = [entry(home, "k8s-%s" % c, "kubernetes ingress routing rules")
+                for c in "abcd"]
+        ents.append(entry(home, "k8s-trap", "kubernetes ingress routing rules",
+                          kind="antiskill"))
+        write_index(home, ents)
+        rc, out = run_hook_capture(hook_data(home, "fix the kubernetes ingress"))
+        names = injected_names(out)
+        assert "k8s-trap" in names
+        assert "k8s-d" not in names
+        assert len(names) == 4  # 3 skills + 1 antiskill
+    in_sandbox(check)
+
+
+def test_budget_skips_oversized_entry():
+    def check(home):
+        write_index(home, [
+            entry(home, "big-terraform", "terraform module registry publishing", pad=10000),
+            entry(home, "small-terraform", "terraform module registry basics")])
+        rc, out = run_hook_capture(hook_data(home, "publish a terraform module registry entry"))
+        names = injected_names(out)
+        assert "small-terraform" in names
+        assert "big-terraform" not in names
+    in_sandbox(check)
+
+
+def test_session_dedupe():
+    def check(home):
+        write_index(home, [entry(home, "stripe-webhook",
+                                  "stripe webhook signature verification")])
+        rc1, out1 = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        rc2, out2 = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert injected_names(out1) == ["stripe-webhook"]
+        assert out2.strip() == ""
+        other = run_hook_capture(hook_data(home, "add a stripe webhook endpoint", session="sess2"))
+        assert injected_names(other[1]) == ["stripe-webhook"]
+    in_sandbox(check)
+
+
+def test_project_entry_scoped_to_its_root():
+    def check(home):
+        proj = home / "myrepo"
+        proj.mkdir()
+        e = entry(home, "repo-conventions", "kraken api pagination conventions")
+        e["root"] = str(proj)
+        e["scope"] = "project"
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "kraken api pagination", "session_id": "s", "cwd": str(home / "elsewhere")})
+        assert out.strip() == ""
+        rc, out = run_hook_capture(
+            {"prompt": "kraken api pagination", "session_id": "s2", "cwd": str(proj / "src")})
+        assert injected_names(out) == ["repo-conventions"]
+    in_sandbox(check)
+
+
+def test_corrupt_index_hook_silent():
+    def check(home):
+        p = home / ".claude" / "skillforge" / "index.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{bad", encoding="utf-8")
+        rc, out = run_hook_capture(hook_data(home, "anything at all here"))
+        assert rc == 0 and out.strip() == ""
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
