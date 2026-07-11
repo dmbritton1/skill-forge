@@ -239,6 +239,19 @@ def test_corrupt_index_hook_silent():
     in_sandbox(check)
 
 
+def test_entry_missing_path_skipped_not_fatal():
+    def check(home):
+        good = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        bad = {"name": "broken-entry", "kind": "skill", "scope": "global",
+               "root": str(home), "description": "stripe webhook signature checks",
+               "tier": "warm", "est_tokens": 10}
+        write_index(home, [bad, good])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert rc == 0
+        assert injected_names(out) == ["stripe-webhook"]
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

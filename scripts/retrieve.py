@@ -156,7 +156,7 @@ def run_hook(data):
             continue
         try:
             body = Path(e["path"]).read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, KeyError, TypeError):
             continue
         cost = max(1, len(body) // 4)
         if cost > budget:
