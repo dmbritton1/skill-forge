@@ -188,6 +188,25 @@ def test_stale_session_state_cleanup():
     in_sandbox(check)
 
 
+def test_project_root_recorded_resolved():
+    def check(home):
+        import json, os
+        proj = home / "myrepo"
+        md = put_skill(proj, "beta")
+        trust.record("beta", md.read_text(encoding="utf-8"), "self")
+        old = os.getcwd()
+        os.chdir(str(proj))
+        try:
+            sync.sync(project_root=".")
+        finally:
+            os.chdir(old)
+        idx = json.loads((home / ".claude" / "skillforge" / "index.json").read_text(encoding="utf-8"))
+        roots = {e["name"]: e["root"] for e in idx["entries"]}
+        assert pathlib.Path(roots["beta"]).is_absolute()
+        assert pathlib.Path(roots["beta"]) == proj.resolve()
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

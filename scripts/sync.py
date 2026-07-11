@@ -103,8 +103,8 @@ def sync(project_root=None):
     counts = {"materialized": 0, "evicted": 0, "quarantined": 0}
     bases = [Path.home()]
     if project_root:
-        proj = Path(project_root)
-        if proj.resolve() != Path.home().resolve() and (proj / ".claude" / "skillforge").is_dir():
+        proj = Path(project_root).resolve()
+        if proj != Path.home().resolve() and (proj / ".claude" / "skillforge").is_dir():
             bases.append(proj)
 
     trusted = []

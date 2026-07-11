@@ -15,11 +15,11 @@ import math
 import os
 import re
 import sys
-import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
+import trust
 
 K1 = 1.5
 B = 0.75
@@ -157,6 +157,8 @@ def run_hook(data):
         try:
             body = Path(e["path"]).read_text(encoding="utf-8")
         except (OSError, KeyError, TypeError):
+            continue
+        if trust.check_text(e.get("name", ""), body) != "trusted":
             continue
         cost = max(1, len(body) // 4)
         if cost > budget:

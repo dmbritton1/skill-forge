@@ -268,6 +268,25 @@ def test_save_with_zero_hot_budget_reports_warm():
     in_sandbox(check)
 
 
+def test_global_save_keeps_project_entries_indexed():
+    def check(home, tmp):
+        import json
+        proj = home / "myrepo"
+        d = proj / ".claude" / "skillforge" / "skills" / "proj-skill"
+        d.mkdir(parents=True)
+        text = VALID_SKILL.replace("name: test-skill", "name: proj-skill")
+        (d / "SKILL.md").write_text(text, encoding="utf-8")
+        import trust
+        trust.record("proj-skill", text, "self")
+        rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global",
+                              "--project-root", str(proj)])
+        assert rc == 0
+        idx = json.loads((home / ".claude/skillforge/index.json").read_text(encoding="utf-8"))
+        names = sorted(e["name"] for e in idx["entries"])
+        assert names == ["proj-skill", "test-skill"]
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

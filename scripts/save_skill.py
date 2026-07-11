@@ -167,7 +167,7 @@ def main(argv=None):
     trust.record(fm["name"], text, "self")
     ledger.log_event("save", fm["name"], outcome="saved")
 
-    sync.sync(project_root=args.project_root if args.scope == "project" else None)
+    sync.sync(project_root=args.project_root)
 
     native = native_dir(args.scope, fm["name"], args.project_root)
     print("saved: %s" % (dest / "SKILL.md"))
