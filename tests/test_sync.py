@@ -117,6 +117,77 @@ def test_sync_is_idempotent():
     in_sandbox(check)
 
 
+def read_index(home):
+    import json
+    return json.loads((home / ".claude" / "skillforge" / "index.json").read_text(encoding="utf-8"))
+
+
+def with_budget(value, fn):
+    old = os.environ.get("SKILLFORGE_HOT_BUDGET")
+    os.environ["SKILLFORGE_HOT_BUDGET"] = value
+    try:
+        fn()
+    finally:
+        if old is None:
+            del os.environ["SKILLFORGE_HOT_BUDGET"]
+        else:
+            os.environ["SKILLFORGE_HOT_BUDGET"] = old
+
+
+def test_hot_budget_overflow_goes_warm():
+    def check(home):
+        import ledger
+        for name in ("alpha", "beta"):
+            md = put_skill(home, name)
+            trust.record(name, md.read_text(encoding="utf-8"), "self")
+        ledger.log_event("injection", "beta")
+        ledger.log_event("injection", "beta")
+
+        def run():
+            counts = sync.sync()
+            tiers = {e["name"]: e["tier"] for e in read_index(home)["entries"]}
+            assert tiers == {"beta": "hot", "alpha": "warm"}
+            assert native_md(home, "beta").exists()
+            assert not native_md(home, "alpha").exists()
+            assert counts["materialized"] == 1
+        with_budget("10", run)
+    in_sandbox(check)
+
+
+def test_index_contains_trusted_only_with_paths():
+    def check(home):
+        md = put_skill(home, "alpha")
+        trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        put_skill(home, "gamma")  # never recorded -> quarantined
+        sync.sync()
+        idx = read_index(home)
+        names = [e["name"] for e in idx["entries"]]
+        assert names == ["alpha"]
+        e = idx["entries"][0]
+        assert e["tier"] == "hot" and e["kind"] == "skill" and e["scope"] == "global"
+        assert e["root"] == str(home)
+        assert pathlib.Path(e["path"]).is_file()
+        assert e["description"].startswith("A thing.")
+    in_sandbox(check)
+
+
+def test_stale_session_state_cleanup():
+    def check(home):
+        import time
+        d = home / ".claude" / "skillforge" / "state"
+        d.mkdir(parents=True)
+        old = d / "session-old.json"
+        new = d / "session-new.json"
+        old.write_text("[]", encoding="utf-8")
+        new.write_text("[]", encoding="utf-8")
+        stale = time.time() - 8 * 86400
+        os.utime(old, (stale, stale))
+        sync.sync()
+        assert not old.exists()
+        assert new.exists()
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

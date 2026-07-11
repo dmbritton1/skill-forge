@@ -248,6 +248,26 @@ def test_few_fingerprints_warns_but_saves():
     in_sandbox(check)
 
 
+def test_save_with_zero_hot_budget_reports_warm():
+    def check(home, tmp):
+        old = os.environ.get("SKILLFORGE_HOT_BUDGET")
+        os.environ["SKILLFORGE_HOT_BUDGET"] = "0"
+        try:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+            assert rc == 0
+            assert "warm tier" in out.getvalue()
+            assert not (home / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
+            assert (home / ".claude/skillforge/index.json").exists()
+        finally:
+            if old is None:
+                del os.environ["SKILLFORGE_HOT_BUDGET"]
+            else:
+                os.environ["SKILLFORGE_HOT_BUDGET"] = old
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -167,11 +167,14 @@ def main(argv=None):
     trust.record(fm["name"], text, "self")
     ledger.log_event("save", fm["name"], outcome="saved")
 
-    native = native_dir(args.scope, fm["name"], args.project_root)
-    sync.materialize_one(dest / "SKILL.md", native)
+    sync.sync(project_root=args.project_root if args.scope == "project" else None)
 
+    native = native_dir(args.scope, fm["name"], args.project_root)
     print("saved: %s" % (dest / "SKILL.md"))
-    print("materialized: %s" % (native / "SKILL.md"))
+    if (native / "SKILL.md").exists():
+        print("materialized: %s" % (native / "SKILL.md"))
+    else:
+        print("indexed: warm tier (hot budget full)")
     return 0
 
 
