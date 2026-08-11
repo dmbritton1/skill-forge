@@ -69,8 +69,18 @@ def prepare(task, dest):
 
 
 def apply_hidden_tests(task, dest):
-    """Author mode: bring in the grading tests only after the session ends."""
+    """Author mode: bring in the grading tests only after the session ends.
+
+    `hidden_patch_cmd` optionally rewrites one of those tests. It exists
+    because a grading test that encodes the reference implementation's
+    strategy rather than the contract will fail a BETTER implementation --
+    which is what the first file-cap test did.
+    """
     sh("git checkout -q %s -- %s" % (task["fix_commit"], task["test_path"]), cwd=dest)
+    if task.get("hidden_patch_cmd"):
+        r = sh(task["hidden_patch_cmd"], cwd=dest, timeout=300)
+        if r.returncode:
+            raise RuntimeError("hidden patch failed: " + (r.stderr or r.stdout)[-400:])
 
 
 def install_skill(task, dest, plugin_dir):

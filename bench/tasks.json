@@ -14,12 +14,12 @@
         "test_snapshot_unknown_when_match_past_file_cap",
         "test_snapshot_unknown_when_match_past_byte_cap"
       ],
-      "excluded_from_fail_to_pass": "test_snapshot_probe_cap_records_unknown needs SNAPSHOT_MAX_PROBES, which does not exist at the parent commit and is a separate concern (budget management in run_hook), not this function.",
       "prompt": "scripts/retrieve.py has a function `fingerprint_preexisting(fingerprints, cwd)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_retrieve.py` and make sure you have not broken any test that was passing before your change.",
       "id": "sf-author-fingerprint-preexisting",
       "skill": "lossy-transform-false-negative",
       "skill_source_commit": "ab4acfe-review-finding",
-      "selection_rule": "REPLICATION of the response_text experiment on the second trap. MATCHED condition: the skill is distilled from this same trap, so this measures the ceiling, exactly as sf-author-response-text did."
+      "selection_rule": "REPLICATION of the response_text experiment on the second trap. MATCHED condition: the skill is distilled from this same trap, so this measures the ceiling, exactly as sf-author-response-text did.",
+      "hidden_patch_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/patch_file_cap_test.py"
     },
     {
       "mode": "author",
@@ -33,12 +33,12 @@
         "test_snapshot_unknown_when_match_past_file_cap",
         "test_snapshot_unknown_when_match_past_byte_cap"
       ],
-      "excluded_from_fail_to_pass": "test_snapshot_probe_cap_records_unknown needs SNAPSHOT_MAX_PROBES, which does not exist at the parent commit and is a separate concern (budget management in run_hook), not this function.",
       "prompt": "scripts/retrieve.py has a function `fingerprint_preexisting(fingerprints, cwd)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_retrieve.py` and make sure you have not broken any test that was passing before your change.",
       "id": "sf-author-fingerprint-preexisting-transfer",
       "skill": "serialization-corrupts-matching",
       "skill_source_commit": "22ddf37",
-      "selection_rule": "TRANSFER condition for the replication: same authoring task, paired with the skill distilled from the OTHER bug (json.dumps escaping). It never mentions truncation, caps, or three-valued returns. Compare against this task's own control arm."
+      "selection_rule": "TRANSFER condition for the replication: same authoring task, paired with the skill distilled from the OTHER bug (json.dumps escaping). It never mentions truncation, caps, or three-valued returns. Compare against this task's own control arm.",
+      "hidden_patch_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/patch_file_cap_test.py"
     },
     {
       "id": "sf-author-response-text",
