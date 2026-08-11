@@ -214,6 +214,29 @@ def test_project_antiskill_collides_with_global_skill_of_same_name_rejected():
     in_sandbox(check)
 
 
+def test_resave_same_skill_in_place_from_home_cwd_not_rejected():
+    def check(home, tmp):
+        # Regression: --project-root defaults to "." and, before store_dir
+        # resolved it, was compared unresolved against the always-absolute
+        # Path.home() -- so from cwd == $HOME, the "project" scope
+        # candidate (relative ".claude/skillforge/skills/<name>") never
+        # equaled "this_dir" (absolute "~/.claude/skillforge/skills/<name>")
+        # even though they're the same directory, and candidate.exists()
+        # still resolved against cwd and found it -- self-rejecting every
+        # re-save of an existing skill run from $HOME.
+        old_cwd = os.getcwd()
+        os.chdir(str(home))
+        try:
+            rc1 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+            assert rc1 == 0
+            rc2 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+            assert rc2 == 0
+        finally:
+            os.chdir(old_cwd)
+        assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+    in_sandbox(check)
+
+
 def test_invalid_kind_rejected():
     def check(home, tmp):
         bad = VALID_SKILL.replace("kind: skill", "kind: bogus")

@@ -122,12 +122,17 @@ def validate(text):
 
 def store_dir(scope, kind, name, project_root):
     sub = "antiskills" if kind == "antiskill" else "skills"
-    base = Path(project_root) if scope == "project" else Path.home()
+    # .resolve() so "." (the --project-root default) resolves against cwd
+    # the same way Path.home() is already absolute -- sync.sync() already
+    # applies this discipline; without it, the collision guard's relative
+    # "project" candidate never equals the absolute "global" this_dir even
+    # when they're the same directory, so re-saving from $HOME self-rejects.
+    base = Path(project_root).resolve() if scope == "project" else Path.home().resolve()
     return base / ".claude" / "skillforge" / sub / name
 
 
 def native_dir(scope, name, project_root):
-    base = Path(project_root) if scope == "project" else Path.home()
+    base = Path(project_root).resolve() if scope == "project" else Path.home().resolve()
     return base / ".claude" / "skills" / "skillforge-hot" / name
 
 
