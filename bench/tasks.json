@@ -1,0 +1,77 @@
+{
+  "plugin_dir": "/Users/dwightbritton/Desktop/skill-forge",
+  "note": "Crossover design: each task's paired skill is distilled from a DIFFERENT finding in the same class, never its own. Both traps are real review findings against code written 2026-08-10, so neither can be in training data.",
+  "tasks": [
+    {
+      "id": "sf-author-response-text",
+      "mode": "author",
+      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "fix_commit": "22ddf37",
+      "skill": "serialization-corrupts-matching",
+      "skill_source_commit": "22ddf37-review-finding",
+      "selection_rule": "AUTHORING task: the model implements response_text from a contract-only stub and never sees the grading tests, which are applied afterward. This is the only construction that measures knowledge rather than the ability to read a red assertion. NOTE: the paired skill here IS distilled from this same trap, so this task measures the CEILING (does a directly relevant skill change authoring behavior at all), not transfer. Interpret accordingly.",
+      "test_path": "tests/test_detect.py",
+      "test_cmd": "python3 tests/test_detect.py",
+      "setup_cmd": "true",
+      "stub_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/stub_response_text.py",
+      "fail_to_pass": [
+        "test_symptom_on_second_line_of_dict_response_injects",
+        "test_symptom_in_nested_dict_response_injects"
+      ],
+      "prompt": "scripts/detect.py has a function `response_text(resp)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_detect.py` and make sure you have not broken any test that was passing before your change."
+    },
+    {
+      "id": "sf-author-response-text-transfer",
+      "mode": "author",
+      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "fix_commit": "22ddf37",
+      "skill": "lossy-transform-false-negative",
+      "skill_source_commit": "ab4acfe",
+      "selection_rule": "TRANSFER test: same authoring task, but the paired skill is distilled from a DIFFERENT instance (the truncation-reports-absent bug) and never mentions serialization, escaping or flattening. Measures whether same-class knowledge transfers, not whether a matched answer key helps. Compare against the sf-author-response-text control arm (0/3).",
+      "test_path": "tests/test_detect.py",
+      "test_cmd": "python3 tests/test_detect.py",
+      "setup_cmd": "true",
+      "stub_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/stub_response_text.py",
+      "fail_to_pass": [
+        "test_symptom_on_second_line_of_dict_response_injects",
+        "test_symptom_in_nested_dict_response_injects"
+      ],
+      "prompt": "scripts/detect.py has a function `response_text(resp)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_detect.py` and make sure you have not broken any test that was passing before your change."
+    },
+    {
+      "id": "sf-escaping-breaks-symptom-match",
+      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "fix_commit": "22ddf37",
+      "skill": "lossy-transform-false-negative",
+      "skill_source_commit": "ab4acfe",
+      "selection_rule": "Task is the json.dumps-escaping bug; paired skill is distilled from the truncation-returns-absent bug (ab4acfe). Same class (a transform upstream of a decision silently produces a wrong negative), different instance, different file.",
+      "test_path": "tests/test_detect.py",
+      "test_cmd": "python3 tests/test_detect.py",
+      "setup_cmd": "true",
+      "fail_to_pass": [
+        "test_symptom_on_second_line_of_dict_response_injects",
+        "test_symptom_in_nested_dict_response_injects",
+        "test_symptom_injection_records_preexisting_fingerprint_in_git_repo"
+      ],
+      "excluded_from_fail_to_pass": "test_symptom_injection_records_unknown_fingerprint_outside_git_repo already passes at baseline (pre-fix code records None outside a git repo anyway), so it is PASS_TO_PASS and cannot measure anything.",
+      "prompt": "The test suite tests/test_detect.py has failing tests. Run `python3 tests/test_detect.py` to see which ones fail, then fix the source under scripts/ so that every test passes. Do not modify anything under tests/ - the tests are correct and describe the intended behavior. When you are done, run the test command again to confirm."
+    },
+    {
+      "id": "sf-truncation-reports-absent",
+      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "fix_commit": "ab4acfe",
+      "skill": "serialization-corrupts-matching",
+      "skill_source_commit": "22ddf37",
+      "selection_rule": "Task is the truncation-returns-absent bug; paired skill is distilled from the json.dumps-escaping bug (22ddf37). Same class, different instance, different file.",
+      "test_path": "tests/test_retrieve.py",
+      "test_cmd": "python3 tests/test_retrieve.py",
+      "setup_cmd": "true",
+      "fail_to_pass": [
+        "test_snapshot_unknown_when_match_past_file_cap",
+        "test_snapshot_unknown_when_match_past_byte_cap",
+        "test_snapshot_probe_cap_records_unknown"
+      ],
+      "prompt": "The test suite tests/test_retrieve.py has failing tests. Run `python3 tests/test_retrieve.py` to see which ones fail, then fix the source under scripts/ so that every test passes. Do not modify anything under tests/ - the tests are correct and describe the intended behavior. When you are done, run the test command again to confirm."
+    }
+  ]
+}
