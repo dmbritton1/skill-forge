@@ -127,10 +127,12 @@ def save_state(session, names):
     os.replace(str(tmp), str(d / ("session-%s.json" % session)))
 
 
-def eligible(e, cwd):
-    if e.get("tier") != "warm":
-        return False
-    root = e.get("root", "")
+def sanitize_session(value):
+    return re.sub(r"[^A-Za-z0-9_-]", "", str(value or "")) or "unknown"
+
+
+def in_scope(root, cwd):
+    """Global entries are always in scope; project entries only inside their root."""
     if not root:
         return False
     if Path(root) == Path.home():
@@ -138,9 +140,13 @@ def eligible(e, cwd):
     return cwd == root or cwd.startswith(root.rstrip("/") + "/")
 
 
+def eligible(e, cwd):
+    return e.get("tier") == "warm" and in_scope(e.get("root", ""), cwd)
+
+
 def run_hook(data):
     prompt = data.get("prompt", "")
-    session = re.sub(r"[^A-Za-z0-9_-]", "", str(data.get("session_id", ""))) or "unknown"
+    session = sanitize_session(data.get("session_id"))
     cwd = data.get("cwd") or os.getcwd()
     idx = load_index()
     if not idx:
