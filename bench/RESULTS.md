@@ -2,13 +2,45 @@
 
 ## Headline
 
-| Condition | Skill delivered | Resolved |
-|---|---|---|
-| Control — no skill | — | **0/3** |
-| Matched skill — distilled from this same trap | 3 injections | **3/3** |
-| Transfer — same-class skill from a *different* bug | 3 injections | **0/3** |
+Two authoring tasks, three runs per condition each, one model. Scored on
+valid hidden tests only (see "The file-cap test is invalid" below).
 
-One task, three runs per arm, one model. A pilot, not a proof.
+| Condition | Trap 1 (response_text) | Trap 2 (byte cap) | Combined |
+|---|---|---|---|
+| Control — no skill | 0/3 | 0/3 | **0/6** |
+| Matched — skill from this same trap | 3/3 | 2/3 | **5/6** |
+| Transfer — same-class skill, *different* bug | 0/3 | 0/3 | **0/6** |
+
+Every treatment run was ledger-confirmed as actually injected, so both nulls
+are real nulls rather than delivery failures.
+
+A pilot, not a proof — but the direction replicated across two independent
+traps, and the transfer arm was indistinguishable from control both times.
+
+## The file-cap test is invalid
+
+The second trap shipped two hidden tests. `test_snapshot_unknown_when_match_
+past_file_cap` scored 0/9 across every arm including matched, which is the
+signature of a broken test rather than a hard task.
+
+It is broken because it encodes the reference implementation's *strategy*,
+not the contract. The reference greps the single longest token, so 20 decoy
+files swamp it, the cap bites, and the correct answer is "unknown". A matched
+run instead used `git grep --all-match` over every token: only the real file
+comes back, the cap never bites, it finds the fingerprint and returns 1 —
+which is correct, and better. The test asserts None, so the better
+implementation scored zero.
+
+That same run contains `if len(files) > SNAPSHOT_MAX_FILES: unknown = True`,
+so it *demonstrably had the knowledge* while being marked wrong. The binary
+resolved-metric then hid this: one broken test dropped the whole task to
+0/3 in every arm, and only the per-test decomposition showed matched 2/3 vs
+control 0/3 on the valid test.
+
+Lesson for the harness: hidden tests must assert the contract, never the
+reference implementation's approach — and a condition that scores 0 across
+*all* arms should be treated as a suspect test before it is treated as a
+result.
 
 ## What the task is
 
@@ -71,12 +103,16 @@ related skill that fires costs tokens and delivers nothing.
 
 ## Limits
 
-- n=3 per arm, one task, one trap, one model.
+- n=3 per condition per trap (n=6 combined), two traps, one model.
+- Trap 2's file-cap test is invalid and excluded; that trap therefore rests
+  on a single valid test.
 - The matched-skill arm measures a **ceiling** (skill written from this exact
   trap), not typical performance.
 - Skills and tasks were both curated by the same author who found the bugs.
-- Not replicated on the second trap (`sf-truncation-reports-absent` as an
-  authoring task) — the obvious next run.
+- Replicated on the second trap, but weakly: 2/3 on one valid test.
+- The invalid file-cap test should be rewritten to assert the contract
+  (decoys containing every token, pattern genuinely absent, so any narrowing
+  strategy truncates and must answer "unknown") and rerun.
 
 ## Reproducing
 
