@@ -315,6 +315,75 @@ def test_corrupt_triggers_file_silent():
     in_sandbox(check)
 
 
+def test_symptom_on_second_line_of_dict_response_injects():
+    def check(home):
+        path = put_antiskill(home, "widget-trap")
+        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
+        # This is the normal shape of tool output: the error signature starts
+        # a line, not offset 0 of the whole response. json.dumps() would
+        # escape the real newline to backslash-n and glue it onto the next
+        # line's first token, silently defeating the match.
+        resp = {"stdout": "Running webhook test...\n"
+                          "WidgetFlushedError: the widget was already flushed"}
+        data = {"session_id": "sess1", "cwd": str(home), "tool_name": "Bash",
+                "tool_input": {"command": ""}, "tool_response": resp}
+        rc, out = run_capture(data)
+        assert injected_names(out) == ["widget-trap"]
+    in_sandbox(check)
+
+
+def test_symptom_in_nested_dict_response_injects():
+    def check(home):
+        path = put_antiskill(home, "widget-trap")
+        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
+        resp = {"file": {"content": "line one\n"
+                                    "WidgetFlushedError: the widget was already flushed"}}
+        data = {"session_id": "sess1", "cwd": str(home), "tool_name": "Bash",
+                "tool_input": {"command": ""}, "tool_response": resp}
+        rc, out = run_capture(data)
+        assert injected_names(out) == ["widget-trap"]
+    in_sandbox(check)
+
+
+def test_symptom_injection_records_preexisting_fingerprint_in_git_repo():
+    def check(home):
+        import subprocess
+        repo = home / "repo"
+        repo.mkdir()
+        (repo / "app.js").write_text(
+            "await widget.flush({ force: true })", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
+        path = put_antiskill(home, "widget-trap")
+        entry = symptom_entry(home, "widget-trap", path)
+        entry["fingerprints"] = [["await", "widget", "flush", "force", "true"]]
+        write_triggers(home, symptoms=[entry])
+        data = tool_data(repo, "WidgetFlushedError: the widget was already flushed")
+        rc, out = run_capture(data)
+        assert injected_names(out) == ["widget-trap"]
+        vals = [r[0] for r in ledger.connect().execute(
+            "SELECT preexisting_fingerprint FROM events "
+            "WHERE event_type='injection' AND skill='widget-trap'").fetchall()]
+        assert vals == [1]
+    in_sandbox(check)
+
+
+def test_symptom_injection_records_unknown_fingerprint_outside_git_repo():
+    def check(home):
+        path = put_antiskill(home, "widget-trap")
+        entry = symptom_entry(home, "widget-trap", path)
+        entry["fingerprints"] = [["await", "widget", "flush", "force", "true"]]
+        write_triggers(home, symptoms=[entry])
+        rc, out = run_capture(tool_data(
+            home, "WidgetFlushedError: the widget was already flushed"))
+        assert injected_names(out) == ["widget-trap"]
+        vals = [r[0] for r in ledger.connect().execute(
+            "SELECT preexisting_fingerprint FROM events "
+            "WHERE event_type='injection' AND skill='widget-trap'").fetchall()]
+        assert vals == [None]
+    in_sandbox(check)
+
+
 def test_malformed_stdin_exits_zero():
     def check(home):
         old = sys.stdin

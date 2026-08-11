@@ -61,12 +61,41 @@ def _log(*args, **kwargs):
         print("skillforge: ledger write failed: %s" % err, file=sys.stderr)
 
 
+MAX_FLATTEN_DEPTH = 6
+
+
+def _flatten(value, parts, depth):
+    """Collect string leaves from a tool_response structure, unescaped.
+
+    json.dumps() would turn every real newline into a literal backslash-n,
+    which patterns.tokenize then glues onto the next line's first word
+    (`...\nWidgetFlushedError` -> one token `nwidgetflushederror`) -- so any
+    symptom whose signature starts a line, the normal case for an error
+    message, silently never matches. Walking the structure and joining
+    leaves with real newlines keeps line starts intact.
+    """
+    if depth > MAX_FLATTEN_DEPTH or value is None:
+        return
+    if isinstance(value, str):
+        parts.append(value)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _flatten(v, parts, depth + 1)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            _flatten(v, parts, depth + 1)
+    else:
+        parts.append(str(value))
+
+
 def response_text(resp):
     if isinstance(resp, str):
         return resp[:MAX_OUTPUT_CHARS]
+    parts = []
     try:
-        return json.dumps(resp, default=str)[:MAX_OUTPUT_CHARS]
-    except (TypeError, ValueError):
+        _flatten(resp, parts, 0)
+        return "\n".join(parts)[:MAX_OUTPUT_CHARS]
+    except Exception:
         return str(resp)[:MAX_OUTPUT_CHARS]
 
 
@@ -121,13 +150,13 @@ def run(data):
         if cost > budget:
             continue
         budget -= cost
-        picked.append((name, body))
+        picked.append((name, body, s.get("fingerprints") or []))
         seen.add(name)
 
     if not picked:
         return 0
     parts = ["--- SkillForge anti-skill '%s' (symptom matched in tool output): ---\n%s"
-             % (name, body) for name, body in picked]
+             % (name, body) for name, body, _ in picked]
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PostToolUse",
         "additionalContext": "\n\n".join(parts)}}))
@@ -135,8 +164,15 @@ def run(data):
         retrieve.save_state(session, seen)
     except Exception as err:
         print("skillforge: state write failed: %s" % err, file=sys.stderr)
-    for name, _ in picked:
-        _log("injection", name, tier="warm", trigger="symptom", session=session)
+    # Snapshot only anti-skills actually being injected, never on every
+    # symptom match, and share retrieve's per-hook-call probe budget so this
+    # PostToolUse hook can't spawn unbounded git subprocesses.
+    probes_left = retrieve.SNAPSHOT_MAX_PROBES
+    for name, _, fps in picked:
+        preexisting, used = retrieve.probe_fingerprints(fps, cwd, probes_left)
+        probes_left -= used
+        _log("injection", name, tier="warm", trigger="symptom", session=session,
+             preexisting_fingerprint=preexisting)
     return 0
 
 
