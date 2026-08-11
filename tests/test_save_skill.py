@@ -184,6 +184,36 @@ def test_cross_kind_name_collision_rejected_and_native_copy_preserved():
     in_sandbox(check)
 
 
+def test_project_skill_collides_with_global_skill_of_same_name_rejected():
+    def check(home, tmp):
+        rc1 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+        assert rc1 == 0
+        proj = tmp / "myrepo"
+        proj.mkdir()
+        rc2 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "project",
+                              "--project-root", str(proj)])
+        assert rc2 == 1
+        assert not (proj / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+        # the global one is untouched
+        assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+    in_sandbox(check)
+
+
+def test_project_antiskill_collides_with_global_skill_of_same_name_rejected():
+    def check(home, tmp):
+        skill = VALID_SKILL.replace("name: test-skill", "name: clash")
+        antiskill = VALID_ANTISKILL.replace("name: test-trap", "name: clash")
+        rc1 = save_skill.main([write_draft(tmp, skill), "--scope", "global"])
+        assert rc1 == 0
+        proj = tmp / "myrepo"
+        proj.mkdir()
+        rc2 = save_skill.main([write_draft(tmp, antiskill), "--scope", "project",
+                              "--project-root", str(proj)])
+        assert rc2 == 1
+        assert not (proj / ".claude/skillforge/antiskills/clash").exists()
+    in_sandbox(check)
+
+
 def test_invalid_kind_rejected():
     def check(home, tmp):
         bad = VALID_SKILL.replace("kind: skill", "kind: bogus")

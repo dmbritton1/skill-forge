@@ -158,17 +158,34 @@ def main(argv=None):
 
     fm, _ = parse_frontmatter(text)
 
-    # Skills and antiskills of the same name share one native dir
-    # (skills/skillforge-hot/<name>); a same-named pair from opposite
-    # kinds would silently clobber each other's native copy there even
-    # though their store dirs differ. Reject the second save instead.
+    # Name collisions are checked across both kinds AND both scopes.
+    # Same-scope opposite-kind: skills and antiskills of the same name share
+    # one native dir (skills/skillforge-hot/<name>) and would clobber each
+    # other's native copy. Cross-scope (either kind): trust.json is keyed by
+    # name alone (spec 11.2), so a project antiskill named `foo` saved while
+    # a global skill `foo` exists overwrites the one registry entry -- the
+    # global one then hashes differently on the next sync, gets quarantined,
+    # and its native copy is evicted; approving it back breaks the project
+    # one, a permanent flip-flop. Fail closed on any of the four candidates,
+    # skipping any that resolve to this save's own destination (global and
+    # project store roots can coincide in odd setups).
     other_kind = "skill" if fm["kind"] == "antiskill" else "antiskill"
-    other_dir = store_dir(args.scope, other_kind, fm["name"], args.project_root)
-    if other_dir.exists():
-        print("REJECTED: name %r already used by a %s in this scope "
-              "(native copies would collide); pick a different name"
-              % (fm["name"], other_kind))
-        return 1
+    other_scope = "project" if args.scope == "global" else "global"
+    this_dir = store_dir(args.scope, fm["kind"], fm["name"], args.project_root)
+    checked = set()
+    for scope, kind in ((args.scope, other_kind),
+                        (other_scope, fm["kind"]),
+                        (other_scope, other_kind)):
+        candidate = store_dir(scope, kind, fm["name"], args.project_root)
+        if candidate == this_dir or candidate in checked:
+            continue
+        checked.add(candidate)
+        if candidate.exists():
+            print("REJECTED: name %r already used by a %s in the %s scope "
+                  "(%s; native copies or the shared trust registry entry "
+                  "would collide); pick a different name"
+                  % (fm["name"], kind, scope, candidate))
+            return 1
 
     fps = fm.get("fingerprints")
     if not isinstance(fps, list) or len(fps) < 2:
