@@ -62,7 +62,15 @@ def _meta(text):
 
 
 def _token_lists(value):
-    """[[token, ...], ...] from a frontmatter list; empties dropped."""
+    """[[token, ...], ...] from a frontmatter list; empties dropped.
+
+    Single-token lists are dropped too: a verification.command or
+    fingerprint that tokenizes to one common word (`pytest`, `make`) would
+    then match nearly every Bash call or file, logging a bogus detection on
+    every unrelated command and inflating skill_aggregates.uses (which feeds
+    hot ranking). save_skill enforces a 2-token floor on symptoms already;
+    this is the same floor for the other two pattern kinds.
+    """
     if isinstance(value, str):
         value = [value]
     if not isinstance(value, list):
@@ -72,7 +80,7 @@ def _token_lists(value):
         if not item:
             continue
         toks = patterns.tokenize(item)
-        if toks:
+        if len(toks) >= 2:
             out.append(toks)
     return out
 
@@ -114,9 +122,13 @@ def _write_triggers(items):
     """Compile the PostToolUse hook's index: small on purpose, it loads per tool call."""
     p = Path.home() / ".claude" / "skillforge" / "triggers.json"
     p.parent.mkdir(parents=True, exist_ok=True)
+    # kind-filtered: validate() never forbids `symptoms:` on a kind: skill,
+    # but only anti-skills spend the anti-skill budget and get framed as one
+    # (detect.py). Fingerprints ride along on each symptom entry so the
+    # PostToolUse hook can snapshot at injection time without a second file.
     syms = [{"skill": s["name"], "path": str(s["path"]), "root": str(s["base"]),
-             "tokens": toks}
-            for s in items for toks in s["symptoms"]]
+             "tokens": toks, "fingerprints": s["fingerprints"]}
+            for s in items if s["kind"] == "antiskill" for toks in s["symptoms"]]
     vers = [{"skill": s["name"], "root": str(s["base"]), "tokens": toks}
             for s in items for toks in s["verification"]]
     p.write_text(json.dumps({

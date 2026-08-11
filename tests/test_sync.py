@@ -314,6 +314,78 @@ def test_antiskills_do_not_consume_hot_budget():
     in_sandbox(check)
 
 
+SKILL_WITH_SYMPTOMS = """---
+name: %s
+kind: skill
+description: A thing. Do NOT use otherwise.
+verification.command: "npx stripe trigger payment_intent.succeeded"
+symptoms:
+  - "SomeError: this should never fire from a plain skill"
+---
+## Procedure
+1. Do it.
+## Verification
+Run the command.
+"""
+
+
+def test_skill_kind_symptoms_excluded_from_triggers():
+    def check(home):
+        # save_skill.validate never forbids `symptoms:` on kind: skill -- only
+        # a kind: antiskill entry should compile into triggers.json's symptom
+        # list, framed and budgeted as an anti-skill by detect.py.
+        md = put_skill(home, "stripe-hook", SKILL_WITH_SYMPTOMS % "stripe-hook")
+        trust.record("stripe-hook", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        trig = read_json(home, "triggers.json")
+        assert trig["symptoms"] == []
+        assert [v["skill"] for v in trig["verifications"]] == ["stripe-hook"]
+    in_sandbox(check)
+
+
+def test_antiskill_symptom_entries_carry_fingerprints():
+    def check(home):
+        md = put_antiskill(home, "widget-trap")
+        trust.record("widget-trap", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        trig = read_json(home, "triggers.json")
+        assert trig["symptoms"][0]["fingerprints"] == [
+            ["await", "widget", "flush", "force", "true"]]
+    in_sandbox(check)
+
+
+SKILL_SINGLE_TOKEN = """---
+name: %s
+kind: skill
+description: A thing. Do NOT use otherwise.
+verification.command: "pytest"
+fingerprints:
+  - "make"
+  - "express.raw({type: 'application/json'})"
+---
+## Procedure
+1. Do it.
+## Verification
+Run the command.
+"""
+
+
+def test_single_token_verification_and_fingerprint_patterns_dropped():
+    def check(home):
+        # A verification.command or fingerprint that tokenizes to one common
+        # word ("pytest", "make") would match nearly every unrelated Bash
+        # call or file, inflating skill_aggregates.uses.
+        md = put_skill(home, "single-tok", SKILL_SINGLE_TOKEN % "single-tok")
+        trust.record("single-tok", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        trig = read_json(home, "triggers.json")
+        assert trig["verifications"] == []   # "pytest" tokenizes to 1 token
+        entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
+        assert entries["single-tok"]["fingerprints"] == [
+            ["express", "raw", "type", "application", "json"]]  # "make" dropped
+    in_sandbox(check)
+
+
 def test_index_carries_tokenized_fingerprints():
     def check(home):
         md = put_skill(home, "stripe-hook", SKILL_WITH_TRIGGERS % "stripe-hook")
