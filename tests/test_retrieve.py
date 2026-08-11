@@ -302,6 +302,87 @@ def test_entry_missing_path_skipped_not_fatal():
     in_sandbox(check)
 
 
+def git_repo(home, files):
+    import subprocess
+    repo = home / "repo"
+    repo.mkdir()
+    for rel, text in files.items():
+        (repo / rel).write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
+    return repo
+
+
+def preexisting_values(skill):
+    import ledger
+    con = ledger.connect()
+    try:
+        return [r[0] for r in con.execute(
+            "SELECT preexisting_fingerprint FROM events "
+            "WHERE event_type='injection' AND skill=?", (skill,))]
+    finally:
+        con.close()
+
+
+def test_snapshot_records_preexisting_fingerprint():
+    def check(home):
+        repo = git_repo(home, {"app.js": "app.use(express.raw({ type: 'application/json' }))"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]]
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [1]
+    in_sandbox(check)
+
+
+def test_snapshot_records_absent_fingerprint():
+    def check(home):
+        repo = git_repo(home, {"app.js": "console.log('nothing relevant here')"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]]
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [0]
+    in_sandbox(check)
+
+
+def test_snapshot_unknown_outside_git_repo():
+    def check(home):
+        plain = home / "notarepo"
+        plain.mkdir()
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]]
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(plain)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [None]
+    in_sandbox(check)
+
+
+def test_snapshot_unknown_when_entry_has_no_fingerprints():
+    def check(home):
+        repo = git_repo(home, {"app.js": "x"})
+        write_index(home, [entry(home, "stripe-webhook", "stripe webhook signature verification")])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [None]
+    in_sandbox(check)
+
+
+def test_fingerprint_preexisting_matches_across_formatting():
+    def check(home):
+        repo = git_repo(home, {"app.js": 'express.raw({type:"application/json"})'})
+        assert retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(repo)) == 1
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

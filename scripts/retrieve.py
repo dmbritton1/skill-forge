@@ -14,11 +14,13 @@ import json
 import math
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
+import patterns
 import trust
 
 K1 = 1.5
@@ -26,6 +28,9 @@ B = 0.75
 MIN_MATCHED_TERMS = 2
 MAX_SKILLS = 3
 INJECT_BUDGET_TOKENS = 1200
+GIT_TIMEOUT_S = 0.15
+SNAPSHOT_MAX_FILES = 20
+SNAPSHOT_MAX_BYTES = 200 * 1024
 
 TOKEN_RX = re.compile(r"[a-z0-9]+")
 
@@ -144,6 +149,45 @@ def eligible(e, cwd):
     return e.get("tier") == "warm" and in_scope(e.get("root", ""), cwd)
 
 
+def fingerprint_preexisting(fingerprints, cwd):
+    """1 if any fingerprint is already in the repo, 0 if none are, None if unknown.
+
+    Two stages: `git grep` on the pattern's longest literal token narrows to
+    candidate files at C speed, then the token matcher confirms. Unknown is
+    reported as None rather than guessed -- a false "preexisting" silently
+    suppresses a real usage credit later (spec 9.1).
+
+    ponytail: 150ms subprocess ceiling because this runs inside a blocking
+    hook; a repo big enough to blow it reports unknown instead of stalling.
+    """
+    if not fingerprints:
+        return None
+    unknown = False
+    for tokens in fingerprints:
+        if not tokens:
+            continue
+        literal = max(tokens, key=len)
+        try:
+            proc = subprocess.run(["git", "grep", "-F", "-i", "-l", "--", literal],
+                                  cwd=str(cwd), stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, timeout=GIT_TIMEOUT_S)
+        except (OSError, subprocess.SubprocessError):
+            unknown = True
+            continue
+        if proc.returncode not in (0, 1):   # 1 = no match; anything else = not a usable repo
+            unknown = True
+            continue
+        names = [f for f in proc.stdout.decode("utf-8", "replace").splitlines() if f]
+        for rel in names[:SNAPSHOT_MAX_FILES]:
+            try:
+                text = (Path(cwd) / rel).read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            if patterns.matches(tokens, patterns.tokenize(text[:SNAPSHOT_MAX_BYTES])):
+                return 1
+    return None if unknown else 0
+
+
 def run_hook(data):
     prompt = data.get("prompt", "")
     session = sanitize_session(data.get("session_id"))
@@ -176,22 +220,23 @@ def run_hook(data):
         if cost > budget:
             continue
         budget -= cost
-        picked.append((name, body))
+        picked.append((name, body, fingerprint_preexisting(e.get("fingerprints") or [], cwd)))
         seen.add(name)
         if e.get("kind") != "antiskill":
             skills += 1
     if not picked:
         return 0
     parts = ["--- SkillForge retrieved skill '%s' (apply if relevant): ---\n%s"
-             % (name, body) for name, body in picked]
+             % (name, body) for name, body, _ in picked]
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
         "additionalContext": "\n\n".join(parts)}}))
     save_state(session, seen)
-    for name, _ in picked:
+    for name, _, preexisting in picked:
         try:
             ledger.log_event("injection", name, tier="warm",
-                             trigger="prompt", session=session)
+                             trigger="prompt", session=session,
+                             preexisting_fingerprint=preexisting)
         except Exception as err:
             print("skillforge: ledger write failed: %s" % err, file=sys.stderr)
     return 0
