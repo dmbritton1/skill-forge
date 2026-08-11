@@ -176,6 +176,24 @@ def test_two_antiskill_cap_per_call():
     in_sandbox(check)
 
 
+def test_multi_pattern_same_skill_detected_once():
+    def check(home):
+        path = put_antiskill(home, "widget-trap")
+        syms = [
+            {"skill": "widget-trap", "path": path, "root": str(home),
+             "tokens": ["widgetflushederror"]},
+            {"skill": "widget-trap", "path": path, "root": str(home),
+             "tokens": ["already", "flushed"]},
+        ]
+        write_triggers(home, symptoms=syms)
+        rc, out = run_capture(tool_data(
+            home, "WidgetFlushedError: the widget was already flushed"))
+        assert injected_names(out) == ["widget-trap"]
+        assert len(rows("skill='widget-trap' AND event_type='detection'")) == 1
+        assert len(rows("skill='widget-trap' AND event_type='injection'")) == 1
+    in_sandbox(check)
+
+
 def test_budget_skips_oversized_antiskill():
     def check(home):
         big = symptom_entry(home, "big-trap", put_antiskill(home, "big-trap", pad=10000))
@@ -197,6 +215,13 @@ def test_project_symptom_scoped_to_its_root():
         write_triggers(home, symptoms=[entry])
         data = tool_data(home, "WidgetFlushedError: the widget was already flushed")
         rc, out = run_capture(data)
+        assert out.strip() == ""
+        # sibling dir sharing the root's string prefix must NOT be in scope
+        # (regression guard against `cwd.startswith(root)` dropping the separator)
+        evil = tool_data(home, "WidgetFlushedError: the widget was already flushed",
+                          session="sess-evil")
+        evil["cwd"] = str(home / "myrepo-evil")
+        rc, out = run_capture(evil)
         assert out.strip() == ""
         data["cwd"] = str(proj / "src")
         data["session_id"] = "sess2"
@@ -239,11 +264,25 @@ def test_verification_outcome_unknown_without_flag():
     in_sandbox(check)
 
 
+def test_verification_duplicate_skill_entry_detected_once():
+    def check(home):
+        write_triggers(home, verifications=[
+            {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]},
+            {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]},
+        ])
+        run_capture(tool_data(
+            home, "ok", command="npx stripe trigger", is_error=False))
+        assert len(rows("skill='stripe-hook' AND event_type='detection'")) == 1
+    in_sandbox(check)
+
+
 def test_verification_ignores_non_bash_tools():
     def check(home):
         write_triggers(home, verifications=[
             {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]}])
-        run_capture(tool_data(home, "npx stripe trigger", tool="Read", command=""))
+        # command WOULD match if the Bash gate were removed -- proves the gate is load-bearing
+        run_capture(tool_data(home, "npx stripe trigger", tool="Read",
+                               command="npx stripe trigger"))
         assert rows("skill='stripe-hook'") == []
     in_sandbox(check)
 

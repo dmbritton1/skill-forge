@@ -83,11 +83,13 @@ def run(data):
         command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
         cmd_tokens = patterns.tokenize(command)
         outcome = bash_outcome(resp)
+        verified = set()
         for v in idx.get("verifications", []):
             name = v.get("skill")
-            if not name or not retrieve.in_scope(v.get("root", ""), cwd):
+            if not name or name in verified or not retrieve.in_scope(v.get("root", ""), cwd):
                 continue
             if patterns.matches(v.get("tokens") or [], cmd_tokens):
+                verified.add(name)
                 _log("detection", name, detection="verification",
                      outcome=outcome, session=session)
 
@@ -129,7 +131,10 @@ def run(data):
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PostToolUse",
         "additionalContext": "\n\n".join(parts)}}))
-    retrieve.save_state(session, seen)
+    try:
+        retrieve.save_state(session, seen)
+    except Exception as err:
+        print("skillforge: state write failed: %s" % err, file=sys.stderr)
     for name, _ in picked:
         _log("injection", name, tier="warm", trigger="symptom", session=session)
     return 0
