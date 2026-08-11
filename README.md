@@ -38,8 +38,18 @@ Delivery tiers (v0.2): trusted skills compete for a fixed hot budget
 (1,500 description-tokens) ranked by usage — winners are materialized as
 native skills; the rest stay warm in a BM25 retrieval index and are
 injected per-prompt by a UserPromptSubmit hook (max 3 skills, 1,200-token
-budget, session dedupe, two-matched-terms minimum). Anti-skills bypass
-the count cap. Everything injected is logged to the ledger.
+budget, session dedupe, two-matched-terms minimum). Everything injected is
+logged to the ledger.
+
+Detection (v0.2 slice C1): anti-skills are never hot — they carry
+`symptoms:` frontmatter compiled into a trigger index, and a PostToolUse
+hook matches tool output against it, injecting the matching anti-skill the
+moment its error signature appears. The same hook matches Bash commands
+against skills' `verification.command`, which is the strongest usage signal
+in the system. Matching is token-based, not regex: quoting, whitespace, and
+inserted arguments never decide a match. Every injection also records
+whether the skill's fingerprints were already in the repo, so a later
+reconciler can tell "the model applied this" from "it was already there."
 
 ## Tests
 
