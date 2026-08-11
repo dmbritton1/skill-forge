@@ -36,6 +36,53 @@ def put_skill(base, name, text=None):
     return md
 
 
+ANTISKILL = """---
+name: %s
+kind: antiskill
+description: A trap. Do NOT use otherwise.
+symptoms:
+  - "WidgetFlushedError: the widget was already flushed"
+fingerprints:
+  - "await widget.flush({ force: true })"
+---
+## Trap
+t
+## Symptom
+s
+## Cause
+c
+## Fix
+f
+"""
+
+SKILL_WITH_TRIGGERS = """---
+name: %s
+kind: skill
+description: A thing. Do NOT use otherwise.
+verification.command: "npx stripe trigger payment_intent.succeeded"
+fingerprints:
+  - "express.raw({type: 'application/json'})"
+---
+## Procedure
+1. Do it.
+## Verification
+Run the command.
+"""
+
+
+def put_antiskill(base, name, text=None):
+    d = base / ".claude" / "skillforge" / "antiskills" / name
+    d.mkdir(parents=True, exist_ok=True)
+    md = d / "SKILL.md"
+    md.write_text(text if text is not None else ANTISKILL % name, encoding="utf-8")
+    return md
+
+
+def read_json(home, filename):
+    import json
+    return json.loads((home / ".claude" / "skillforge" / filename).read_text(encoding="utf-8"))
+
+
 def native_md(base, name):
     return base / ".claude" / "skills" / "skillforge-hot" / name / "SKILL.md"
 
@@ -204,6 +251,77 @@ def test_project_root_recorded_resolved():
         roots = {e["name"]: e["root"] for e in idx["entries"]}
         assert pathlib.Path(roots["beta"]).is_absolute()
         assert pathlib.Path(roots["beta"]) == proj.resolve()
+    in_sandbox(check)
+
+
+def test_triggers_compiled_from_trusted_skills():
+    def check(home):
+        md = put_antiskill(home, "widget-trap")
+        trust.record("widget-trap", md.read_text(encoding="utf-8"), "self")
+        md2 = put_skill(home, "stripe-hook", SKILL_WITH_TRIGGERS % "stripe-hook")
+        trust.record("stripe-hook", md2.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        trig = read_json(home, "triggers.json")
+        assert [s["skill"] for s in trig["symptoms"]] == ["widget-trap"]
+        assert trig["symptoms"][0]["tokens"] == [
+            "widgetflushederror", "the", "widget", "was", "already", "flushed"]
+        assert trig["symptoms"][0]["path"] == str(md)
+        assert trig["symptoms"][0]["root"] == str(home)
+        assert [v["skill"] for v in trig["verifications"]] == ["stripe-hook"]
+        assert trig["verifications"][0]["tokens"] == [
+            "npx", "stripe", "trigger", "payment_intent", "succeeded"]
+    in_sandbox(check)
+
+
+def test_quarantined_antiskill_symptoms_excluded():
+    def check(home):
+        put_antiskill(home, "widget-trap")   # never trusted
+        sync.sync()
+        trig = read_json(home, "triggers.json")
+        assert trig["symptoms"] == []
+    in_sandbox(check)
+
+
+def test_antiskills_are_never_hot():
+    def check(home):
+        md = put_antiskill(home, "widget-trap")
+        trust.record("widget-trap", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
+        assert entries["widget-trap"]["tier"] == "warm"
+        assert not native_md(home, "widget-trap").exists()
+    in_sandbox(check)
+
+
+def test_antiskills_do_not_consume_hot_budget():
+    def check(home):
+        # "aaa-trap" sorts BEFORE "zeta" in the interim ranking (no ledger
+        # history, so the tiebreak is name ASC). If anti-skills still competed
+        # it would take the only hot slot and zeta would fall to warm --
+        # that ordering is what makes this test fail before the fix.
+        md = put_antiskill(home, "aaa-trap")
+        trust.record("aaa-trap", md.read_text(encoding="utf-8"), "self")
+        md2 = put_skill(home, "zeta")
+        trust.record("zeta", md2.read_text(encoding="utf-8"), "self")
+        os.environ["SKILLFORGE_HOT_BUDGET"] = "8"   # room for exactly one description
+        try:
+            sync.sync()
+        finally:
+            del os.environ["SKILLFORGE_HOT_BUDGET"]
+        entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
+        assert entries["zeta"]["tier"] == "hot"     # the antiskill did not eat the budget
+        assert entries["aaa-trap"]["tier"] == "warm"
+    in_sandbox(check)
+
+
+def test_index_carries_tokenized_fingerprints():
+    def check(home):
+        md = put_skill(home, "stripe-hook", SKILL_WITH_TRIGGERS % "stripe-hook")
+        trust.record("stripe-hook", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
+        assert entries["stripe-hook"]["fingerprints"] == [
+            ["express", "raw", "type", "application", "json"]]
     in_sandbox(check)
 
 

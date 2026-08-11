@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
+import patterns
 import trust
 
 
@@ -45,13 +46,35 @@ def hot_budget():
         return 1500
 
 
-def _description(text):
+def _meta(text):
     # ponytail: lazy import avoids a save_skill<->sync module cycle;
     # save_skill imports sync at module level, we only need its parser here
     from save_skill import parse_frontmatter
     fm, _ = parse_frontmatter(text)
-    desc = (fm or {}).get("description", "")
-    return desc if isinstance(desc, str) else ""
+    fm = fm or {}
+    desc = fm.get("description", "")
+    return {
+        "description": desc if isinstance(desc, str) else "",
+        "symptoms": _token_lists(fm.get("symptoms")),
+        "fingerprints": _token_lists(fm.get("fingerprints")),
+        "verification": _token_lists([fm.get("verification.command")]),
+    }
+
+
+def _token_lists(value):
+    """[[token, ...], ...] from a frontmatter list; empties dropped."""
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        if not item:
+            continue
+        toks = patterns.tokenize(item)
+        if toks:
+            out.append(toks)
+    return out
 
 
 def _usage_stats():
@@ -79,11 +102,26 @@ def _write_index(items):
     entries = [{"name": s["name"], "kind": s["kind"], "scope": s["scope"],
                 "root": str(s["base"]), "description": s["description"],
                 "tier": s["tier"], "est_tokens": est_tokens(s["text"]),
+                "fingerprints": s["fingerprints"],
                 "path": str(s["path"])} for s in items]
     p.write_text(json.dumps({
         "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "hot_budget_tokens": hot_budget(),
         "entries": entries}, indent=2), encoding="utf-8")
+
+
+def _write_triggers(items):
+    """Compile the PostToolUse hook's index: small on purpose, it loads per tool call."""
+    p = Path.home() / ".claude" / "skillforge" / "triggers.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    syms = [{"skill": s["name"], "path": str(s["path"]), "root": str(s["base"]),
+             "tokens": toks}
+            for s in items for toks in s["symptoms"]]
+    vers = [{"skill": s["name"], "root": str(s["base"]), "tokens": toks}
+            for s in items for toks in s["verification"]]
+    p.write_text(json.dumps({
+        "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "symptoms": syms, "verifications": vers}, indent=2), encoding="utf-8")
 
 
 def _cleanup_state():
@@ -113,11 +151,15 @@ def sync(project_root=None):
             text = md.read_text(encoding="utf-8")
             name = trust.skill_name(text, md.parent.name)
             if trust.check_text(name, text) == "trusted":
+                meta = _meta(text)
                 trusted.append({
                     "base": base, "name": name, "text": text, "path": md,
                     "kind": "antiskill" if md.parent.parent.name == "antiskills" else "skill",
                     "scope": "project" if base != Path.home() else "global",
-                    "description": _description(text)})
+                    "description": meta["description"],
+                    "symptoms": meta["symptoms"],
+                    "fingerprints": meta["fingerprints"],
+                    "verification": meta["verification"]})
             else:
                 counts["quarantined"] += 1
 
@@ -131,6 +173,11 @@ def sync(project_root=None):
     budget = hot_budget()
     spent = 0
     for s in trusted:
+        # Anti-skills are delivered by symptom trigger (spec 8.1), not by
+        # standing description -- so they never spend hot budget.
+        if s["kind"] == "antiskill":
+            s["tier"] = "warm"
+            continue
         cost = est_tokens(s["description"])
         if spent + cost <= budget:
             s["tier"] = "hot"
@@ -153,6 +200,7 @@ def sync(project_root=None):
                     counts["evicted"] += 1
 
     _write_index(trusted)
+    _write_triggers(trusted)
     _cleanup_state()
     return counts
 

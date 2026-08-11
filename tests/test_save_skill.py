@@ -93,7 +93,9 @@ def test_antiskill_goes_to_antiskills_dir():
         rc = save_skill.main([write_draft(tmp, VALID_ANTISKILL), "--scope", "global"])
         assert rc == 0
         assert (home / ".claude/skillforge/antiskills/test-trap/SKILL.md").exists()
-        assert (home / ".claude/skills/skillforge-hot/test-trap/SKILL.md").exists()
+        # v0.2 slice C1: anti-skills are delivered by symptom trigger, never
+        # materialized into the native hot dir (sync.py forces them warm).
+        assert not (home / ".claude/skills/skillforge-hot/test-trap/SKILL.md").exists()
     in_sandbox(check)
 
 
