@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from secscan import scan_text
 import ledger
+import patterns
 import sync
 import trust
 
@@ -23,6 +24,8 @@ REQUIRED_KEYS = ("name", "kind", "description")
 KINDS = ("skill", "antiskill", "preference")
 NAME_RX = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 ANTISKILL_SECTIONS = ("## Trap", "## Symptom", "## Cause", "## Fix")
+MIN_SYMPTOM_CHARS = 8
+MIN_SYMPTOM_TOKENS = 2
 
 
 def parse_frontmatter(text):
@@ -103,6 +106,17 @@ def validate(text):
         for section in ANTISKILL_SECTIONS:
             if section not in body:
                 errors.append("antiskills require a %r section (spec 4.2)" % section)
+        syms = fm.get("symptoms")
+        if not isinstance(syms, list) or not syms:
+            errors.append("antiskills require a 'symptoms:' frontmatter list of literal "
+                          "error signatures (v0.2 slice C1 design §1)")
+        else:
+            for s in syms:
+                s = str(s)
+                if len(s) < MIN_SYMPTOM_CHARS or len(patterns.tokenize(s)) < MIN_SYMPTOM_TOKENS:
+                    errors.append(
+                        "symptom %r is too weak to match on: need at least %d characters "
+                        "and %d tokens" % (s, MIN_SYMPTOM_CHARS, MIN_SYMPTOM_TOKENS))
     return errors
 
 

@@ -42,6 +42,8 @@ scope: global
 description: >
   A test trap. Use when: testing.
   Do NOT use when: doing anything real.
+symptoms:
+  - "TestTrapError: the widget was already flushed"
 ---
 ## Trap
 Doing the wrong thing.
@@ -285,6 +287,35 @@ def test_global_save_keeps_project_entries_indexed():
         names = sorted(e["name"] for e in idx["entries"])
         assert names == ["proj-skill", "test-skill"]
     in_sandbox(check)
+
+
+def test_antiskill_without_symptoms_rejected():
+    text = VALID_ANTISKILL.replace(
+        'symptoms:\n  - "TestTrapError: the widget was already flushed"\n', "")
+    errors = save_skill.validate(text)
+    assert any("symptoms" in e for e in errors), errors
+
+
+def test_antiskill_symptom_too_short_rejected():
+    text = VALID_ANTISKILL.replace(
+        '"TestTrapError: the widget was already flushed"', '"Error"')
+    errors = save_skill.validate(text)
+    assert any("too weak" in e for e in errors), errors
+
+
+def test_antiskill_symptom_single_token_rejected():
+    text = VALID_ANTISKILL.replace(
+        '"TestTrapError: the widget was already flushed"', '"WidgetFlushedError"')
+    errors = save_skill.validate(text)
+    assert any("too weak" in e for e in errors), errors
+
+
+def test_antiskill_with_good_symptom_accepted():
+    assert save_skill.validate(VALID_ANTISKILL) == []
+
+
+def test_skills_do_not_need_symptoms():
+    assert save_skill.validate(VALID_SKILL) == []
 
 
 if __name__ == "__main__":
