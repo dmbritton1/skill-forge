@@ -305,6 +305,31 @@ def test_few_fingerprints_warns_but_saves():
     in_sandbox(check)
 
 
+def test_single_token_verification_command_warns():
+    def check(home, tmp):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+        assert rc == 0
+        # "true" is one token, so sync drops it and the skill would get no
+        # usage detection at all -- the save must say so
+        assert "single token" in out.getvalue()
+        assert "verification.command" in out.getvalue()
+    in_sandbox(check)
+
+
+def test_multi_token_verification_command_does_not_warn():
+    def check(home, tmp):
+        good = VALID_SKILL.replace('verification.command: "true"',
+                                   'verification.command: "npx probe run all"')
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = save_skill.main([write_draft(tmp, good), "--scope", "global"])
+        assert rc == 0
+        assert "single token" not in out.getvalue()
+    in_sandbox(check)
+
+
 def test_save_with_zero_hot_budget_reports_warm():
     def check(home, tmp):
         old = os.environ.get("SKILLFORGE_HOT_BUDGET")

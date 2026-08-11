@@ -196,6 +196,16 @@ def main(argv=None):
     if not isinstance(fps, list) or len(fps) < 2:
         print("WARNING: fewer than 2 fingerprints; outcome tracking (v0.2 slice C) will not see this skill")
 
+    # sync drops single-token patterns (they would match nearly every command
+    # or file), so a one-word command compiles to nothing and the skill gets
+    # no usage detection at all -- silently, unless we say so here.
+    for label, value in (("verification.command", fm.get("verification.command")),
+                         ("fingerprints", fm.get("fingerprints"))):
+        for item in (value if isinstance(value, list) else [value]):
+            if item and len(patterns.tokenize(item)) < MIN_SYMPTOM_TOKENS:
+                print("WARNING: %s %r is a single token; it will be dropped at "
+                      "compile time and never match" % (label, item))
+
     dest = store_dir(args.scope, fm["kind"], fm["name"], args.project_root)
     dest.mkdir(parents=True, exist_ok=True)
     (dest / "SKILL.md").write_text(text, encoding="utf-8")
