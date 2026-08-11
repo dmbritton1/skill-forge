@@ -303,6 +303,15 @@ def test_antiskill_symptom_too_short_rejected():
     assert any("too weak" in e for e in errors), errors
 
 
+def test_antiskill_symptom_short_but_multitoken_rejected():
+    # Isolates the char-length rule: "ab cd" is 5 chars (< MIN_SYMPTOM_CHARS)
+    # but tokenizes to 2 tokens, so only the length branch can reject it.
+    text = VALID_ANTISKILL.replace(
+        '"TestTrapError: the widget was already flushed"', '"ab cd"')
+    errors = save_skill.validate(text)
+    assert any("too weak" in e for e in errors), errors
+
+
 def test_antiskill_symptom_single_token_rejected():
     text = VALID_ANTISKILL.replace(
         '"TestTrapError: the widget was already flushed"', '"WidgetFlushedError"')
