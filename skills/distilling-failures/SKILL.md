@@ -33,9 +33,12 @@ miss is a repeated multi-hour debugging pit.
 4. **Write the Symptom for a machine, not a narrator.** The Symptom
    section should lead with the literal error text or signature someone
    would see (exception name, error message fragment), then the misleading
-   part — what it makes you wrongly suspect. In v0.2 this field becomes a
-   machine-matchable trigger, so specificity matters: never a bare
-   "Error" or a single common word.
+   part — what it makes you wrongly suspect. Then emit that signature as a
+   `symptoms:` frontmatter list (1–3 entries) — the machine trigger is a
+   field, never parsed back out of the prose. Each entry must be at least
+   8 characters and at least 2 words: never a bare "Error", never a single
+   identifier. Matching is token-based, so quoting and whitespace do not
+   matter, but word order does.
 
 5. **Emit fingerprints from the Fix.** Add a `fingerprints:` frontmatter
    list with 2–3 distinctive fragments of the Fix — "using" an anti-skill
@@ -62,6 +65,9 @@ description: >
   One-line summary of the trap.
   Use when: <symptom or situation that should trigger this>.
   Do NOT use when: <situations that look similar but aren't this trap>.
+symptoms:
+  - "<literal error signature 1>"
+  - "<literal error signature 2>"
 fingerprints:
   - "<distinctive fragment of the Fix 1>"
   - "<distinctive fragment of the Fix 2>"

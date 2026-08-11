@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from secscan import scan_text
 import ledger
+import patterns
 import sync
 import trust
 
@@ -23,6 +24,8 @@ REQUIRED_KEYS = ("name", "kind", "description")
 KINDS = ("skill", "antiskill", "preference")
 NAME_RX = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 ANTISKILL_SECTIONS = ("## Trap", "## Symptom", "## Cause", "## Fix")
+MIN_SYMPTOM_CHARS = 8
+MIN_SYMPTOM_TOKENS = 2
 
 
 def parse_frontmatter(text):
@@ -103,17 +106,33 @@ def validate(text):
         for section in ANTISKILL_SECTIONS:
             if section not in body:
                 errors.append("antiskills require a %r section (spec 4.2)" % section)
+        syms = fm.get("symptoms")
+        if not isinstance(syms, list) or not syms:
+            errors.append("antiskills require a 'symptoms:' frontmatter list of literal "
+                          "error signatures (v0.2 slice C1 design §1)")
+        else:
+            for s in syms:
+                s = str(s)
+                if len(s) < MIN_SYMPTOM_CHARS or len(patterns.tokenize(s)) < MIN_SYMPTOM_TOKENS:
+                    errors.append(
+                        "symptom %r is too weak to match on: need at least %d characters "
+                        "and %d tokens" % (s, MIN_SYMPTOM_CHARS, MIN_SYMPTOM_TOKENS))
     return errors
 
 
 def store_dir(scope, kind, name, project_root):
     sub = "antiskills" if kind == "antiskill" else "skills"
-    base = Path(project_root) if scope == "project" else Path.home()
+    # .resolve() so "." (the --project-root default) resolves against cwd
+    # the same way Path.home() is already absolute -- sync.sync() already
+    # applies this discipline; without it, the collision guard's relative
+    # "project" candidate never equals the absolute "global" this_dir even
+    # when they're the same directory, so re-saving from $HOME self-rejects.
+    base = Path(project_root).resolve() if scope == "project" else Path.home().resolve()
     return base / ".claude" / "skillforge" / sub / name
 
 
 def native_dir(scope, name, project_root):
-    base = Path(project_root) if scope == "project" else Path.home()
+    base = Path(project_root).resolve() if scope == "project" else Path.home().resolve()
     return base / ".claude" / "skills" / "skillforge-hot" / name
 
 
@@ -144,21 +163,48 @@ def main(argv=None):
 
     fm, _ = parse_frontmatter(text)
 
-    # Skills and antiskills of the same name share one native dir
-    # (skills/skillforge-hot/<name>); a same-named pair from opposite
-    # kinds would silently clobber each other's native copy there even
-    # though their store dirs differ. Reject the second save instead.
+    # Name collisions are checked across both kinds AND both scopes.
+    # Same-scope opposite-kind: skills and antiskills of the same name share
+    # one native dir (skills/skillforge-hot/<name>) and would clobber each
+    # other's native copy. Cross-scope (either kind): trust.json is keyed by
+    # name alone (spec 11.2), so a project antiskill named `foo` saved while
+    # a global skill `foo` exists overwrites the one registry entry -- the
+    # global one then hashes differently on the next sync, gets quarantined,
+    # and its native copy is evicted; approving it back breaks the project
+    # one, a permanent flip-flop. Fail closed on any of the four candidates,
+    # skipping any that resolve to this save's own destination (global and
+    # project store roots can coincide in odd setups).
     other_kind = "skill" if fm["kind"] == "antiskill" else "antiskill"
-    other_dir = store_dir(args.scope, other_kind, fm["name"], args.project_root)
-    if other_dir.exists():
-        print("REJECTED: name %r already used by a %s in this scope "
-              "(native copies would collide); pick a different name"
-              % (fm["name"], other_kind))
-        return 1
+    other_scope = "project" if args.scope == "global" else "global"
+    this_dir = store_dir(args.scope, fm["kind"], fm["name"], args.project_root)
+    checked = set()
+    for scope, kind in ((args.scope, other_kind),
+                        (other_scope, fm["kind"]),
+                        (other_scope, other_kind)):
+        candidate = store_dir(scope, kind, fm["name"], args.project_root)
+        if candidate == this_dir or candidate in checked:
+            continue
+        checked.add(candidate)
+        if candidate.exists():
+            print("REJECTED: name %r already used by a %s in the %s scope "
+                  "(%s; native copies or the shared trust registry entry "
+                  "would collide); pick a different name"
+                  % (fm["name"], kind, scope, candidate))
+            return 1
 
     fps = fm.get("fingerprints")
     if not isinstance(fps, list) or len(fps) < 2:
         print("WARNING: fewer than 2 fingerprints; outcome tracking (v0.2 slice C) will not see this skill")
+
+    # sync drops single-token patterns (they would match nearly every command
+    # or file), so a one-word command compiles to nothing and the skill gets
+    # no usage detection at all -- silently, unless we say so here.
+    for label, value in (("verification.command", fm.get("verification.command")),
+                         ("fingerprints", fm.get("fingerprints"))):
+        for item in (value if isinstance(value, list) else [value]):
+            if item and len(patterns.tokenize(item)) < MIN_SYMPTOM_TOKENS:
+                print("WARNING: %s %r is a single token; it will be dropped at "
+                      "compile time and never match" % (label, item))
 
     dest = store_dir(args.scope, fm["kind"], fm["name"], args.project_root)
     dest.mkdir(parents=True, exist_ok=True)

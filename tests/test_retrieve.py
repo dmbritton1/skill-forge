@@ -260,6 +260,35 @@ def test_tampered_warm_body_not_injected():
     in_sandbox(check)
 
 
+def test_same_name_in_both_stores_delivered_once():
+    def check(home):
+        proj = home / "myrepo"
+        glob_e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        body = pathlib.Path(glob_e["path"]).read_text(encoding="utf-8")
+        pdir = proj / ".claude" / "skillforge" / "skills" / "stripe-webhook"
+        pdir.mkdir(parents=True)
+        (pdir / "SKILL.md").write_text(body, encoding="utf-8")   # same bytes -> same hash
+        proj_e = dict(glob_e, scope="project", root=str(proj), path=str(pdir / "SKILL.md"))
+        write_index(home, [glob_e, proj_e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(proj)})
+        assert injected_names(out) == ["stripe-webhook"]
+    in_sandbox(check)
+
+
+def test_entry_missing_name_skipped_not_fatal():
+    def check(home):
+        good = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        nameless = {"kind": "skill", "scope": "global", "root": str(home),
+                    "description": "stripe webhook signature checks", "tier": "warm",
+                    "path": good["path"]}
+        write_index(home, [nameless, good])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert rc == 0
+        assert injected_names(out) == ["stripe-webhook"]
+    in_sandbox(check)
+
+
 def test_entry_missing_path_skipped_not_fatal():
     def check(home):
         good = entry(home, "stripe-webhook", "stripe webhook signature verification")
@@ -273,6 +302,177 @@ def test_entry_missing_path_skipped_not_fatal():
     in_sandbox(check)
 
 
+def git_repo(home, files):
+    import subprocess
+    repo = home / "repo"
+    repo.mkdir()
+    for rel, text in files.items():
+        (repo / rel).write_text(text, encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+    subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
+    return repo
+
+
+def preexisting_values(skill):
+    import ledger
+    con = ledger.connect()
+    try:
+        return [r[0] for r in con.execute(
+            "SELECT preexisting_fingerprint FROM events "
+            "WHERE event_type='injection' AND skill=?", (skill,))]
+    finally:
+        con.close()
+
+
+def test_snapshot_records_preexisting_fingerprint():
+    def check(home):
+        repo = git_repo(home, {"app.js": "app.use(express.raw({ type: 'application/json' }))"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]]
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [1]
+    in_sandbox(check)
+
+
+def test_snapshot_records_absent_fingerprint():
+    def check(home):
+        repo = git_repo(home, {"app.js": "console.log('nothing relevant here')"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]]
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [0]
+    in_sandbox(check)
+
+
+def test_snapshot_unknown_outside_git_repo():
+    def check(home):
+        plain = home / "notarepo"
+        plain.mkdir()
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]]
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(plain)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [None]
+    in_sandbox(check)
+
+
+def test_snapshot_unknown_when_entry_has_no_fingerprints():
+    def check(home):
+        repo = git_repo(home, {"app.js": "x"})
+        write_index(home, [entry(home, "stripe-webhook", "stripe webhook signature verification")])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [None]
+    in_sandbox(check)
+
+
+def test_fingerprint_preexisting_matches_across_formatting():
+    def check(home):
+        repo = git_repo(home, {"app.js": 'express.raw({type:"application/json"})'})
+        assert retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(repo)) == 1
+    in_sandbox(check)
+
+
+def test_snapshot_unknown_when_match_past_file_cap():
+    def check(home):
+        files = {}
+        # SNAPSHOT_MAX_FILES decoys containing the literal token but not the full
+        # pattern, sorted (alphabetically, by git grep) ahead of the one file that
+        # actually has the match -- it never gets examined.
+        for i in range(retrieve.SNAPSHOT_MAX_FILES):
+            files["decoy%02d.js" % i] = "application settings only, nothing else here"
+        files["zzz_real.js"] = "express.raw({type:'application/json'})"
+        repo = git_repo(home, files)
+        result = retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(repo))
+        assert result is None
+    in_sandbox(check)
+
+
+def test_snapshot_unknown_when_match_past_byte_cap():
+    def check(home):
+        # padding exceeds SNAPSHOT_MAX_BYTES, pushing the real match out of the
+        # window that gets read and tokenized.
+        padding = "pad " * 60000
+        content = padding + "express.raw({type:'application/json'})"
+        repo = git_repo(home, {"big.js": content})
+        result = retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(repo))
+        assert result is None
+    in_sandbox(check)
+
+
+def test_grep_fullname_config_does_not_break_relative_paths():
+    def check(home):
+        # git config --global grep.fullName true makes `git grep -l` print
+        # repo-root-relative paths instead of cwd-relative ones. Without
+        # forcing the setting off in the invocation, Path(cwd)/rel then
+        # points nowhere for a cwd inside a subdirectory, open() raises,
+        # the candidate is skipped, and the function wrongly returns 0
+        # ("not preexisting") -- the over-crediting direction the
+        # NULL-not-a-guess rule exists to prevent.
+        import subprocess
+        repo = home / "repo"
+        sub = repo / "sub"
+        sub.mkdir(parents=True)
+        (sub / "app.js").write_text(
+            "app.use(express.raw({ type: 'application/json' }))", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+        subprocess.run(["git", "config", "grep.fullName", "true"], cwd=str(repo), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
+        result = retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(sub))
+        assert result == 1
+    in_sandbox(check)
+
+
+def test_snapshot_over_budget_still_probes_and_finds_match():
+    def check(home):
+        # An entry with more fingerprint patterns than the probe budget must
+        # still be probed up to the budget, not skipped outright -- skipping
+        # meant an entry with >SNAPSHOT_MAX_PROBES fingerprints could never
+        # be snapshotted, even as the first entry of a fresh hook run. The
+        # match is present, so the probed subset finds it and reports 1.
+        repo = git_repo(home, {"app.js": "app.use(express.raw({ type: 'application/json' }))"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]] * \
+            (retrieve.SNAPSHOT_MAX_PROBES + 1)
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [1]
+    in_sandbox(check)
+
+
+def test_snapshot_over_budget_no_match_in_probed_subset_is_unknown():
+    def check(home):
+        # Same over-budget entry, but nothing in the repo matches. The probed
+        # subset comes back clean, but one pattern went unprobed -- checking
+        # fewer patterns than exist is not proof none of them were already
+        # there, so the honest answer is unknown (None), never a false 0.
+        repo = git_repo(home, {"app.js": "console.log('nothing relevant here')"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]] * \
+            (retrieve.SNAPSHOT_MAX_PROBES + 1)
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [None]
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
@@ -281,7 +481,7 @@ if __name__ == "__main__":
             try:
                 fn()
                 print("PASS " + name)
-            except AssertionError:
+            except Exception as err:
                 failures += 1
-                print("FAIL " + name)
+                print("FAIL %s: %r" % (name, err))
     sys.exit(1 if failures else 0)

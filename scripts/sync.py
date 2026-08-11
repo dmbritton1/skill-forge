@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
+import patterns
 import trust
 
 
@@ -45,13 +46,43 @@ def hot_budget():
         return 1500
 
 
-def _description(text):
+def _meta(text):
     # ponytail: lazy import avoids a save_skill<->sync module cycle;
     # save_skill imports sync at module level, we only need its parser here
     from save_skill import parse_frontmatter
     fm, _ = parse_frontmatter(text)
-    desc = (fm or {}).get("description", "")
-    return desc if isinstance(desc, str) else ""
+    fm = fm or {}
+    desc = fm.get("description", "")
+    return {
+        "description": desc if isinstance(desc, str) else "",
+        "symptoms": _token_lists(fm.get("symptoms")),
+        "fingerprints": _token_lists(fm.get("fingerprints")),
+        "verification": _token_lists([fm.get("verification.command")]),
+    }
+
+
+def _token_lists(value):
+    """[[token, ...], ...] from a frontmatter list; empties dropped.
+
+    Single-token lists are dropped too: a verification.command or
+    fingerprint that tokenizes to one common word (`pytest`, `make`) would
+    then match nearly every Bash call or file, logging a bogus detection on
+    every unrelated command and inflating skill_aggregates.uses (which feeds
+    hot ranking). save_skill enforces a 2-token floor on symptoms already;
+    this is the same floor for the other two pattern kinds.
+    """
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, list):
+        return []
+    out = []
+    for item in value:
+        if not item:
+            continue
+        toks = patterns.tokenize(item)
+        if len(toks) >= 2:
+            out.append(toks)
+    return out
 
 
 def _usage_stats():
@@ -79,6 +110,7 @@ def _write_index(items):
     entries = [{"name": s["name"], "kind": s["kind"], "scope": s["scope"],
                 "root": str(s["base"]), "description": s["description"],
                 "tier": s["tier"], "est_tokens": est_tokens(s["text"]),
+                "fingerprints": s["fingerprints"],
                 "path": str(s["path"])} for s in items]
     p.write_text(json.dumps({
         "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
@@ -86,12 +118,30 @@ def _write_index(items):
         "entries": entries}, indent=2), encoding="utf-8")
 
 
+def _write_triggers(items):
+    """Compile the PostToolUse hook's index: small on purpose, it loads per tool call."""
+    p = Path.home() / ".claude" / "skillforge" / "triggers.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    # kind-filtered: validate() never forbids `symptoms:` on a kind: skill,
+    # but only anti-skills spend the anti-skill budget and get framed as one
+    # (detect.py). Fingerprints ride along on each symptom entry so the
+    # PostToolUse hook can snapshot at injection time without a second file.
+    syms = [{"skill": s["name"], "path": str(s["path"]), "root": str(s["base"]),
+             "tokens": toks, "fingerprints": s["fingerprints"]}
+            for s in items if s["kind"] == "antiskill" for toks in s["symptoms"]]
+    vers = [{"skill": s["name"], "root": str(s["base"]), "tokens": toks}
+            for s in items for toks in s["verification"]]
+    p.write_text(json.dumps({
+        "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
+        "symptoms": syms, "verifications": vers}, indent=2), encoding="utf-8")
+
+
 def _cleanup_state():
     d = Path.home() / ".claude" / "skillforge" / "state"
     if not d.is_dir():
         return
     cutoff = time.time() - 7 * 86400
-    for f in d.glob("session-*.json"):
+    for f in d.glob("session-*"):   # .json and any crash-orphaned .json.tmp
         try:
             if f.stat().st_mtime < cutoff:
                 f.unlink()
@@ -113,11 +163,15 @@ def sync(project_root=None):
             text = md.read_text(encoding="utf-8")
             name = trust.skill_name(text, md.parent.name)
             if trust.check_text(name, text) == "trusted":
+                meta = _meta(text)
                 trusted.append({
                     "base": base, "name": name, "text": text, "path": md,
                     "kind": "antiskill" if md.parent.parent.name == "antiskills" else "skill",
                     "scope": "project" if base != Path.home() else "global",
-                    "description": _description(text)})
+                    "description": meta["description"],
+                    "symptoms": meta["symptoms"],
+                    "fingerprints": meta["fingerprints"],
+                    "verification": meta["verification"]})
             else:
                 counts["quarantined"] += 1
 
@@ -131,6 +185,11 @@ def sync(project_root=None):
     budget = hot_budget()
     spent = 0
     for s in trusted:
+        # Anti-skills are delivered by symptom trigger (spec 8.1), not by
+        # standing description -- so they never spend hot budget.
+        if s["kind"] == "antiskill":
+            s["tier"] = "warm"
+            continue
         cost = est_tokens(s["description"])
         if spent + cost <= budget:
             s["tier"] = "hot"
@@ -153,6 +212,7 @@ def sync(project_root=None):
                     counts["evicted"] += 1
 
     _write_index(trusted)
+    _write_triggers(trusted)
     _cleanup_state()
     return counts
 

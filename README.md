@@ -38,13 +38,26 @@ Delivery tiers (v0.2): trusted skills compete for a fixed hot budget
 (1,500 description-tokens) ranked by usage — winners are materialized as
 native skills; the rest stay warm in a BM25 retrieval index and are
 injected per-prompt by a UserPromptSubmit hook (max 3 skills, 1,200-token
-budget, session dedupe, two-matched-terms minimum). Anti-skills bypass
-the count cap. Everything injected is logged to the ledger.
+budget, session dedupe, two-matched-terms minimum; anti-skills bypass the
+count cap). Everything injected is logged to the ledger.
+
+Detection (v0.2 slice C1): anti-skills are never hot — they carry
+`symptoms:` frontmatter compiled into a trigger index, and a PostToolUse
+hook matches tool output against it, injecting the matching anti-skill the
+moment its error signature appears. The same hook matches Bash commands
+against skills' `verification.command`, which is the strongest usage signal
+in the system. Matching is token-based, not regex: quoting, whitespace, and
+inserted arguments never decide a match. Every injection — prompt-triggered
+or symptom-triggered — also records whether the skill's fingerprints were
+already in the repo, so a later reconciler can tell "the model applied
+this" from "it was already there."
 
 ## Tests
 
-    python3 tests/test_secscan.py
-    python3 tests/test_save_skill.py
+    for t in tests/test_*.py; do python3 "$t" || echo "FAILED $t"; done
 
-v0.1 scope: no hooks, no ledger, no retrieval — see
-`docs/superpowers/plans/2026-07-09-skillforge-v0.1.md`.
+Plans and designs live in `docs/superpowers/`. Shipped: v0.1, v0.2 slice A
+(ledger, trust, sync), slice B (retrieval, tiering), and slice C1
+(detection substrate: symptom triggers, verification capture, fingerprint
+snapshots). Not yet built: slice C2 (Stop reconciler, confidence buckets)
+and slice D (Tier A validation, capture suggestions, `/stats`).

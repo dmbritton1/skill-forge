@@ -42,6 +42,8 @@ scope: global
 description: >
   A test trap. Use when: testing.
   Do NOT use when: doing anything real.
+symptoms:
+  - "TestTrapError: the widget was already flushed"
 ---
 ## Trap
 Doing the wrong thing.
@@ -91,7 +93,9 @@ def test_antiskill_goes_to_antiskills_dir():
         rc = save_skill.main([write_draft(tmp, VALID_ANTISKILL), "--scope", "global"])
         assert rc == 0
         assert (home / ".claude/skillforge/antiskills/test-trap/SKILL.md").exists()
-        assert (home / ".claude/skills/skillforge-hot/test-trap/SKILL.md").exists()
+        # v0.2 slice C1: anti-skills are delivered by symptom trigger, never
+        # materialized into the native hot dir (sync.py forces them warm).
+        assert not (home / ".claude/skills/skillforge-hot/test-trap/SKILL.md").exists()
     in_sandbox(check)
 
 
@@ -180,6 +184,59 @@ def test_cross_kind_name_collision_rejected_and_native_copy_preserved():
     in_sandbox(check)
 
 
+def test_project_skill_collides_with_global_skill_of_same_name_rejected():
+    def check(home, tmp):
+        rc1 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+        assert rc1 == 0
+        proj = tmp / "myrepo"
+        proj.mkdir()
+        rc2 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "project",
+                              "--project-root", str(proj)])
+        assert rc2 == 1
+        assert not (proj / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+        # the global one is untouched
+        assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+    in_sandbox(check)
+
+
+def test_project_antiskill_collides_with_global_skill_of_same_name_rejected():
+    def check(home, tmp):
+        skill = VALID_SKILL.replace("name: test-skill", "name: clash")
+        antiskill = VALID_ANTISKILL.replace("name: test-trap", "name: clash")
+        rc1 = save_skill.main([write_draft(tmp, skill), "--scope", "global"])
+        assert rc1 == 0
+        proj = tmp / "myrepo"
+        proj.mkdir()
+        rc2 = save_skill.main([write_draft(tmp, antiskill), "--scope", "project",
+                              "--project-root", str(proj)])
+        assert rc2 == 1
+        assert not (proj / ".claude/skillforge/antiskills/clash").exists()
+    in_sandbox(check)
+
+
+def test_resave_same_skill_in_place_from_home_cwd_not_rejected():
+    def check(home, tmp):
+        # Regression: --project-root defaults to "." and, before store_dir
+        # resolved it, was compared unresolved against the always-absolute
+        # Path.home() -- so from cwd == $HOME, the "project" scope
+        # candidate (relative ".claude/skillforge/skills/<name>") never
+        # equaled "this_dir" (absolute "~/.claude/skillforge/skills/<name>")
+        # even though they're the same directory, and candidate.exists()
+        # still resolved against cwd and found it -- self-rejecting every
+        # re-save of an existing skill run from $HOME.
+        old_cwd = os.getcwd()
+        os.chdir(str(home))
+        try:
+            rc1 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+            assert rc1 == 0
+            rc2 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+            assert rc2 == 0
+        finally:
+            os.chdir(old_cwd)
+        assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+    in_sandbox(check)
+
+
 def test_invalid_kind_rejected():
     def check(home, tmp):
         bad = VALID_SKILL.replace("kind: skill", "kind: bogus")
@@ -248,6 +305,31 @@ def test_few_fingerprints_warns_but_saves():
     in_sandbox(check)
 
 
+def test_single_token_verification_command_warns():
+    def check(home, tmp):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+        assert rc == 0
+        # "true" is one token, so sync drops it and the skill would get no
+        # usage detection at all -- the save must say so
+        assert "single token" in out.getvalue()
+        assert "verification.command" in out.getvalue()
+    in_sandbox(check)
+
+
+def test_multi_token_verification_command_does_not_warn():
+    def check(home, tmp):
+        good = VALID_SKILL.replace('verification.command: "true"',
+                                   'verification.command: "npx probe run all"')
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = save_skill.main([write_draft(tmp, good), "--scope", "global"])
+        assert rc == 0
+        assert "single token" not in out.getvalue()
+    in_sandbox(check)
+
+
 def test_save_with_zero_hot_budget_reports_warm():
     def check(home, tmp):
         old = os.environ.get("SKILLFORGE_HOT_BUDGET")
@@ -287,6 +369,44 @@ def test_global_save_keeps_project_entries_indexed():
     in_sandbox(check)
 
 
+def test_antiskill_without_symptoms_rejected():
+    text = VALID_ANTISKILL.replace(
+        'symptoms:\n  - "TestTrapError: the widget was already flushed"\n', "")
+    errors = save_skill.validate(text)
+    assert any("symptoms" in e for e in errors), errors
+
+
+def test_antiskill_symptom_too_short_rejected():
+    text = VALID_ANTISKILL.replace(
+        '"TestTrapError: the widget was already flushed"', '"Error"')
+    errors = save_skill.validate(text)
+    assert any("too weak" in e for e in errors), errors
+
+
+def test_antiskill_symptom_short_but_multitoken_rejected():
+    # Isolates the char-length rule: "ab cd" is 5 chars (< MIN_SYMPTOM_CHARS)
+    # but tokenizes to 2 tokens, so only the length branch can reject it.
+    text = VALID_ANTISKILL.replace(
+        '"TestTrapError: the widget was already flushed"', '"ab cd"')
+    errors = save_skill.validate(text)
+    assert any("too weak" in e for e in errors), errors
+
+
+def test_antiskill_symptom_single_token_rejected():
+    text = VALID_ANTISKILL.replace(
+        '"TestTrapError: the widget was already flushed"', '"WidgetFlushedError"')
+    errors = save_skill.validate(text)
+    assert any("too weak" in e for e in errors), errors
+
+
+def test_antiskill_with_good_symptom_accepted():
+    assert save_skill.validate(VALID_ANTISKILL) == []
+
+
+def test_skills_do_not_need_symptoms():
+    assert save_skill.validate(VALID_SKILL) == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
@@ -295,7 +415,7 @@ if __name__ == "__main__":
             try:
                 fn()
                 print("PASS " + name)
-            except AssertionError:
+            except Exception as err:
                 failures += 1
-                print("FAIL " + name)
+                print("FAIL %s: %r" % (name, err))
     sys.exit(1 if failures else 0)
