@@ -412,13 +412,57 @@ def test_snapshot_unknown_when_match_past_byte_cap():
     in_sandbox(check)
 
 
-def test_snapshot_probe_cap_records_unknown():
+def test_grep_fullname_config_does_not_break_relative_paths():
     def check(home):
+        # git config --global grep.fullName true makes `git grep -l` print
+        # repo-root-relative paths instead of cwd-relative ones. Without
+        # forcing the setting off in the invocation, Path(cwd)/rel then
+        # points nowhere for a cwd inside a subdirectory, open() raises,
+        # the candidate is skipped, and the function wrongly returns 0
+        # ("not preexisting") -- the over-crediting direction the
+        # NULL-not-a-guess rule exists to prevent.
+        import subprocess
+        repo = home / "repo"
+        sub = repo / "sub"
+        sub.mkdir(parents=True)
+        (sub / "app.js").write_text(
+            "app.use(express.raw({ type: 'application/json' }))", encoding="utf-8")
+        subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
+        subprocess.run(["git", "config", "grep.fullName", "true"], cwd=str(repo), check=True)
+        subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
+        result = retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(sub))
+        assert result == 1
+    in_sandbox(check)
+
+
+def test_snapshot_over_budget_still_probes_and_finds_match():
+    def check(home):
+        # An entry with more fingerprint patterns than the probe budget must
+        # still be probed up to the budget, not skipped outright -- skipping
+        # meant an entry with >SNAPSHOT_MAX_PROBES fingerprints could never
+        # be snapshotted, even as the first entry of a fresh hook run. The
+        # match is present, so the probed subset finds it and reports 1.
         repo = git_repo(home, {"app.js": "app.use(express.raw({ type: 'application/json' }))"})
         e = entry(home, "stripe-webhook", "stripe webhook signature verification")
-        # more fingerprint patterns than the per-hook probe budget allows; this
-        # would confirm a match (1) if actually checked, so None here proves the
-        # cap short-circuited rather than coincidentally finding nothing.
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]] * \
+            (retrieve.SNAPSHOT_MAX_PROBES + 1)
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [1]
+    in_sandbox(check)
+
+
+def test_snapshot_over_budget_no_match_in_probed_subset_is_unknown():
+    def check(home):
+        # Same over-budget entry, but nothing in the repo matches. The probed
+        # subset comes back clean, but one pattern went unprobed -- checking
+        # fewer patterns than exist is not proof none of them were already
+        # there, so the honest answer is unknown (None), never a false 0.
+        repo = git_repo(home, {"app.js": "console.log('nothing relevant here')"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
         e["fingerprints"] = [["express", "raw", "type", "application", "json"]] * \
             (retrieve.SNAPSHOT_MAX_PROBES + 1)
         write_index(home, [e])

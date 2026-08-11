@@ -124,11 +124,16 @@ def load_state(session):
 
 
 def save_state(session, names):
-    # ponytail: atomic replace, no lock -- two hooks racing in one session still
-    # last-writer-wins; cost is one duplicate injection, so a lock isn't worth it
+    # ponytail: atomic replace, no lock. Tmp filename is process-unique
+    # (pid-suffixed) so two hooks racing in one session -- detect.py now
+    # fires on every parallel tool call, not just once per prompt -- never
+    # truncate the SAME tmp path into each other; that could os.replace a
+    # partial/empty file into position and lose the whole session's dedupe
+    # set, not just cause one duplicate injection. sync._cleanup_state globs
+    # "session-*" so an orphaned pid-suffixed tmp is still swept.
     d = state_dir()
     d.mkdir(parents=True, exist_ok=True)
-    tmp = d / ("session-%s.json.tmp" % session)
+    tmp = d / ("session-%s.json.tmp-%d" % (session, os.getpid()))
     tmp.write_text(json.dumps(sorted(names)), encoding="utf-8")
     os.replace(str(tmp), str(d / ("session-%s.json" % session)))
 
@@ -169,9 +174,17 @@ def fingerprint_preexisting(fingerprints, cwd):
             continue
         literal = max(tokens, key=len)
         try:
-            proc = subprocess.run(["git", "grep", "-F", "-i", "-l", "--", literal],
-                                  cwd=str(cwd), stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, timeout=GIT_TIMEOUT_S)
+            # grep.fullName=false forced regardless of the user's global git
+            # config: with it on, `git grep -l` prints repo-root-relative
+            # paths instead of cwd-relative ones, `Path(cwd) / rel` then
+            # points nowhere, the read below raises, and the loop used to
+            # just continue -- silently reporting "not preexisting" (0)
+            # instead of unknown. That's the over-crediting direction the
+            # NULL-not-a-guess rule exists to prevent.
+            proc = subprocess.run(
+                ["git", "-c", "grep.fullName=false", "grep", "-F", "-i", "-l", "--", literal],
+                cwd=str(cwd), stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, timeout=GIT_TIMEOUT_S)
         except (OSError, subprocess.SubprocessError):
             unknown = True
             continue
@@ -186,6 +199,9 @@ def fingerprint_preexisting(fingerprints, cwd):
                 with open(str(Path(cwd) / rel), "r", encoding="utf-8", errors="replace") as fh:
                     text = fh.read(SNAPSHOT_MAX_BYTES + 1)
             except OSError:
+                # git found this file but we couldn't read it -- an unknown
+                # answer, not a confirmed absence.
+                unknown = True
                 continue
             truncated = len(text) > SNAPSHOT_MAX_BYTES
             if patterns.matches(tokens, patterns.tokenize(text[:SNAPSHOT_MAX_BYTES])):
@@ -193,6 +209,28 @@ def fingerprint_preexisting(fingerprints, cwd):
             if truncated:
                 unknown = True   # match may live past the byte cap -- absence isn't proof
     return None if unknown else 0
+
+
+def probe_fingerprints(fps, cwd, probes_left):
+    """Probe up to `probes_left` of an entry's fingerprints; (preexisting, used).
+
+    An entry with more fingerprints than the remaining budget is probed
+    partially rather than skipped outright -- skipping meant an entry with
+    more than SNAPSHOT_MAX_PROBES fingerprints could never be snapshotted,
+    even as the first entry of a fresh hook run. A match in the probed
+    subset is still an honest 1; probed-clean with patterns left unprobed is
+    None (unknown), never a false 0 -- checking fewer patterns than exist is
+    not proof none of them were already there.
+    """
+    if not fps:
+        return None, 0
+    probe = fps[:probes_left]
+    if not probe:
+        return None, 0
+    result = fingerprint_preexisting(probe, cwd)
+    if result != 1 and len(probe) < len(fps):
+        result = None
+    return result, len(probe)
 
 
 def run_hook(data):
@@ -228,12 +266,8 @@ def run_hook(data):
         if cost > budget:
             continue
         budget -= cost
-        fps = e.get("fingerprints") or []
-        if fps and len(fps) <= probes_left:
-            preexisting = fingerprint_preexisting(fps, cwd)
-            probes_left -= len(fps)
-        else:
-            preexisting = None
+        preexisting, used = probe_fingerprints(e.get("fingerprints") or [], cwd, probes_left)
+        probes_left -= used
         picked.append((name, body, preexisting))
         seen.add(name)
         if e.get("kind") != "antiskill":
@@ -245,7 +279,13 @@ def run_hook(data):
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
         "additionalContext": "\n\n".join(parts)}}))
-    save_state(session, seen)
+    # Bookkeeping never blocks delivery (context is already printed above):
+    # an unguarded save_state that raised here used to return with the
+    # context delivered but zero ledger rows logged for the injection.
+    try:
+        save_state(session, seen)
+    except Exception as err:
+        print("skillforge: state write failed: %s" % err, file=sys.stderr)
     for name, _, preexisting in picked:
         try:
             ledger.log_event("injection", name, tier="warm",
