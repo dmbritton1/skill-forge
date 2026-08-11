@@ -31,6 +31,7 @@ INJECT_BUDGET_TOKENS = 1200
 GIT_TIMEOUT_S = 0.15
 SNAPSHOT_MAX_FILES = 20
 SNAPSHOT_MAX_BYTES = 200 * 1024
+SNAPSHOT_MAX_PROBES = 12
 
 TOKEN_RX = re.compile(r"[a-z0-9]+")
 
@@ -178,13 +179,19 @@ def fingerprint_preexisting(fingerprints, cwd):
             unknown = True
             continue
         names = [f for f in proc.stdout.decode("utf-8", "replace").splitlines() if f]
+        if len(names) > SNAPSHOT_MAX_FILES:
+            unknown = True   # more candidates than we examined -- absence isn't proof
         for rel in names[:SNAPSHOT_MAX_FILES]:
             try:
-                text = (Path(cwd) / rel).read_text(encoding="utf-8", errors="replace")
+                with open(str(Path(cwd) / rel), "r", encoding="utf-8", errors="replace") as fh:
+                    text = fh.read(SNAPSHOT_MAX_BYTES + 1)
             except OSError:
                 continue
+            truncated = len(text) > SNAPSHOT_MAX_BYTES
             if patterns.matches(tokens, patterns.tokenize(text[:SNAPSHOT_MAX_BYTES])):
                 return 1
+            if truncated:
+                unknown = True   # match may live past the byte cap -- absence isn't proof
     return None if unknown else 0
 
 
@@ -200,6 +207,7 @@ def run_hook(data):
     picked = []
     skills = 0
     budget = INJECT_BUDGET_TOKENS
+    probes_left = SNAPSHOT_MAX_PROBES
     for e, score, matched in rank(prompt, warm):
         name = e.get("name")
         if not name or score <= 0 or matched < MIN_MATCHED_TERMS:
@@ -220,7 +228,13 @@ def run_hook(data):
         if cost > budget:
             continue
         budget -= cost
-        picked.append((name, body, fingerprint_preexisting(e.get("fingerprints") or [], cwd)))
+        fps = e.get("fingerprints") or []
+        if fps and len(fps) <= probes_left:
+            preexisting = fingerprint_preexisting(fps, cwd)
+            probes_left -= len(fps)
+        else:
+            preexisting = None
+        picked.append((name, body, preexisting))
         seen.add(name)
         if e.get("kind") != "antiskill":
             skills += 1

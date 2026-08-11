@@ -383,6 +383,52 @@ def test_fingerprint_preexisting_matches_across_formatting():
     in_sandbox(check)
 
 
+def test_snapshot_unknown_when_match_past_file_cap():
+    def check(home):
+        files = {}
+        # SNAPSHOT_MAX_FILES decoys containing the literal token but not the full
+        # pattern, sorted (alphabetically, by git grep) ahead of the one file that
+        # actually has the match -- it never gets examined.
+        for i in range(retrieve.SNAPSHOT_MAX_FILES):
+            files["decoy%02d.js" % i] = "application settings only, nothing else here"
+        files["zzz_real.js"] = "express.raw({type:'application/json'})"
+        repo = git_repo(home, files)
+        result = retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(repo))
+        assert result is None
+    in_sandbox(check)
+
+
+def test_snapshot_unknown_when_match_past_byte_cap():
+    def check(home):
+        # padding exceeds SNAPSHOT_MAX_BYTES, pushing the real match out of the
+        # window that gets read and tokenized.
+        padding = "pad " * 60000
+        content = padding + "express.raw({type:'application/json'})"
+        repo = git_repo(home, {"big.js": content})
+        result = retrieve.fingerprint_preexisting(
+            [["express", "raw", "type", "application", "json"]], str(repo))
+        assert result is None
+    in_sandbox(check)
+
+
+def test_snapshot_probe_cap_records_unknown():
+    def check(home):
+        repo = git_repo(home, {"app.js": "app.use(express.raw({ type: 'application/json' }))"})
+        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        # more fingerprint patterns than the per-hook probe budget allows; this
+        # would confirm a match (1) if actually checked, so None here proves the
+        # cap short-circuited rather than coincidentally finding nothing.
+        e["fingerprints"] = [["express", "raw", "type", "application", "json"]] * \
+            (retrieve.SNAPSHOT_MAX_PROBES + 1)
+        write_index(home, [e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
+        assert injected_names(out) == ["stripe-webhook"]
+        assert preexisting_values("stripe-webhook") == [None]
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
