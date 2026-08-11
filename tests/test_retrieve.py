@@ -260,6 +260,35 @@ def test_tampered_warm_body_not_injected():
     in_sandbox(check)
 
 
+def test_same_name_in_both_stores_delivered_once():
+    def check(home):
+        proj = home / "myrepo"
+        glob_e = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        body = pathlib.Path(glob_e["path"]).read_text(encoding="utf-8")
+        pdir = proj / ".claude" / "skillforge" / "skills" / "stripe-webhook"
+        pdir.mkdir(parents=True)
+        (pdir / "SKILL.md").write_text(body, encoding="utf-8")   # same bytes -> same hash
+        proj_e = dict(glob_e, scope="project", root=str(proj), path=str(pdir / "SKILL.md"))
+        write_index(home, [glob_e, proj_e])
+        rc, out = run_hook_capture(
+            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(proj)})
+        assert injected_names(out) == ["stripe-webhook"]
+    in_sandbox(check)
+
+
+def test_entry_missing_name_skipped_not_fatal():
+    def check(home):
+        good = entry(home, "stripe-webhook", "stripe webhook signature verification")
+        nameless = {"kind": "skill", "scope": "global", "root": str(home),
+                    "description": "stripe webhook signature checks", "tier": "warm",
+                    "path": good["path"]}
+        write_index(home, [nameless, good])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert rc == 0
+        assert injected_names(out) == ["stripe-webhook"]
+    in_sandbox(check)
+
+
 def test_entry_missing_path_skipped_not_fatal():
     def check(home):
         good = entry(home, "stripe-webhook", "stripe webhook signature verification")
@@ -281,7 +310,7 @@ if __name__ == "__main__":
             try:
                 fn()
                 print("PASS " + name)
-            except AssertionError:
+            except Exception as err:
                 failures += 1
-                print("FAIL " + name)
+                print("FAIL %s: %r" % (name, err))
     sys.exit(1 if failures else 0)

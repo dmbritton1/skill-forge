@@ -43,8 +43,9 @@ the count cap. Everything injected is logged to the ledger.
 
 ## Tests
 
-    python3 tests/test_secscan.py
-    python3 tests/test_save_skill.py
+    for t in tests/test_*.py; do python3 "$t" || echo "FAILED $t"; done
 
-v0.1 scope: no hooks, no ledger, no retrieval — see
-`docs/superpowers/plans/2026-07-09-skillforge-v0.1.md`.
+Plans and designs live in `docs/superpowers/`. Shipped: v0.1, v0.2 slice A
+(ledger, trust, sync) and slice B (retrieval, tiering). Not yet built:
+slice C (outcome tracking, confidence buckets) and slice D (Tier A
+validation, capture suggestions, `/stats`).

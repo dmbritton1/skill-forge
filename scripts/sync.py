@@ -91,7 +91,7 @@ def _cleanup_state():
     if not d.is_dir():
         return
     cutoff = time.time() - 7 * 86400
-    for f in d.glob("session-*.json"):
+    for f in d.glob("session-*"):   # .json and any crash-orphaned .json.tmp
         try:
             if f.stat().st_mtime < cutoff:
                 f.unlink()

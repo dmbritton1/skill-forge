@@ -118,10 +118,13 @@ def load_state(session):
 
 
 def save_state(session, names):
+    # ponytail: atomic replace, no lock -- two hooks racing in one session still
+    # last-writer-wins; cost is one duplicate injection, so a lock isn't worth it
     d = state_dir()
     d.mkdir(parents=True, exist_ok=True)
-    (d / ("session-%s.json" % session)).write_text(
-        json.dumps(sorted(names)), encoding="utf-8")
+    tmp = d / ("session-%s.json.tmp" % session)
+    tmp.write_text(json.dumps(sorted(names)), encoding="utf-8")
+    os.replace(str(tmp), str(d / ("session-%s.json" % session)))
 
 
 def eligible(e, cwd):
@@ -148,9 +151,12 @@ def run_hook(data):
     skills = 0
     budget = INJECT_BUDGET_TOKENS
     for e, score, matched in rank(prompt, warm):
-        if score <= 0 or matched < MIN_MATCHED_TERMS:
+        name = e.get("name")
+        if not name or score <= 0 or matched < MIN_MATCHED_TERMS:
             continue
-        if e.get("name") in seen:
+        # session dedupe; picked names go in too, so a name held by both the
+        # global and the project store is delivered once, not twice
+        if name in seen:
             continue
         if e.get("kind") != "antiskill" and skills >= MAX_SKILLS:
             continue
@@ -158,26 +164,27 @@ def run_hook(data):
             body = Path(e["path"]).read_text(encoding="utf-8")
         except (OSError, KeyError, TypeError):
             continue
-        if trust.check_text(e.get("name", ""), body) != "trusted":
+        if trust.check_text(name, body) != "trusted":
             continue
         cost = max(1, len(body) // 4)
         if cost > budget:
             continue
         budget -= cost
-        picked.append((e, body))
+        picked.append((name, body))
+        seen.add(name)
         if e.get("kind") != "antiskill":
             skills += 1
     if not picked:
         return 0
     parts = ["--- SkillForge retrieved skill '%s' (apply if relevant): ---\n%s"
-             % (e["name"], body) for e, body in picked]
+             % (name, body) for name, body in picked]
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
         "additionalContext": "\n\n".join(parts)}}))
-    save_state(session, seen | {e["name"] for e, _ in picked})
-    for e, _ in picked:
+    save_state(session, seen)
+    for name, _ in picked:
         try:
-            ledger.log_event("injection", e["name"], tier="warm",
+            ledger.log_event("injection", name, tier="warm",
                              trigger="prompt", session=session)
         except Exception as err:
             print("skillforge: ledger write failed: %s" % err, file=sys.stderr)
