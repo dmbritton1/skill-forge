@@ -211,6 +211,119 @@ def test_missing_index_exits_zero():
     in_sandbox(check)
 
 
+TRAP_ENTRY = {"name": "trap", "kind": "antiskill",
+              "fingerprints": [["widget", "flush", "guard"]]}
+
+
+def inject_trap(seconds_ago):
+    """An anti-skill injection plus the symptom detection that triggered it.
+
+    detect.py writes both in one hook call, so they share a timestamp -- the
+    MIN_ESCAPE_S floor is what stops this pair from reading as a re-fire.
+    """
+    ledger.log_event("detection", "trap", detection="symptom",
+                     trigger="symptom", session="s1", ts=ago(seconds_ago))
+    ledger.log_event("injection", "trap", tier="warm", trigger="symptom",
+                     session="s1", preexisting_fingerprint=1, ts=ago(seconds_ago))
+
+
+def test_refire_inside_window_is_one_failure():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(600)
+        ledger.log_event("detection", "trap", detection="symptom",
+                         trigger="symptom", session="s1", ts=ago(300))
+        fire(repo)
+        assert events("reconcile") == [("trap", None, "refire", "failure")]
+        fire(repo)
+        fire(repo, event="SessionEnd")
+        assert len(events("reconcile")) == 1   # settled skills are not re-settled
+    in_sandbox(check)
+
+
+def test_triggering_symptom_alone_is_not_a_failure():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(600)
+        fire(repo)
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
+def test_echo_inside_the_escape_floor_is_not_a_failure():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(600)
+        ledger.log_event("detection", "trap", detection="symptom",
+                         trigger="symptom", session="s1",
+                         ts=ago(600 - (reconcile.MIN_ESCAPE_S - 10)))
+        fire(repo)
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
+def test_refire_past_the_window_is_a_fresh_trap_not_a_failure():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(reconcile.RECONCILE_WINDOW_S + 600)
+        ledger.log_event("detection", "trap", detection="symptom",
+                         trigger="symptom", session="s1", ts=ago(60))
+        fire(repo)
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
+def test_session_end_without_refire_is_a_success():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(600)
+        fire(repo)
+        assert events("reconcile") == []       # Stop alone never concludes success
+        fire(repo, event="SessionEnd")
+        assert events("reconcile") == [("trap", None, "refire", "success")]
+    in_sandbox(check)
+
+
+def test_session_end_inside_the_escape_floor_concludes_nothing():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(reconcile.MIN_ESCAPE_S - 20)
+        fire(repo, event="SessionEnd")
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
+def test_regular_skills_get_no_refire_verdict():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [SKILL_ENTRY])
+        ledger.log_event("injection", "fixer", session="s1",
+                         preexisting_fingerprint=1, ts=ago(600))
+        ledger.log_event("detection", "fixer", detection="symptom",
+                         trigger="symptom", session="s1", ts=ago(300))
+        fire(repo, event="SessionEnd")
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
+def test_verdicts_are_scoped_to_their_own_session():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(600)
+        ledger.log_event("detection", "trap", detection="symptom",
+                         trigger="symptom", session="s2", ts=ago(300))
+        fire(repo)          # the re-fire belongs to s2, not s1
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

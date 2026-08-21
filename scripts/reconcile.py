@@ -118,6 +118,28 @@ def needs_fingerprint(s, entry, now, final):
     return (now - s["injected_ts"]).total_seconds() <= RECONCILE_WINDOW_S
 
 
+def refire_verdict(s, entry, now, final):
+    """'failure', 'success', or None -- anti-skills only, once per session.
+
+    An anti-skill's job is to stop one error recurring. The ledger records
+    neither file nor route, so "the same error again" is skill identity plus
+    time: a symptom detection between the escape floor and the window's end.
+    A symptom after the window is a fresh trap, not a failure of this
+    injection, and concludes nothing.
+    """
+    if s["settled"] or s["injected_ts"] is None or entry.get("kind") != "antiskill":
+        return None
+    lo = s["injected_ts"] + datetime.timedelta(seconds=MIN_ESCAPE_S)
+    hi = s["injected_ts"] + datetime.timedelta(seconds=RECONCILE_WINDOW_S)
+    if any(lo <= fired <= hi for fired in s["symptom_ts"]):
+        return "failure"
+    # Success is only concludable once the session is over, and only if the
+    # model actually had a chance to fail.
+    if final and (now - s["injected_ts"]).total_seconds() >= MIN_ESCAPE_S:
+        return "success"
+    return None
+
+
 def _git(args, cwd):
     try:
         proc = subprocess.run(["git"] + args, cwd=str(cwd), stdout=subprocess.PIPE,
@@ -182,6 +204,14 @@ def run(data):
                        for toks in entry.get("fingerprints") or []):
                     _log("detection", name, detection="fingerprint",
                          preexisting_fingerprint=0, session=session)
+
+    for name, s, entry in pending:
+        verdict = refire_verdict(s, entry, now, final)
+        if verdict:
+            # A verdict is not a detection: detection stays NULL so
+            # skill_aggregates.uses (which counts detection rows) is untouched,
+            # while skill_confidence picks the outcome up.
+            _log("reconcile", name, trigger="refire", outcome=verdict, session=session)
     return 0
 
 
