@@ -3,8 +3,9 @@
 
 The single enforced write path into the knowledge store. Validates
 format, runs the blocking secret scan, writes SKILL.md into the store,
-and materializes a native copy where Claude Code loads skills (v0.1:
-every skill is hot -- the whole library fits in the budget).
+and materializes a native copy where Claude Code loads skills once it
+clears the hot-tier gate (v0.2: working-or-better confidence, ranked by
+usage within a fixed token budget).
 
 Usage: save_skill.py DRAFT.md --scope {global,project} [--project-root DIR]
 """
