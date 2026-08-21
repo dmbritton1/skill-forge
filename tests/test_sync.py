@@ -91,6 +91,7 @@ def test_trusted_skill_materialized():
     def check(home):
         md = put_skill(home, "alpha")
         trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        earn_success("alpha")   # hot-eligible: this test measures materialization, not the gate
         counts = sync.sync()
         assert counts["materialized"] == 1 and counts["quarantined"] == 0
         assert native_md(home, "alpha").read_text(encoding="utf-8") == SKILL % "alpha"
@@ -110,6 +111,7 @@ def test_modified_store_evicts_native():
     def check(home):
         md = put_skill(home, "alpha")
         trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        earn_success("alpha")   # hot-eligible: this test measures eviction, not the gate
         sync.sync()
         assert native_md(home, "alpha").exists()
         md.write_text(md.read_text(encoding="utf-8") + "\nEXTRA LINE\n", encoding="utf-8")
@@ -135,6 +137,7 @@ def test_project_root_store_synced():
         proj = home / "myrepo"
         md = put_skill(proj, "beta")
         trust.record("beta", md.read_text(encoding="utf-8"), "self")
+        earn_success("beta")   # hot-eligible: this test measures project-root sync, not the gate
         counts = sync.sync(project_root=str(proj))
         assert counts["materialized"] == 1
         assert native_md(proj, "beta").exists()
@@ -157,6 +160,7 @@ def test_sync_is_idempotent():
     def check(home):
         md = put_skill(home, "alpha")
         trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        earn_success("alpha")   # hot-eligible: this test measures idempotency, not the gate
         first = sync.sync()
         second = sync.sync()
         assert first["materialized"] == second["materialized"] == 1
@@ -183,12 +187,14 @@ def with_budget(value, fn):
 
 def test_hot_budget_overflow_goes_warm():
     def check(home):
-        import ledger
         for name in ("alpha", "beta"):
             md = put_skill(home, name)
             trust.record(name, md.read_text(encoding="utf-8"), "self")
-        ledger.log_event("injection", "beta")
-        ledger.log_event("injection", "beta")
+        # Both are hot-ELIGIBLE (the gate is not what this test measures);
+        # beta outranks alpha on bucket, so the single slot is beta's.
+        earn_success("alpha", session="s1")             # working
+        earn_success("beta", session="s1")               # trusted
+        earn_success("beta", session="s2")
 
         def run():
             counts = sync.sync()
@@ -205,6 +211,7 @@ def test_index_contains_trusted_only_with_paths():
     def check(home):
         md = put_skill(home, "alpha")
         trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        earn_success("alpha")   # hot-eligible: this test measures index contents, not the gate
         put_skill(home, "gamma")  # never recorded -> quarantined
         sync.sync()
         idx = read_index(home)
@@ -295,14 +302,17 @@ def test_antiskills_are_never_hot():
 
 def test_antiskills_do_not_consume_hot_budget():
     def check(home):
-        # "aaa-trap" sorts BEFORE "zeta" in the interim ranking (no ledger
-        # history, so the tiebreak is name ASC). If anti-skills still competed
-        # it would take the only hot slot and zeta would fall to warm --
-        # that ordering is what makes this test fail before the fix.
+        # "aaa-trap" sorts BEFORE "zeta" once both are eligible and tied.
         md = put_antiskill(home, "aaa-trap")
         trust.record("aaa-trap", md.read_text(encoding="utf-8"), "self")
         md2 = put_skill(home, "zeta")
         trust.record("zeta", md2.read_text(encoding="utf-8"), "self")
+        # Both earn eligibility, and identical timestamps make the tiebreak
+        # name ASC -- so "aaa-trap" would take the only slot if anti-skills
+        # still competed. That ordering is what gives this test its force.
+        stamp = "2026-01-01T00:00:00+00:00"
+        earn_success("aaa-trap", session="s1", ts=stamp)
+        earn_success("zeta", session="s1", ts=stamp)
         os.environ["SKILLFORGE_HOT_BUDGET"] = "8"   # room for exactly one description
         try:
             sync.sync()
@@ -394,6 +404,68 @@ def test_index_carries_tokenized_fingerprints():
         entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
         assert entries["stripe-hook"]["fingerprints"] == [
             ["express", "raw", "type", "application", "json"]]
+    in_sandbox(check)
+
+
+def earn_success(name, session="s1", ts=None):
+    """Give a skill one successful session, the bar for `working`."""
+    import ledger
+    ledger.log_event("detection", name, detection="verification",
+                     outcome="success", session=session, ts=ts)
+
+
+def test_index_entries_carry_a_bucket():
+    def check(home):
+        md = put_skill(home, "alpha")
+        trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["bucket"] == "unproven"
+        earn_success("alpha")
+        sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["bucket"] == "working"
+    in_sandbox(check)
+
+
+def test_unproven_skill_never_goes_hot():
+    def check(home):
+        md = put_skill(home, "alpha")
+        trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        counts = sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["tier"] == "warm"
+        assert counts["materialized"] == 0
+        assert not native_md(home, "alpha").exists()
+    in_sandbox(check)
+
+
+def test_working_skill_goes_hot():
+    def check(home):
+        md = put_skill(home, "alpha")
+        trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        earn_success("alpha")
+        sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["tier"] == "hot"
+        assert native_md(home, "alpha").exists()
+    in_sandbox(check)
+
+
+def test_trusted_outranks_working_for_a_scarce_hot_slot():
+    def check(home):
+        for name in ("alpha", "beta"):
+            md = put_skill(home, name)
+            trust.record(name, md.read_text(encoding="utf-8"), "self")
+        earn_success("alpha", session="s1")          # working
+        earn_success("beta", session="s1")           # trusted: two sessions
+        earn_success("beta", session="s2")
+
+        def run():
+            sync.sync()
+            tiers = {e["name"]: e["tier"] for e in read_index(home)["entries"]}
+            assert tiers == {"beta": "hot", "alpha": "warm"}, tiers
+        with_budget("10", run)
     in_sandbox(check)
 
 

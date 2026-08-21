@@ -81,9 +81,21 @@ def write_draft(tmp, text):
 
 def test_valid_global_skill_saves_and_materializes():
     def check(home, tmp):
+        import json
         rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
         assert rc == 0
         assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+        # v0.2 slice C2: a freshly saved skill is unproven -- it does not
+        # materialize until it earns a real verification success.
+        assert not (home / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
+        idx = json.loads((home / ".claude/skillforge/index.json").read_text(encoding="utf-8"))
+        entry = {e["name"]: e for e in idx["entries"]}["test-skill"]
+        assert entry["bucket"] == "unproven"
+
+        ledger.log_event("detection", "test-skill", detection="verification",
+                         outcome="success", session="s1")
+        import sync
+        sync.sync()
         assert (home / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
     in_sandbox(check)
 
@@ -107,8 +119,15 @@ def test_project_scope_writes_under_project_root():
                               "--project-root", str(proj)])
         assert rc == 0
         assert (proj / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
-        assert (proj / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
         assert not (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
+        # v0.2 slice C2: freshly saved is unproven, so it's warm until it
+        # earns a success -- earn one and resync to exercise the native path
+        # this test measures (materialization under the project root).
+        ledger.log_event("detection", "test-skill", detection="verification",
+                         outcome="success", session="s1")
+        import sync
+        sync.sync(project_root=str(proj))
+        assert (proj / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
     in_sandbox(check)
 
 
@@ -175,9 +194,19 @@ def test_cross_kind_name_collision_rejected_and_native_copy_preserved():
         antiskill = VALID_ANTISKILL.replace("name: test-trap", "name: clash")
         rc1 = save_skill.main([write_draft(tmp, skill), "--scope", "global"])
         assert rc1 == 0
+        # v0.2 slice C2: freshly saved is unproven -- earn a success and
+        # resync so there is a native copy for the rejected second save to
+        # (not) disturb, which is what "preserved" in this test measures.
+        ledger.log_event("detection", "clash", detection="verification",
+                         outcome="success", session="s1")
+        import sync
+        sync.sync()
+        native = home / ".claude/skills/skillforge-hot/clash/SKILL.md"
+        assert native.exists()
+        assert native.read_text(encoding="utf-8") == skill
+
         rc2 = save_skill.main([write_draft(tmp, antiskill), "--scope", "global"])
         assert rc2 == 1
-        native = home / ".claude/skills/skillforge-hot/clash/SKILL.md"
         assert native.exists()
         assert native.read_text(encoding="utf-8") == skill
         assert not (home / ".claude/skillforge/antiskills/clash").exists()
@@ -405,6 +434,19 @@ def test_antiskill_with_good_symptom_accepted():
 
 def test_skills_do_not_need_symptoms():
     assert save_skill.validate(VALID_SKILL) == []
+
+
+def test_warm_message_names_unproven_not_budget():
+    def check(home, tmp):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+        assert rc == 0
+        text = out.getvalue()
+        assert "indexed: warm tier" in text
+        assert "unproven" in text
+        assert "hot budget full" not in text
+    in_sandbox(check)
 
 
 if __name__ == "__main__":
