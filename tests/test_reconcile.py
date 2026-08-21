@@ -274,6 +274,23 @@ def test_refire_past_the_window_is_a_fresh_trap_not_a_failure():
                          trigger="symptom", session="s1", ts=ago(60))
         fire(repo)
         assert events("reconcile") == []
+        # The trap demonstrably fired again, just after the window -- it must
+        # not be credited a bogus success at SessionEnd for lack of evidence.
+        fire(repo, event="SessionEnd")
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
+def test_prompt_triggered_injection_with_no_detection_gets_no_verdict():
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        # Injected on plain keyword relevance -- its trap never sprung, so
+        # there is no evidence either way. It must not bank a free success.
+        ledger.log_event("injection", "trap", tier="warm", trigger="prompt",
+                         session="s1", preexisting_fingerprint=1, ts=ago(600))
+        fire(repo, event="SessionEnd")
+        assert events("reconcile") == []
     in_sandbox(check)
 
 

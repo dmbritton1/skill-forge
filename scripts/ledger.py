@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS events (
   outcome TEXT,
   ts TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_events_session ON events(session);
 CREATE VIEW IF NOT EXISTS skill_aggregates AS
 SELECT skill,
   COALESCE(SUM(event_type = 'detection'), 0)  AS uses,

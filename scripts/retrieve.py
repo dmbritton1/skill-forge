@@ -243,7 +243,7 @@ def preamble(name, bucket):
     confidence is the safe direction.
     """
     note = ("apply if relevant" if bucket in ("working", "trusted")
-            else "unproven -- never verified in a real session;"
+            else "unproven -- not proven in a real session;"
                  " apply only if it clearly fits")
     return "--- SkillForge retrieved skill '%s' (%s): ---" % (name, note)
 

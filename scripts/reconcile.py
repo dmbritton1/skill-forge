@@ -38,7 +38,7 @@ RECONCILE_WINDOW_S = 900
 GIT_TIMEOUT_S = 1.0
 MAX_DIFF_BYTES = 512 * 1024
 
-SESSION_SQL = ("SELECT event_type, skill, detection, ts, preexisting_fingerprint"
+SESSION_SQL = ('SELECT event_type, skill, detection, ts, preexisting_fingerprint, "trigger"'
                " FROM events WHERE session = ? ORDER BY id")
 
 
@@ -69,14 +69,16 @@ def parse_ts(value):
 def session_state(rows):
     """{skill: picture} from one session's id-ordered event rows."""
     state = {}
-    for event_type, skill, detection, ts, preexisting in rows:
+    for event_type, skill, detection, ts, preexisting, trigger in rows:
         s = state.setdefault(skill, {"injected_ts": None, "preexisting": None,
+                                     "injected_trigger": None,
                                      "detections": set(), "symptom_ts": [],
                                      "settled": False})
         if event_type == "injection":
             if s["injected_ts"] is None:   # first injection of the session wins
                 s["injected_ts"] = parse_ts(ts)
                 s["preexisting"] = preexisting
+                s["injected_trigger"] = trigger
         elif event_type == "detection":
             s["detections"].add(detection)
             if detection == "symptom":
@@ -126,6 +128,17 @@ def refire_verdict(s, entry, now, final):
     time: a symptom detection between the escape floor and the window's end.
     A symptom after the window is a fresh trap, not a failure of this
     injection, and concludes nothing.
+
+    Success is granted only on positive evidence that the trap was set and
+    never re-fired -- never on the mere absence of a detection. A
+    prompt-triggered injection (trigger='prompt') never had a trap sprung in
+    the first place, so it can bank neither failure nor success here; its
+    outcome, if any, comes from a verification detection like a regular
+    skill. Requiring no symptom detection strictly after the injection
+    timestamp (rather than only checking the window) is deliberately
+    conservative: it also subsumes the post-window case, since the
+    triggering symptom detect.py logs shares the injection's own timestamp
+    and so is never "strictly greater".
     """
     if s["settled"] or s["injected_ts"] is None or entry.get("kind") != "antiskill":
         return None
@@ -133,9 +146,13 @@ def refire_verdict(s, entry, now, final):
     hi = s["injected_ts"] + datetime.timedelta(seconds=RECONCILE_WINDOW_S)
     if any(lo <= fired <= hi for fired in s["symptom_ts"]):
         return "failure"
-    # Success is only concludable once the session is over, and only if the
-    # model actually had a chance to fail.
-    if final and (now - s["injected_ts"]).total_seconds() >= MIN_ESCAPE_S:
+    # Success is only concludable once the session is over, only for a trap
+    # that actually sprung (symptom-triggered), only once the model had a
+    # chance to fail, and only if no symptom for this skill fired after the
+    # injection -- an unresolved trap earns no verdict at all.
+    if (final and s["injected_trigger"] == "symptom"
+            and (now - s["injected_ts"]).total_seconds() >= MIN_ESCAPE_S
+            and not any(fired > s["injected_ts"] for fired in s["symptom_ts"])):
         return "success"
     return None
 

@@ -203,6 +203,22 @@ def test_reconcile_rows_do_not_inflate_uses():
         assert uses == 0
 
 
+def test_session_query_uses_the_session_index():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "foo", session="s1", path=db)
+        con = ledger.connect(db)
+        try:
+            plan = con.execute(
+                "EXPLAIN QUERY PLAN SELECT * FROM events WHERE session = ?",
+                ("s1",)).fetchall()
+        finally:
+            con.close()
+        plan_text = " ".join(str(row) for row in plan)
+        assert "idx_events_session" in plan_text, plan_text
+        assert "SCAN events" not in plan_text, plan_text
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

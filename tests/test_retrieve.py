@@ -475,7 +475,7 @@ def test_snapshot_over_budget_no_match_in_probed_subset_is_unknown():
 
 def test_unproven_injection_is_hedged():
     assert retrieve.preamble("foo", "unproven") == (
-        "--- SkillForge retrieved skill 'foo' (unproven -- never verified in a"
+        "--- SkillForge retrieved skill 'foo' (unproven -- not proven in a"
         " real session; apply only if it clearly fits): ---")
 
 
