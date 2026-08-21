@@ -11,6 +11,11 @@ import sqlite3
 import sys
 from pathlib import Path
 
+# Views are created with IF NOT EXISTS, which does NOT update the definition
+# of a view that already exists. Changing skill_confidence later (slice D ANDs
+# in the Tier A conjunct) requires an explicit one-time DROP + CREATE
+# migration -- not a DROP on every connect(), because detect.py connects on
+# every tool call and DDL means a write transaction.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
@@ -33,6 +38,24 @@ SELECT skill,
   COALESCE(SUM(event_type = 'injection'), 0)  AS injections,
   MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
 FROM events GROUP BY skill;
+CREATE VIEW IF NOT EXISTS skill_confidence AS
+WITH t AS (
+  SELECT skill,
+    COUNT(DISTINCT CASE WHEN outcome = 'success' THEN COALESCE(session, '') END)
+      AS success_sessions,
+    COUNT(DISTINCT CASE WHEN outcome = 'failure' THEN COALESCE(session, '') END)
+      AS failure_sessions,
+    MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
+  FROM events GROUP BY skill)
+SELECT skill, success_sessions, failure_sessions, last_used,
+  CASE
+    WHEN success_sessions >= 2 AND failure_sessions = 0
+         AND (last_used IS NULL OR julianday('now') - julianday(last_used) <= 90)
+      THEN 'trusted'
+    WHEN success_sessions >= 1 AND success_sessions > failure_sessions THEN 'working'
+    ELSE 'unproven'
+  END AS bucket
+FROM t;
 """
 
 
