@@ -473,6 +473,50 @@ def test_snapshot_over_budget_no_match_in_probed_subset_is_unknown():
     in_sandbox(check)
 
 
+def test_unproven_injection_is_hedged():
+    assert retrieve.preamble("foo", "unproven") == (
+        "--- SkillForge retrieved skill 'foo' (unproven -- never verified in a"
+        " real session; apply only if it clearly fits): ---")
+
+
+def test_working_and_trusted_injections_are_not_hedged():
+    for bucket in ("working", "trusted"):
+        assert retrieve.preamble("foo", bucket) == (
+            "--- SkillForge retrieved skill 'foo' (apply if relevant): ---")
+
+
+def test_missing_bucket_is_treated_as_unproven():
+    # An index compiled before slice C2 has no bucket key. Hedging is the
+    # safe default: it understates confidence rather than inventing it.
+    assert "unproven" in retrieve.preamble("foo", None)
+
+
+def test_hedge_reaches_the_injected_context():
+    def check(home):
+        write_index(home, [dict(entry(home, "stripe-webhook",
+                                      "stripe webhook signature verification"),
+                                bucket="unproven")])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        assert "apply only if it clearly fits" in ctx
+        assert "(apply if relevant)" not in ctx
+        # the existing name parser must keep working on a hedged header
+        assert injected_names(out) == ["stripe-webhook"]
+    in_sandbox(check)
+
+
+def test_working_skill_reaches_context_unhedged():
+    def check(home):
+        write_index(home, [dict(entry(home, "stripe-webhook",
+                                      "stripe webhook signature verification"),
+                                bucket="working")])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        assert "(apply if relevant)" in ctx
+        assert "unproven" not in ctx
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
