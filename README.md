@@ -52,12 +52,28 @@ or symptom-triggered — also records whether the skill's fingerprints were
 already in the repo, so a later reconciler can tell "the model applied
 this" from "it was already there."
 
+Outcome interpretation (v0.2 slice C2): a reconciler hook runs at the end
+of every turn (Stop) and at session end (SessionEnd), reading the current
+session's ledger rows and closing them out — crediting a skill as used
+when its fingerprint shows up in `git diff HEAD` plus untracked files, and
+issuing success/failure verdicts for anti-skills based on whether their
+symptom fired again within a time window. It costs one ledger read when
+nothing is pending, holds no state of its own, and derives every verdict
+from the ledger, so re-running it is idempotent. From these events, each
+skill's confidence is one of three buckets — `unproven`, `working`, or
+`trusted` — counted in distinct sessions rather than raw events, with a
+90-day decay that drops a stale `trusted` back to `working`. Only
+`working`-or-better skills compete for the hot tier; `unproven` skills stay
+warm and are injected with hedged wording. `trusted` here means repeatedly
+verified in real sessions — the parent spec's Tier A conjunct (independent
+validation) arrives in slice D.
+
 ## Tests
 
     for t in tests/test_*.py; do python3 "$t" || echo "FAILED $t"; done
 
 Plans and designs live in `docs/superpowers/`. Shipped: v0.1, v0.2 slice A
-(ledger, trust, sync), slice B (retrieval, tiering), and slice C1
-(detection substrate: symptom triggers, verification capture, fingerprint
-snapshots). Not yet built: slice C2 (Stop reconciler, confidence buckets)
-and slice D (Tier A validation, capture suggestions, `/stats`).
+(ledger, trust, sync), slice B (retrieval, tiering), slice C1 (detection
+substrate: symptom triggers, verification capture, fingerprint snapshots),
+and slice C2 (Stop/SessionEnd reconciler, confidence buckets). Not yet
+built: slice D (Tier A validation, capture suggestions, `/stats`).

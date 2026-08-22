@@ -3,12 +3,14 @@
 
 The single enforced write path into the knowledge store. Validates
 format, runs the blocking secret scan, writes SKILL.md into the store,
-and materializes a native copy where Claude Code loads skills (v0.1:
-every skill is hot -- the whole library fits in the budget).
+and materializes a native copy where Claude Code loads skills once it
+clears the hot-tier gate (v0.2: working-or-better confidence, ranked by
+usage within a fixed token budget).
 
 Usage: save_skill.py DRAFT.md --scope {global,project} [--project-root DIR]
 """
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -136,6 +138,26 @@ def native_dir(scope, name, project_root):
     return base / ".claude" / "skills" / "skillforge-hot" / name
 
 
+def _warm_reason(name):
+    """Why `name` landed warm instead of hot, read from the index sync just wrote.
+
+    Two real reasons: not yet hot-eligible (bucket unproven), or hot-eligible
+    but budget-full. Never raises -- a missing/unreadable index falls back to
+    the budget wording rather than breaking the save path.
+    """
+    try:
+        idx = json.loads((Path.home() / ".claude" / "skillforge" / "index.json")
+                         .read_text(encoding="utf-8"))
+        for e in idx.get("entries", []):
+            if e.get("name") == name:
+                if e.get("bucket") not in ("working", "trusted"):
+                    return "unproven -- earns hot once a real session verifies it"
+                break
+    except Exception:
+        pass
+    return "hot budget full"
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("draft", help="path to the drafted SKILL.md")
@@ -220,7 +242,7 @@ def main(argv=None):
     if (native / "SKILL.md").exists():
         print("materialized: %s" % (native / "SKILL.md"))
     else:
-        print("indexed: warm tier (hot budget full)")
+        print("indexed: warm tier (%s)" % _warm_reason(fm["name"]))
     return 0
 
 

@@ -233,6 +233,21 @@ def probe_fingerprints(fps, cwd, probes_left):
     return result, len(probe)
 
 
+def preamble(name, bucket):
+    """Injection header, hedged for skills nothing has ever confirmed.
+
+    The paired A/B benchmark's transfer arm scored 0/6 -- a plausible,
+    same-class skill, ledger-confirmed delivered every time, that did not fit
+    the bug. Naming that state is the one thing the model cannot read off the
+    skill body. A missing bucket (a pre-C2 index) hedges too: understating
+    confidence is the safe direction.
+    """
+    note = ("apply if relevant" if bucket in ("working", "trusted")
+            else "unproven -- not proven in a real session;"
+                 " apply only if it clearly fits")
+    return "--- SkillForge retrieved skill '%s' (%s): ---" % (name, note)
+
+
 def run_hook(data):
     prompt = data.get("prompt", "")
     session = sanitize_session(data.get("session_id"))
@@ -268,14 +283,14 @@ def run_hook(data):
         budget -= cost
         preexisting, used = probe_fingerprints(e.get("fingerprints") or [], cwd, probes_left)
         probes_left -= used
-        picked.append((name, body, preexisting))
+        picked.append((name, body, preexisting, e.get("bucket")))
         seen.add(name)
         if e.get("kind") != "antiskill":
             skills += 1
     if not picked:
         return 0
-    parts = ["--- SkillForge retrieved skill '%s' (apply if relevant): ---\n%s"
-             % (name, body) for name, body, _ in picked]
+    parts = ["%s\n%s" % (preamble(name, bucket), body)
+             for name, body, _, bucket in picked]
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
         "additionalContext": "\n\n".join(parts)}}))
@@ -286,7 +301,7 @@ def run_hook(data):
         save_state(session, seen)
     except Exception as err:
         print("skillforge: state write failed: %s" % err, file=sys.stderr)
-    for name, _, preexisting in picked:
+    for name, _, preexisting, _bucket in picked:
         try:
             ledger.log_event("injection", name, tier="warm",
                              trigger="prompt", session=session,

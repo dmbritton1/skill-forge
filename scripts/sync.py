@@ -85,18 +85,25 @@ def _token_lists(value):
     return out
 
 
-def _usage_stats():
-    """{skill: [uses+injections, last_save_ts]}; empty on any ledger failure."""
+BUCKET_RANK = {"trusted": 0, "working": 1, "unproven": 2}
+HOT_ELIGIBLE = ("trusted", "working")
+UNKNOWN = ("unproven", 0, "")
+
+
+def _confidence():
+    """{skill: (bucket, success_sessions, last_used)}; empty on any ledger failure.
+
+    An empty map reads as `unproven` everywhere, which is the safe direction:
+    a broken ledger empties the hot tier instead of promoting on stale data.
+    """
     stats = {}
     try:
         con = ledger.connect()
         try:
-            for skill, uses, injections in con.execute(
-                    "SELECT skill, uses, injections FROM skill_aggregates"):
-                stats[skill] = [(uses or 0) + (injections or 0), ""]
-            for skill, ts in con.execute(
-                    "SELECT skill, MAX(ts) FROM events WHERE event_type='save' GROUP BY skill"):
-                stats.setdefault(skill, [0, ""])[1] = ts or ""
+            for skill, wins, last_used, bucket in con.execute(
+                    "SELECT skill, success_sessions, last_used, bucket"
+                    " FROM skill_confidence"):
+                stats[skill] = (bucket or "unproven", wins or 0, last_used or "")
         finally:
             con.close()
     except Exception:
@@ -109,7 +116,8 @@ def _write_index(items):
     p.parent.mkdir(parents=True, exist_ok=True)
     entries = [{"name": s["name"], "kind": s["kind"], "scope": s["scope"],
                 "root": str(s["base"]), "description": s["description"],
-                "tier": s["tier"], "est_tokens": est_tokens(s["text"]),
+                "tier": s["tier"], "bucket": s["bucket"],
+                "est_tokens": est_tokens(s["text"]),
                 "fingerprints": s["fingerprints"],
                 "path": str(s["path"])} for s in items]
     p.write_text(json.dumps({
@@ -175,12 +183,15 @@ def sync(project_root=None):
             else:
                 counts["quarantined"] += 1
 
-    # Interim hot ranking (placeholder until slice C buckets):
-    # (uses+injections) DESC, last save ts DESC, name ASC — via chained stable sorts.
-    stats = _usage_stats()
+    # Hot ranking (slice C2 design 5): bucket, then successful sessions, then
+    # recency, then name -- via chained stable sorts, last sort = primary key.
+    conf = _confidence()
+    for s in trusted:
+        s["bucket"] = conf.get(s["name"], UNKNOWN)[0]
     trusted.sort(key=lambda s: s["name"])
-    trusted.sort(key=lambda s: stats.get(s["name"], [0, ""])[1], reverse=True)
-    trusted.sort(key=lambda s: stats.get(s["name"], [0, ""])[0], reverse=True)
+    trusted.sort(key=lambda s: conf.get(s["name"], UNKNOWN)[2], reverse=True)
+    trusted.sort(key=lambda s: conf.get(s["name"], UNKNOWN)[1], reverse=True)
+    trusted.sort(key=lambda s: BUCKET_RANK.get(s["bucket"], 2))
 
     budget = hot_budget()
     spent = 0
@@ -188,6 +199,12 @@ def sync(project_root=None):
         # Anti-skills are delivered by symptom trigger (spec 8.1), not by
         # standing description -- so they never spend hot budget.
         if s["kind"] == "antiskill":
+            s["tier"] = "warm"
+            continue
+        # A skill that has never demonstrably worked does not get to sit in
+        # every session's standing context (spec 7). Warm still retrieves it
+        # on relevance, which is how it earns its way out of `unproven`.
+        if s["bucket"] not in HOT_ELIGIBLE:
             s["tier"] = "warm"
             continue
         cost = est_tokens(s["description"])
