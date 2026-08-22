@@ -329,6 +329,68 @@ def test_regular_skills_get_no_refire_verdict():
     in_sandbox(check)
 
 
+def inject_trap_at(base, seconds_ago):
+    """Same pair as inject_trap, but timestamped off one frozen `base` instant
+    instead of a fresh now() call -- boundary tests need the injection and
+    the later symptom to be an *exact* number of seconds apart, and two
+    independent ago() calls (each its own now()) can drift across a second
+    boundary between the two statements.
+    """
+    ts = (base - datetime.timedelta(seconds=seconds_ago)).isoformat(timespec="seconds")
+    ledger.log_event("detection", "trap", detection="symptom",
+                     trigger="symptom", session="s1", ts=ts)
+    ledger.log_event("injection", "trap", tier="warm", trigger="symptom",
+                     session="s1", preexisting_fingerprint=1, ts=ts)
+
+
+def symptom_at(base, seconds_ago):
+    ts = (base - datetime.timedelta(seconds=seconds_ago)).isoformat(timespec="seconds")
+    ledger.log_event("detection", "trap", detection="symptom",
+                     trigger="symptom", session="s1", ts=ts)
+
+
+def test_refire_exactly_at_min_escape_s_is_a_failure():
+    # Pins the closed interval's lower edge: [T_inject + MIN_ESCAPE_S, ...].
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        base = datetime.datetime.now(datetime.timezone.utc)
+        inject_trap_at(base, 600)
+        symptom_at(base, 600 - reconcile.MIN_ESCAPE_S)
+        fire(repo)
+        assert events("reconcile") == [("trap", None, "refire", "failure")]
+    in_sandbox(check)
+
+
+def test_refire_exactly_at_reconcile_window_s_is_a_failure():
+    # Pins the closed interval's upper edge: [..., T_inject + RECONCILE_WINDOW_S].
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        base = datetime.datetime.now(datetime.timezone.utc)
+        inject_trap_at(base, reconcile.RECONCILE_WINDOW_S)
+        symptom_at(base, 0)
+        fire(repo)
+        assert events("reconcile") == [("trap", None, "refire", "failure")]
+    in_sandbox(check)
+
+
+def test_refire_one_second_past_the_window_gets_no_verdict():
+    # One second beyond RECONCILE_WINDOW_S must fall outside the closed
+    # interval entirely -- an off-by-one (<= vs <) here would wrongly convict.
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        base = datetime.datetime.now(datetime.timezone.utc)
+        inject_trap_at(base, reconcile.RECONCILE_WINDOW_S + 1)
+        symptom_at(base, 0)
+        fire(repo)
+        assert events("reconcile") == []
+        fire(repo, event="SessionEnd")
+        assert events("reconcile") == []
+    in_sandbox(check)
+
+
 def test_verdicts_are_scoped_to_their_own_session():
     def check(home):
         repo = git_repo(home / "repo")

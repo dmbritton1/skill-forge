@@ -68,8 +68,40 @@ def connect(path=None):
     p = Path(path) if path else default_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(p), timeout=5)
-    con.execute("PRAGMA journal_mode=WAL")
+    # WAL is a durable, file-level property -- once set it stays set, so only
+    # attempt the switch when it isn't already in effect. Setting it needs a
+    # brief exclusive lock that does NOT honor timeout=5 above, so two
+    # processes opening a fresh db at the same instant can collide; the loser
+    # raises OperationalError right here, and since connect() is called from
+    # inside log_event, an uncaught exception would silently drop the
+    # caller's event. Swallow it: the winner already left the file in WAL
+    # mode, which is the only outcome we actually wanted.
+    if con.execute("PRAGMA journal_mode").fetchone()[0] != "wal":
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError:
+            pass
     con.executescript(SCHEMA)
+    # One fingerprint credit and one verdict per (session, skill) are design
+    # invariants (spec 9.1/9.3), enforced here as partial unique indexes
+    # rather than inside SCHEMA's executescript: a pre-existing ledger that
+    # already has duplicate rows (from before this fix, or a race that slipped
+    # through) would fail CREATE INDEX, and since SCHEMA runs unconditionally
+    # on every connect(), that exception would propagate out of connect() and
+    # take every hook down with it. Each attempt is isolated and best-effort
+    # instead -- a legacy ledger just keeps its duplicates, everyone else gets
+    # the guard.
+    for stmt in (
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_one_fingerprint_credit"
+        " ON events(session, skill) WHERE event_type = 'detection'"
+        " AND detection = 'fingerprint'",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_one_verdict"
+        " ON events(session, skill) WHERE event_type = 'reconcile'",
+    ):
+        try:
+            con.execute(stmt)
+        except sqlite3.DatabaseError:
+            pass
     return con
 
 

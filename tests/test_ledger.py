@@ -72,6 +72,58 @@ def test_concurrent_writers():
         assert count == 50
 
 
+def test_concurrent_writers_on_nonexistent_db_lose_nothing():
+    # Reproduces the original bug: PRAGMA journal_mode=WAL takes a brief
+    # exclusive lock that ignores busy_timeout, so two connections racing to
+    # CREATE the db (not just write to an existing one) can collide right in
+    # connect(). Two threads is the count that reproduced it reliably.
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        assert not db.exists()
+        errs = []
+
+        def worker(n):
+            try:
+                for _ in range(25):
+                    ledger.log_event("detection", "skill-%d" % n, outcome="success", path=db)
+            except Exception as e:
+                errs.append("%s: %s" % (type(e).__name__, e))
+
+        threads = [threading.Thread(target=worker, args=(n,)) for n in (1, 2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errs == [], errs
+        con = ledger.connect(db)
+        count = con.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        con.close()
+        assert count == 50
+
+
+def test_duplicate_fingerprint_credit_is_blocked_by_unique_index():
+    # Guards the C2 invariant: one fingerprint credit per (session, skill).
+    # log_event has no catch of its own -- every production caller of it for
+    # detection='fingerprint' rows (reconcile.py's _log) already wraps the
+    # call in try/except, so this IntegrityError never reaches a hook.
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "foo", detection="fingerprint",
+                         preexisting_fingerprint=0, session="s1", path=db)
+        try:
+            ledger.log_event("detection", "foo", detection="fingerprint",
+                             preexisting_fingerprint=0, session="s1", path=db)
+            raised = False
+        except ledger.sqlite3.IntegrityError:
+            raised = True
+        assert raised
+        con = ledger.connect(db)
+        count = con.execute(
+            "SELECT COUNT(*) FROM events WHERE detection='fingerprint'").fetchone()[0]
+        con.close()
+        assert count == 1
+
+
 def test_cli_log_and_show():
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
