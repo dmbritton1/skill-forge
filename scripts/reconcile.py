@@ -245,20 +245,18 @@ def changed_tokens(cwd):
     return patterns.tokenize("\n".join(parts))
 
 
-def run(data):
-    session = retrieve.sanitize_session(data.get("session_id"))
-    cwd = data.get("cwd") or os.getcwd()
-    final = data.get("hook_event_name") == "SessionEnd"
-    con = ledger.connect()
-    try:
-        rows = con.execute(SESSION_SQL, (session,)).fetchall()
-    finally:
-        con.close()
+def _reconcile_c2(session, cwd, rows, now, final):
+    """Slice C2's work, lifted out of run() verbatim.
+
+    Extracted so its `no events this session` early return stops skipping
+    C2's own remainder only -- it used to return from run() itself, which
+    would make every slice D1 addition unreachable in exactly the sessions
+    that produce first drafts.
+    """
     state = session_state(rows)
     if not state:
-        return 0
+        return
     entries = load_entries()
-    now = now_utc()
     pending = [(name, s, entries[name]) for name, s in sorted(state.items())
                if name in entries]
 
@@ -279,6 +277,66 @@ def run(data):
             # skill_aggregates.uses (which counts detection rows) is untouched,
             # while skill_confidence picks the outcome up.
             _log("reconcile", name, trigger="refire", outcome=verdict, session=session)
+
+
+def _spawn(argv, cwd):
+    """Detached and never waited on; its own function so tests replace it.
+
+    start_new_session=True cuts the child out of the hook's process group,
+    so the hook returning does not signal it. SKILLFORGE_DRAFTING is the
+    belt-and-braces recursion guard behind --safe-mode.
+    """
+    subprocess.Popen(argv, cwd=str(cwd), stdin=subprocess.DEVNULL,
+                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=True,
+                     env=dict(os.environ, SKILLFORGE_DRAFTING="1"))
+
+
+def _spawn_drafts(data, session, cwd, signal_rows, drafted, busy):
+    """At most one detached drafter per Stop, and one per session at a time."""
+    if busy:
+        return
+    for target, since, until in struggle_targets(signal_rows):
+        if target in drafted:
+            continue
+        try:
+            draft_id = ledger.open_draft(session, target)
+        except Exception as err:
+            print("skillforge: draft row failed: %s" % err, file=sys.stderr)
+            return
+        argv = [sys.executable,
+                str(Path(__file__).resolve().parent / "draft.py"), "run",
+                "--draft-id", str(draft_id), "--target", target,
+                "--transcript", str(data.get("transcript_path") or ""),
+                "--since", str(since), "--until", str(until),
+                "--cwd", str(cwd)]
+        try:
+            _spawn(argv, cwd)
+        except Exception as err:
+            print("skillforge: drafter spawn failed: %s" % err, file=sys.stderr)
+            try:
+                ledger.set_draft_status(draft_id, "failed")
+            except Exception:
+                pass
+        return   # one drafter at a time, even when several targets qualify
+
+
+def run(data):
+    session = retrieve.sanitize_session(data.get("session_id"))
+    cwd = data.get("cwd") or os.getcwd()
+    final = data.get("hook_event_name") == "SessionEnd"
+    now = now_utc()
+    con = ledger.connect()
+    try:
+        rows = con.execute(SESSION_SQL, (session,)).fetchall()
+        reap_stale_drafts(con, now)
+        signal_rows = con.execute(SIGNAL_SQL, (session,)).fetchall()
+        drafted, busy = draft_blockers(con, session)
+    finally:
+        con.close()
+
+    _reconcile_c2(session, cwd, rows, now, final)
+    _spawn_drafts(data, session, cwd, signal_rows, drafted, busy)
     return 0
 
 

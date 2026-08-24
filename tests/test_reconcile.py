@@ -507,6 +507,176 @@ def test_reap_stale_drafts_flips_only_old_drafting_rows():
     in_sandbox(check)
 
 
+class Spawner:
+    """Stands in for Popen. The real drafter must never run in a suite."""
+
+    def __init__(self, explode=False):
+        self.calls = []
+        self.explode = explode
+
+    def __call__(self, argv, cwd):
+        self.calls.append(argv)
+        if self.explode:
+            raise OSError("no such executable")
+
+
+def with_spawner(spawner, fn):
+    real = reconcile._spawn
+    reconcile._spawn = spawner
+    try:
+        return fn()
+    finally:
+        reconcile._spawn = real
+
+
+def struggle(session="s1", target="make test"):
+    ledger.log_signal(session, target, False)
+    ledger.log_signal(session, target, False)
+    ledger.log_signal(session, target, True)
+
+
+def stop(session="s1", cwd=".", **extra):
+    data = {"session_id": session, "cwd": cwd, "hook_event_name": "Stop"}
+    data.update(extra)
+    return reconcile.run(data)
+
+
+def draft_rows():
+    con = ledger.connect()
+    try:
+        return con.execute(
+            "SELECT session, signature, status FROM drafts ORDER BY id").fetchall()
+    finally:
+        con.close()
+
+
+def arg_of(argv, flag):
+    return argv[argv.index(flag) + 1]
+
+
+def test_a_struggle_spawns_one_drafter():
+    def check(home):
+        write_index(home, [])
+        struggle()
+        sp = Spawner()
+        with_spawner(sp, stop)
+        assert len(sp.calls) == 1
+        assert draft_rows() == [("s1", "make test", "drafting")]
+    in_sandbox(check)
+
+
+def test_spawn_passes_the_draft_id_target_and_window():
+    def check(home):
+        write_index(home, [])
+        struggle()
+        sp = Spawner()
+        with_spawner(sp, lambda: stop(transcript_path="/tmp/t.jsonl"))
+        argv = sp.calls[0]
+        assert "draft.py" in " ".join(argv) and "run" in argv
+        assert arg_of(argv, "--target") == "make test"
+        assert arg_of(argv, "--transcript") == "/tmp/t.jsonl"
+        assert arg_of(argv, "--draft-id") == "1"
+        assert arg_of(argv, "--since") and arg_of(argv, "--until")
+    in_sandbox(check)
+
+
+def test_no_struggle_spawns_nothing():
+    def check(home):
+        write_index(home, [])
+        ledger.log_signal("s1", "make test", False)
+        ledger.log_signal("s1", "make test", True)
+        sp = Spawner()
+        with_spawner(sp, stop)
+        assert sp.calls == [] and draft_rows() == []
+    in_sandbox(check)
+
+
+def test_the_same_target_is_not_drafted_twice():
+    def check(home):
+        write_index(home, [])
+        struggle()
+        with_spawner(Spawner(), stop)
+        ledger.set_draft_status(1, "ready")   # clear `busy`, keep the signature
+        sp = Spawner()
+        with_spawner(sp, stop)
+        assert sp.calls == []
+        assert len(draft_rows()) == 1
+    in_sandbox(check)
+
+
+def test_a_running_drafter_blocks_a_second_spawn():
+    def check(home):
+        write_index(home, [])
+        struggle()
+        struggle(target="make lint")
+        sp = Spawner()
+        with_spawner(sp, stop)
+        assert len(sp.calls) == 1          # one per Stop, even with two signals
+        sp2 = Spawner()
+        with_spawner(sp2, stop)
+        assert sp2.calls == []             # still drafting
+    in_sandbox(check)
+
+
+def test_second_target_drafts_once_the_first_settles():
+    def check(home):
+        write_index(home, [])
+        struggle()
+        struggle(target="make lint")
+        with_spawner(Spawner(), stop)
+        ledger.set_draft_status(1, "ready")
+        sp = Spawner()
+        with_spawner(sp, stop)
+        assert arg_of(sp.calls[0], "--target") == "make lint"
+    in_sandbox(check)
+
+
+def test_a_failed_spawn_marks_the_row_failed():
+    def check(home):
+        write_index(home, [])
+        struggle()
+        with_spawner(Spawner(explode=True), stop)
+        assert draft_rows() == [("s1", "make test", "failed")]
+    in_sandbox(check)
+
+
+def test_a_reaped_drafter_unblocks_the_session():
+    def check(home):
+        write_index(home, [])
+        ledger.open_draft("s1", "old", ts=ago(3600))
+        struggle()
+        sp = Spawner()
+        with_spawner(sp, stop)
+        assert len(sp.calls) == 1
+        assert ("s1", "old", "failed") in draft_rows()
+    in_sandbox(check)
+
+
+def test_signals_are_scoped_to_their_session():
+    def check(home):
+        write_index(home, [])
+        struggle(session="other")
+        sp = Spawner()
+        with_spawner(sp, stop)
+        assert sp.calls == []
+    in_sandbox(check)
+
+
+def test_c2_verdicts_still_land_alongside_a_spawn():
+    """The D1 additions must not displace the reconciler's existing work."""
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [TRAP_ENTRY])
+        inject_trap(600)
+        ledger.log_event("detection", "trap", detection="symptom",
+                         trigger="symptom", session="s1", ts=ago(300))
+        struggle()
+        with_spawner(Spawner(), lambda: stop(cwd=str(repo)))
+        assert [r[3] for r in events("reconcile")] == ["failure"]
+        assert len(draft_rows()) == 1
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
