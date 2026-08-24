@@ -398,6 +398,93 @@ def test_malformed_stdin_exits_zero():
     in_sandbox(check)
 
 
+def signals():
+    con = ledger.connect()
+    try:
+        return con.execute(
+            "SELECT session, target, ok FROM signals ORDER BY id").fetchall()
+    finally:
+        con.close()
+
+
+def bash_call(command, is_error, session="s1"):
+    return {"session_id": session, "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "tool_response": {"is_error": is_error, "stdout": ""}}
+
+
+def test_target_key_groups_identical_commands():
+    assert detect.target_key("python3 tests/test_x.py") == \
+        detect.target_key("python3   tests/test_x.py")
+
+
+def test_target_key_separates_different_commands():
+    assert detect.target_key("make test") != detect.target_key("make lint")
+
+
+def test_target_key_caps_token_count():
+    key = detect.target_key(" ".join("tok%d" % i for i in range(200)))
+    assert len(key.split()) == detect.TARGET_MAX_TOKENS
+
+
+def test_target_key_of_empty_command_is_empty():
+    assert detect.target_key("") == ""
+
+
+def test_bash_failure_writes_a_breadcrumb():
+    def check(home):
+        write_triggers(home)
+        detect.run(bash_call("make test", True))
+        assert signals() == [("s1", detect.target_key("make test"), 0)]
+    in_sandbox(check)
+
+
+def test_bash_success_writes_a_breadcrumb():
+    def check(home):
+        write_triggers(home)
+        detect.run(bash_call("make test", False))
+        assert signals() == [("s1", detect.target_key("make test"), 1)]
+    in_sandbox(check)
+
+
+def test_unknown_outcome_writes_no_breadcrumb():
+    """NULL-not-a-guess: an unreported outcome is neither struggle nor fix."""
+    def check(home):
+        write_triggers(home)
+        detect.run({"session_id": "s1", "tool_name": "Bash",
+                    "tool_input": {"command": "make test"},
+                    "tool_response": {"stdout": "ok"}})
+        assert signals() == []
+    in_sandbox(check)
+
+
+def test_non_bash_tool_writes_no_breadcrumb():
+    def check(home):
+        write_triggers(home)
+        detect.run({"session_id": "s1", "tool_name": "Edit",
+                    "tool_input": {"file_path": "x.py"},
+                    "tool_response": {"is_error": False}})
+        assert signals() == []
+    in_sandbox(check)
+
+
+def test_empty_command_writes_no_breadcrumb():
+    def check(home):
+        write_triggers(home)
+        detect.run(bash_call("", False))
+        assert signals() == []
+    in_sandbox(check)
+
+
+def test_breadcrumbs_carry_the_session():
+    def check(home):
+        write_triggers(home)
+        detect.run(bash_call("make test", True, session="alpha"))
+        detect.run(bash_call("make test", True, session="beta"))
+        assert [r[0] for r in signals()] == ["alpha", "beta"]
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

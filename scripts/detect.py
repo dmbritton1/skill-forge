@@ -26,6 +26,7 @@ import trust
 MAX_OUTPUT_CHARS = 64 * 1024
 MAX_ANTISKILLS = 2
 INJECT_BUDGET_TOKENS = 1200
+TARGET_MAX_TOKENS = 24
 
 
 def triggers_path():
@@ -51,6 +52,27 @@ def bash_outcome(resp):
             if key in resp:
                 return "failure" if resp[key] else "success"
     return None
+
+
+def target_key(command):
+    """Stable grouping key for "this same command, run again" (design 2).
+
+    ponytail: the exact tokenized command, capped so a heredoc is bounded
+    rather than stored whole. `pytest -x t.py` after `pytest t.py` does NOT
+    group, because the inserted flag shifts the sequence -- a missed signal,
+    never a false one, and missing is the safe direction for something that
+    spends tokens. Upgrade path if the miss rate ever matters: key on the
+    first token plus the longest token.
+    """
+    return " ".join(patterns.tokenize(command)[:TARGET_MAX_TOKENS])
+
+
+def _log_signal(*args, **kwargs):
+    """Breadcrumbs are best-effort like every other ledger write."""
+    try:
+        ledger.log_signal(*args, **kwargs)
+    except Exception as err:
+        print("skillforge: signal write failed: %s" % err, file=sys.stderr)
 
 
 def _log(*args, **kwargs):
@@ -112,6 +134,12 @@ def run(data):
         command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
         cmd_tokens = patterns.tokenize(command)
         outcome = bash_outcome(resp)
+        # Slice D1: one breadcrumb per Bash call the harness graded. Written
+        # here rather than in a hook of its own because this branch already
+        # has the command and the outcome.
+        key = target_key(command)
+        if outcome is not None and key:
+            _log_signal(session, key, outcome == "success")
         verified = set()
         for v in idx.get("verifications", []):
             name = v.get("skill")
