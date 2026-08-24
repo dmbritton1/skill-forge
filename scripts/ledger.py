@@ -16,6 +16,9 @@ from pathlib import Path
 # in the Tier A conjunct) requires an explicit one-time DROP + CREATE
 # migration -- not a DROP on every connect(), because detect.py connects on
 # every tool call and DDL means a write transaction.
+# `signals` is deliberately NOT part of `events`: events.skill is NOT NULL and
+# a breadcrumb has no skill, and any breadcrumb carrying outcome='failure'
+# would be counted by skill_confidence and corrupt a real skill's bucket.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
@@ -57,6 +60,25 @@ SELECT skill, success_sessions, failure_sessions, last_used,
     ELSE 'unproven'
   END AS bucket
 FROM t;
+CREATE TABLE IF NOT EXISTS signals (
+  id INTEGER PRIMARY KEY,
+  session TEXT NOT NULL,
+  target TEXT NOT NULL,
+  ok INTEGER NOT NULL,
+  ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_signals_session ON signals(session, id);
+CREATE TABLE IF NOT EXISTS drafts (
+  id INTEGER PRIMARY KEY,
+  session TEXT,
+  signature TEXT NOT NULL,
+  name TEXT,
+  status TEXT NOT NULL,
+  path TEXT,
+  ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_drafts_signature ON drafts(signature);
+CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
 """
 
 
@@ -118,6 +140,102 @@ def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
                 " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (event_type, skill, session, turn, tier, trigger, detection,
                  preexisting_fingerprint, outcome, ts))
+    finally:
+        con.close()
+
+
+def now_utc():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def parse_ts(value):
+    """Aware datetime from an ISO-8601 stamp; None if unparseable.
+
+    Python 3.9's fromisoformat rejects a trailing 'Z', which is exactly the
+    form session transcripts use -- without normalizing it first, every
+    transcript entry parses as None and the evidence window silently
+    collapses to the tail fallback.
+    """
+    text = str(value or "")
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.datetime.fromisoformat(text)
+    except (TypeError, ValueError):
+        return None
+    # A naive timestamp would raise on comparison with an aware `now`.
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    return parsed
+
+
+def log_signal(session, target, ok, *, ts=None, path=None):
+    """One tool-call breadcrumb (slice D1 design 2).
+
+    Scratch, not history: pruned at SessionEnd and swept by TTL at sync.
+    Never an `events` row -- see the note above SCHEMA.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            con.execute("INSERT INTO signals (session, target, ok, ts)"
+                        " VALUES (?,?,?,?)", (session, target, 1 if ok else 0, ts))
+    finally:
+        con.close()
+
+
+def open_draft(session, signature, *, ts=None, path=None):
+    """Insert a `drafting` row and return its id."""
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            cur = con.execute(
+                "INSERT INTO drafts (session, signature, status, ts)"
+                " VALUES (?,?,'drafting',?)", (session, signature, ts))
+            return cur.lastrowid
+    finally:
+        con.close()
+
+
+def set_draft_status(draft_id, status, *, name=None, draft_path=None, path=None):
+    """Advance one draft row; columns left None keep their current value.
+
+    The SET list is assembled from string literals in this function only --
+    every caller-supplied value is bound, never interpolated.
+    """
+    sets, vals = ["status = ?"], [status]
+    if name is not None:
+        sets.append("name = ?")
+        vals.append(name)
+    if draft_path is not None:
+        sets.append("path = ?")
+        vals.append(str(draft_path))
+    vals.append(draft_id)
+    con = connect(path)
+    try:
+        with con:
+            con.execute("UPDATE drafts SET %s WHERE id = ?" % ", ".join(sets), vals)
+    finally:
+        con.close()
+
+
+def prune_signals(session=None, older_than_hours=None, path=None):
+    """Delete breadcrumbs: one finished session's, or anything past the TTL.
+
+    ponytail: two DELETEs, no VACUUM. The table is small by construction --
+    it never survives a day -- so reclaiming pages costs more than it saves.
+    """
+    con = connect(path)
+    try:
+        with con:
+            if session is not None:
+                con.execute("DELETE FROM signals WHERE session = ?", (session,))
+            if older_than_hours is not None:
+                cutoff = (now_utc() - datetime.timedelta(hours=older_than_hours)
+                          ).isoformat(timespec="seconds")
+                con.execute("DELETE FROM signals WHERE ts < ?", (cutoff,))
     finally:
         con.close()
 

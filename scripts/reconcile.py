@@ -23,6 +23,12 @@ import ledger
 import patterns
 import retrieve
 
+# parse_ts/now_utc live in ledger now: draft.py needs the same parsing, and
+# the transcript's trailing-'Z' form has to be handled in exactly one place.
+# Bound as module attributes so `reconcile.parse_ts` keeps resolving.
+now_utc = ledger.now_utc
+parse_ts = ledger.parse_ts
+
 # A symptom re-firing sooner than this is the same tool output echoing back
 # through a read or a grep -- detect.py logs the triggering symptom and the
 # injection in the same hook call, microseconds apart, so without this floor
@@ -48,22 +54,6 @@ def _log(*args, **kwargs):
         ledger.log_event(*args, **kwargs)
     except Exception as err:
         print("skillforge: ledger write failed: %s" % err, file=sys.stderr)
-
-
-def now_utc():
-    return datetime.datetime.now(datetime.timezone.utc)
-
-
-def parse_ts(value):
-    """Aware datetime from a ledger timestamp; None if unparseable."""
-    try:
-        parsed = datetime.datetime.fromisoformat(str(value))
-    except (TypeError, ValueError):
-        return None
-    # A naive timestamp would raise on comparison with an aware `now`.
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
-    return parsed
 
 
 def session_state(rows):
