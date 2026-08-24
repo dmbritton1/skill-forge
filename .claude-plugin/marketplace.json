@@ -1,0 +1,16 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "skillforge",
+  "description": "Self-improving skill library for Claude Code.",
+  "owner": {
+    "name": "Dwight"
+  },
+  "plugins": [
+    {
+      "name": "skillforge",
+      "description": "Distills coding sessions into skills and anti-skills, scans them for secrets, and serves them back natively in future sessions.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}
