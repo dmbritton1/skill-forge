@@ -235,6 +235,11 @@ def sync(project_root=None):
 
 
 def main(argv=None):
+    # A drafter (slice D1) is a Claude Code process spawned by these very
+    # hooks. `claude -p --safe-mode` already disables hooks in the child;
+    # this is the guard that survives a change in what --safe-mode covers.
+    if os.environ.get("SKILLFORGE_DRAFTING"):
+        return 0
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--project-root")
     args = ap.parse_args(argv)
