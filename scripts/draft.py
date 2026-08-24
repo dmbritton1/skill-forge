@@ -9,6 +9,7 @@ Two entry points: `run` does the drafting, `resolve` records what the user
 decided about a finished draft.
 """
 import argparse
+import datetime
 import json
 import os
 import subprocess
@@ -140,3 +141,157 @@ def build_prompt(target, evidence, plugin_root):
         "===== SESSION EVIDENCE =====",
         evidence,
     ])
+
+
+def run_model(prompt, cwd, model=None, timeout=DRAFT_TIMEOUT_S):
+    """One `claude -p` turn; the drafted text, or None on any failure.
+
+    A module-level function on purpose: tests replace it wholesale, so no
+    suite ever spends a token.
+
+    --safe-mode is both the recursion guard and the auth choice. It disables
+    hooks in the child while leaving subscription OAuth intact. --bare also
+    disables hooks but forces ANTHROPIC_API_KEY or apiKeyHelper -- which
+    would turn every draft into an API bill, or fail outright on a machine
+    with no key. The drafter is granted no tools and needs none: every input
+    is inline in the prompt.
+    """
+    argv = ["claude", "-p", "--safe-mode", "--no-session-persistence",
+            "--output-format", "text", "--model",
+            model or os.environ.get("SKILLFORGE_DRAFT_MODEL", DEFAULT_MODEL)]
+    try:
+        proc = subprocess.run(
+            argv, cwd=str(cwd), input=prompt.encode("utf-8"),
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout,
+            env=dict(os.environ, SKILLFORGE_DRAFTING="1"))
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", "replace").strip()
+
+
+def drafts_dir():
+    return Path.home() / ".claude" / "skillforge" / "drafts"
+
+
+def write_draft(draft_id, text):
+    """Atomic: a delivery must never be able to read a half-written draft."""
+    d = drafts_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    final = d / ("%d.md" % draft_id)
+    tmp = d / ("%d.md.tmp-%d" % (draft_id, os.getpid()))
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(str(tmp), str(final))
+    return final
+
+
+def is_duplicate(text):
+    """True if the library already covers this draft (design decision 7).
+
+    Ranked post-draft rather than pre-signal because a command string is not
+    a topic -- the draft's own name and description are the first text worth
+    querying the index with.
+    """
+    fm, _ = save_skill.parse_frontmatter(text)
+    fm = fm or {}
+    desc = fm.get("description", "")
+    query = "%s %s" % (fm.get("name", ""), desc if isinstance(desc, str) else "")
+    terms = set(retrieve.tokenize(query))
+    if not terms:
+        return False
+    ranked = retrieve.rank(query, (retrieve.load_index() or {}).get("entries", []))
+    if not ranked:
+        return False
+    _entry, _score, matched = ranked[0]
+    return matched >= DUP_MIN_TERMS and matched / len(terms) >= DUP_COVERAGE
+
+
+REJECTED_HEAD = "\n\n===== YOUR PREVIOUS ATTEMPT WAS REJECTED =====\n"
+
+
+def produce(draft_id, target, evidence, cwd, plugin_root):
+    """Draft, validate, scan, dedupe, write. Returns (status, name, path)."""
+    if not evidence.strip():
+        # transcript_slice found nothing in the struggle window, or a single
+        # line blew the byte cap. Either way there is nothing to distill, and
+        # a model call on no evidence invents one.
+        return "failed", None, None
+    prompt = build_prompt(target, evidence, plugin_root)
+    text = run_model(prompt, cwd)
+    if not text:
+        return "failed", None, None
+    if text.startswith("ABORT:"):
+        # The novelty gate refusing model-obvious knowledge is the contract
+        # working, not an error -- hence its own status, not `failed`.
+        return "aborted", None, None
+
+    errors = save_skill.validate(text)
+    if errors:
+        # One retry, not a loop. A second failure means the evidence does not
+        # support a well-formed skill, and a third call is how a background
+        # process becomes a bill.
+        retry = (prompt + REJECTED_HEAD + "\n".join(errors)
+                 + "\nEmit a corrected SKILL.md and nothing else.")
+        text = run_model(retry, cwd)
+        if not text or text.startswith("ABORT:") or save_skill.validate(text):
+            return "failed", None, None
+
+    # Scanned before the text touches disk: a draft is delivered by putting
+    # its path in front of the model, so a secret-bearing draft on disk is a
+    # secret queued for injection. save_skill's scan is the second line.
+    if scan_text(text):
+        return "failed", None, None
+    if is_duplicate(text):
+        return "duplicate", None, None
+
+    fm, _ = save_skill.parse_frontmatter(text)
+    return "ready", (fm or {}).get("name"), write_draft(draft_id, text)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("run")
+    r.add_argument("--draft-id", type=int, required=True)
+    r.add_argument("--target", required=True)
+    r.add_argument("--transcript", default="")
+    r.add_argument("--since", default="")
+    r.add_argument("--until", default="")
+    r.add_argument("--cwd", default=".")
+    r.add_argument("--plugin-root",
+                   default=str(Path(__file__).resolve().parent.parent))
+    v = sub.add_parser("resolve")
+    v.add_argument("draft_id", type=int)
+    v.add_argument("status", choices=("saved", "discarded"))
+    args = ap.parse_args(argv)
+
+    if args.cmd == "resolve":
+        ledger.set_draft_status(args.draft_id, args.status)
+        if args.status == "discarded":
+            # The file is scratch; the row is the recurrence memory.
+            try:
+                (drafts_dir() / ("%d.md" % args.draft_id)).unlink()
+            except OSError:
+                pass
+        print("draft %d: %s" % (args.draft_id, args.status))
+        return 0
+
+    since = ledger.parse_ts(args.since) or datetime.datetime.min.replace(
+        tzinfo=datetime.timezone.utc)
+    until = ledger.parse_ts(args.until) or ledger.now_utc()
+    try:
+        evidence = transcript_slice(args.transcript, since, until)
+        status, name, path = produce(args.draft_id, args.target, evidence,
+                                     args.cwd, args.plugin_root)
+    except Exception:
+        # Nothing here may raise past this point: an unrecorded status leaves
+        # the row `drafting` forever, and the session's next signal is
+        # suppressed by the one-at-a-time rule until the reaper catches it.
+        status, name, path = "failed", None, None
+    ledger.set_draft_status(args.draft_id, status, name=name, draft_path=path)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
