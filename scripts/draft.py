@@ -61,9 +61,13 @@ def transcript_slice(transcript_path, since, until):
     """The struggle window of a session transcript, under the byte cap.
 
     ponytail: a recency window, not semantic selection -- the signal already
-    told us which slice of the session matters. Timestamp filtering first;
-    a transcript whose entries carry no parseable stamp falls back to the
-    tail of the file, which is the same window reached another way.
+    told us which slice of the session matters.
+
+    The tail fallback fires ONLY when nothing in the file carried a parseable
+    stamp. A transcript that IS dated but has nothing in the window means the
+    window genuinely matched nothing; returning the tail there would hand the
+    model an unrelated slice of session and let it draft a confident skill
+    about the wrong work.
     """
     try:
         raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
@@ -71,11 +75,17 @@ def transcript_slice(transcript_path, since, until):
         return ""
     lines = raw.splitlines()
     kept = []
+    dated = False
     for line in lines:
         ts = _entry_ts(line)
-        if ts is not None and since <= ts <= until:
+        if ts is None:
+            continue
+        dated = True
+        if since <= ts <= until:
             kept.append(line)
-    return _tail_bytes(kept or lines, EVIDENCE_MAX_BYTES)
+    if not dated:
+        return _tail_bytes(lines, EVIDENCE_MAX_BYTES)
+    return _tail_bytes(kept, EVIDENCE_MAX_BYTES)
 
 
 PROMPT_HEAD = """You are distilling one lesson out of a coding session that already happened.

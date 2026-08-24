@@ -91,6 +91,18 @@ def test_transcript_slice_of_a_missing_file_is_empty():
                                   ledger.parse_ts(when(12))) == ""
 
 
+def test_transcript_slice_is_empty_when_dated_but_window_matches_nothing():
+    """A dated transcript with nothing in the window must not fall back.
+
+    Falling back here would send an unrelated slice of the session as evidence
+    for this struggle, and the resulting draft would look entirely legitimate.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        p = transcript(tmp, [entry(when(3), "early"), entry(when(20), "late")])
+        assert draft.transcript_slice(p, ledger.parse_ts(when(10)),
+                                      ledger.parse_ts(when(12))) == ""
+
+
 def test_contracts_inlines_both_distillation_skills():
     text = draft.contracts(PLUGIN_ROOT)
     assert "distilling-skills" in text
