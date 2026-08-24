@@ -15,22 +15,33 @@ import retrieve
 import sync
 
 
-class ExplodingStdin:
-    """Proves the guard returned before the hook touched its payload."""
+class CountingStdin:
+    """Counts reads so the assertion survives the hooks' own catch-all.
+
+    An exception-raising stub cannot prove ordering here: detect, reconcile,
+    and retrieve wrap their stdin read in `except Exception`, which would
+    swallow the raise and still return 0 -- so the test would pass with or
+    without the guard.
+    """
+
+    def __init__(self):
+        self.reads = 0
 
     def read(self, *args):
-        raise AssertionError("hook read stdin inside a drafter")
+        self.reads += 1
+        return ""
 
 
 def in_drafter(fn):
     old_home = os.environ["HOME"]
     os.environ["SKILLFORGE_DRAFTING"] = "1"
     old_stdin = sys.stdin
-    sys.stdin = ExplodingStdin()
+    stdin = CountingStdin()
+    sys.stdin = stdin
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
         try:
-            fn(pathlib.Path(tmp))
+            fn(pathlib.Path(tmp), stdin)
         finally:
             sys.stdin = old_stdin
             os.environ["HOME"] = old_home
@@ -46,22 +57,32 @@ def silent(main, argv):
 
 
 def test_detect_is_inert():
-    in_drafter(lambda home: silent(detect.main, []))
+    def check(home, stdin):
+        silent(detect.main, [])
+        assert stdin.reads == 0
+    in_drafter(check)
 
 
 def test_retrieve_is_inert():
-    in_drafter(lambda home: silent(retrieve.main, []))
+    def check(home, stdin):
+        silent(retrieve.main, [])
+        assert stdin.reads == 0
+    in_drafter(check)
 
 
 def test_reconcile_is_inert():
-    in_drafter(lambda home: silent(reconcile.main, []))
+    def check(home, stdin):
+        silent(reconcile.main, [])
+        assert stdin.reads == 0
+    in_drafter(check)
 
 
 def test_sync_is_inert():
-    def check(home):
+    def check(home, stdin):
         silent(sync.main, [])
         # sync reads no stdin, so the proof is that it wrote no derived state
         assert not (home / ".claude" / "skillforge" / "index.json").exists()
+        assert stdin.reads == 0
     in_drafter(check)
 
 
