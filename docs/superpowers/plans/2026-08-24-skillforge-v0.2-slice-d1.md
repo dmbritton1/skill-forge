@@ -1433,9 +1433,13 @@ def test_write_draft_is_atomic_and_leaves_no_temp():
 def test_cli_run_records_the_final_status():
     def check(home):
         did = ledger.open_draft("s1", "make test")
+        # A real transcript is required: blank evidence short-circuits before
+        # the model is ever called, and this test exercises the CLI's
+        # status-recording wiring, not that guard.
+        tp = transcript(home, [entry(when(11), "struggled, then fixed it")])
         with_model(Model(VALID), lambda: draft.main(
             ["run", "--draft-id", str(did), "--target", "make test",
-             "--plugin-root", str(PLUGIN_ROOT)]))
+             "--transcript", str(tp), "--plugin-root", str(PLUGIN_ROOT)]))
         con = ledger.connect()
         try:
             row = con.execute("SELECT status, name FROM drafts WHERE id = ?",
@@ -1453,9 +1457,13 @@ def test_cli_run_marks_failed_when_the_worker_raises():
         def boom(*a, **k):
             raise RuntimeError("nope")
 
+        # Non-blank evidence, so `boom` is actually reached. Without a
+        # transcript this test passes VACUOUSLY: it asserts "failed" and gets
+        # "failed" because the short-circuit fired, not because boom raised.
+        tp = transcript(home, [entry(when(11), "struggled, then fixed it")])
         with_model(boom, lambda: draft.main(
             ["run", "--draft-id", str(did), "--target", "make test",
-             "--plugin-root", str(PLUGIN_ROOT)]))
+             "--transcript", str(tp), "--plugin-root", str(PLUGIN_ROOT)]))
         con = ledger.connect()
         try:
             assert con.execute("SELECT status FROM drafts WHERE id = ?",
