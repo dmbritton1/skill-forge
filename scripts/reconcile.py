@@ -44,8 +44,18 @@ RECONCILE_WINDOW_S = 900
 GIT_TIMEOUT_S = 1.0
 MAX_DIFF_BYTES = 512 * 1024
 
+# Two failures on one command, then a success. One failure then a success is
+# not a struggle -- that is the case where the model already knew the answer,
+# and a skill restating it would fail the novelty gate anyway.
+STRUGGLE_FAILURES = 2
+# Wall-clock ceiling on a detached drafter, mirrored in draft.py; the slack
+# is what separates "still working" from "killed by a reboot".
+DRAFT_TIMEOUT_S = 300
+DRAFT_REAP_SLACK_S = 60
+
 SESSION_SQL = ('SELECT event_type, skill, detection, ts, preexisting_fingerprint, "trigger"'
                " FROM events WHERE session = ? ORDER BY id")
+SIGNAL_SQL = "SELECT target, ok, ts FROM signals WHERE session = ? ORDER BY id"
 
 
 def _log(*args, **kwargs):
@@ -78,6 +88,56 @@ def session_state(rows):
         elif event_type == "reconcile":
             s["settled"] = True
     return state
+
+
+def struggle_targets(rows):
+    """[(target, first_failure_ts, success_ts)] for each struggle-then-fix.
+
+    A pure function of one session's id-ordered breadcrumbs, which is what
+    makes the whole trigger testable without a session, a subprocess, or a
+    model. The window returned is the evidence slice the drafter reads:
+    from the first failure of the streak to the success that ended it, so a
+    success *before* the streak never widens it.
+
+    One signal per target per session -- a target that struggles twice is
+    still one lesson, and the second draft would restate the first.
+    """
+    streak = {}
+    seen = set()
+    out = []
+    for target, ok, ts in rows:
+        run = streak.get(target)
+        if ok:
+            if run and run[0] >= STRUGGLE_FAILURES and target not in seen:
+                seen.add(target)
+                out.append((target, run[1], ts))
+            streak[target] = None
+        else:
+            streak[target] = [run[0] + 1, run[1]] if run else [1, ts]
+    return out
+
+
+def draft_blockers(con, session):
+    """(signatures already drafted this session, is a drafter still running).
+
+    One draft per target per session, and one drafter at a time -- a session
+    with five signals must not fan out five `claude` processes.
+    """
+    done = {r[0] for r in con.execute(
+        "SELECT signature FROM drafts WHERE session = ?", (session,))}
+    busy = con.execute(
+        "SELECT 1 FROM drafts WHERE session = ? AND status = 'drafting' LIMIT 1",
+        (session,)).fetchone() is not None
+    return done, busy
+
+
+def reap_stale_drafts(con, now):
+    """A drafter killed by a reboot must not wedge the session forever."""
+    cutoff = (now - datetime.timedelta(seconds=DRAFT_TIMEOUT_S + DRAFT_REAP_SLACK_S)
+              ).isoformat(timespec="seconds")
+    with con:
+        con.execute("UPDATE drafts SET status = 'failed'"
+                    " WHERE status = 'drafting' AND ts < ?", (cutoff,))
 
 
 def load_entries():

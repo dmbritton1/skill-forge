@@ -403,6 +403,110 @@ def test_verdicts_are_scoped_to_their_own_session():
     in_sandbox(check)
 
 
+def sig(target, ok, ts="2026-08-24T10:00:00+00:00"):
+    return (target, 1 if ok else 0, ts)
+
+
+def test_two_failures_then_success_is_a_signal():
+    out = reconcile.struggle_targets([
+        sig("make test", False, "t1"), sig("make test", False, "t2"),
+        sig("make test", True, "t3")])
+    assert out == [("make test", "t1", "t3")]
+
+
+def test_one_failure_then_success_is_not_a_struggle():
+    assert reconcile.struggle_targets([
+        sig("make test", False, "t1"), sig("make test", True, "t2")]) == []
+
+
+def test_success_resets_the_streak():
+    """fail, pass, fail, pass never reaches two consecutive failures."""
+    assert reconcile.struggle_targets([
+        sig("t", False, "t1"), sig("t", True, "t2"),
+        sig("t", False, "t3"), sig("t", True, "t4")]) == []
+
+
+def test_failures_without_a_fix_produce_nothing():
+    assert reconcile.struggle_targets([
+        sig("t", False, "t1"), sig("t", False, "t2"), sig("t", False, "t3")]) == []
+
+
+def test_interleaved_targets_are_tracked_separately():
+    out = reconcile.struggle_targets([
+        sig("a", False, "1"), sig("b", False, "2"),
+        sig("a", False, "3"), sig("b", True, "4"),
+        sig("a", True, "5")])
+    assert out == [("a", "1", "5")]
+
+
+def test_three_failures_then_success_still_signals():
+    out = reconcile.struggle_targets([
+        sig("t", False, "1"), sig("t", False, "2"),
+        sig("t", False, "3"), sig("t", True, "4")])
+    assert out == [("t", "1", "4")]
+
+
+def test_repeat_struggle_on_one_target_yields_one_signal():
+    out = reconcile.struggle_targets([
+        sig("t", False, "1"), sig("t", False, "2"), sig("t", True, "3"),
+        sig("t", False, "4"), sig("t", False, "5"), sig("t", True, "6")])
+    assert out == [("t", "1", "3")]
+
+
+def test_window_starts_at_the_first_failure_of_the_streak():
+    """A success before the streak must not widen the evidence window."""
+    out = reconcile.struggle_targets([
+        sig("t", True, "1"), sig("t", False, "2"),
+        sig("t", False, "3"), sig("t", True, "4")])
+    assert out == [("t", "2", "4")]
+
+
+def test_draft_blockers_reports_signatures_and_busy():
+    def check(home):
+        ledger.open_draft("s1", "make test")
+        con = ledger.connect()
+        try:
+            done, busy = reconcile.draft_blockers(con, "s1")
+            assert done == {"make test"}
+            assert busy is True
+            done2, busy2 = reconcile.draft_blockers(con, "s2")
+            assert done2 == set() and busy2 is False
+        finally:
+            con.close()
+    in_sandbox(check)
+
+
+def test_draft_blockers_not_busy_once_the_row_settles():
+    def check(home):
+        did = ledger.open_draft("s1", "make test")
+        ledger.set_draft_status(did, "ready")
+        con = ledger.connect()
+        try:
+            done, busy = reconcile.draft_blockers(con, "s1")
+            assert done == {"make test"} and busy is False
+        finally:
+            con.close()
+    in_sandbox(check)
+
+
+def test_reap_stale_drafts_flips_only_old_drafting_rows():
+    def check(home):
+        fresh = ledger.open_draft("s1", "fresh")
+        stale = ledger.open_draft("s1", "stale", ts=ago(3600))
+        ready = ledger.open_draft("s1", "ready", ts=ago(3600))
+        ledger.set_draft_status(ready, "ready")
+        con = ledger.connect()
+        try:
+            reconcile.reap_stale_drafts(con, reconcile.now_utc())
+            got = dict(con.execute("SELECT id, status FROM drafts"))
+        finally:
+            con.close()
+        assert got[fresh] == "drafting"
+        assert got[stale] == "failed"
+        assert got[ready] == "ready"
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
