@@ -17,10 +17,17 @@ Engine (this plugin) and knowledge (learned skills) are separate:
     claude plugin marketplace add /Users/dwightbritton/Developer/skill-forge
     claude plugin install skillforge@skillforge
 
-Installing copies the tree into `~/.claude/plugins/cache/`, so after editing
-the source, publish the change:
+Installing copies the tree into `~/.claude/plugins/cache/`, so edits to this
+repo do not reach a running session until the copy is refreshed:
 
-    claude plugin update skillforge
+    claude plugin uninstall skillforge@skillforge
+    claude plugin install skillforge@skillforge --yes
+
+`plugin update` looks like the right command and is not: it compares the
+`version` in `plugin.json` and reports "already at the latest version" without
+re-copying, so source edits under an unchanged version are silently ignored.
+Bumping the version works too; reinstalling is the reliable habit. Both forms
+need the qualified `skillforge@skillforge` id — the bare name is not found.
 
 `--plugin-dir <repo>` loads the working tree directly and skips that copy, but
 it only affects `claude` processes you launch yourself. The desktop app spawns
