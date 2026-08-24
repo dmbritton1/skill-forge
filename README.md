@@ -12,9 +12,25 @@ Engine (this plugin) and knowledge (learned skills) are separate:
 - Native copies: `~/.claude/skills/skillforge-hot/` (global) or
   `<repo>/.claude/skills/skillforge-hot/` (project)
 
-## Install (local development)
+## Install
 
-    claude --plugin-dir /Users/dwightbritton/Desktop/skill-forge
+    claude plugin marketplace add /Users/dwightbritton/Developer/skill-forge
+    claude plugin install skillforge@skillforge
+
+Installing copies the tree into `~/.claude/plugins/cache/`, so after editing
+the source, publish the change:
+
+    claude plugin update skillforge
+
+`--plugin-dir <repo>` loads the working tree directly and skips that copy, but
+it only affects `claude` processes you launch yourself. The desktop app spawns
+its own and never reads a shell profile, so an alias carrying the flag has no
+effect there — a real install is the only path that covers both.
+
+Keep the repo off iCloud Drive. `~/Desktop` and `~/Documents` are synced by
+default, and every read there goes through the iCloud file provider: installing
+from a synced folder walks the whole tree and fails with `ETIMEDOUT`. The same
+tree installs in about a second from local storage.
 
 ## Usage
 
