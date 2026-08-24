@@ -1002,6 +1002,18 @@ def test_transcript_slice_falls_back_to_the_tail_when_undated():
         assert "not json at all" in out
 
 
+def test_transcript_slice_is_empty_when_dated_but_window_matches_nothing():
+    """A dated transcript with nothing in the window must not fall back.
+
+    Falling back here would send an unrelated slice of the session as evidence
+    for this struggle, and the resulting draft would look entirely legitimate.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        p = transcript(tmp, [entry(when(3), "early"), entry(when(20), "late")])
+        assert draft.transcript_slice(p, ledger.parse_ts(when(10)),
+                                      ledger.parse_ts(when(12))) == ""
+
+
 def test_transcript_slice_respects_the_byte_cap():
     with tempfile.TemporaryDirectory() as tmp:
         big = [entry(when(11), "x" * 4000) for _ in range(100)]
@@ -1141,9 +1153,14 @@ def transcript_slice(transcript_path, since, until):
     """The struggle window of a session transcript, under the byte cap.
 
     ponytail: a recency window, not semantic selection -- the signal already
-    told us which slice of the session matters. Timestamp filtering first;
-    a transcript whose entries carry no parseable stamp falls back to the
-    tail of the file, which is the same window reached another way.
+    told us which slice of the session matters.
+
+    The tail fallback fires ONLY when nothing in the file carried a parseable
+    stamp. A transcript that IS dated but has nothing in the window means the
+    window genuinely matched nothing; returning the tail there would hand the
+    model an unrelated slice of session and let it draft a confident skill
+    about the wrong work. An earlier draft of this plan wrote `kept or lines`,
+    which conflated the two -- do not reintroduce it.
     """
     try:
         raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
@@ -1151,11 +1168,17 @@ def transcript_slice(transcript_path, since, until):
         return ""
     lines = raw.splitlines()
     kept = []
+    dated = False
     for line in lines:
         ts = _entry_ts(line)
-        if ts is not None and since <= ts <= until:
+        if ts is None:
+            continue
+        dated = True
+        if since <= ts <= until:
             kept.append(line)
-    return _tail_bytes(kept or lines, EVIDENCE_MAX_BYTES)
+    if not dated:
+        return _tail_bytes(lines, EVIDENCE_MAX_BYTES)
+    return _tail_bytes(kept, EVIDENCE_MAX_BYTES)
 ```
 
 - [ ] **Step 5: Add the prompt builder**
@@ -1218,7 +1241,7 @@ def build_prompt(target, evidence, plugin_root):
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `python3 tests/test_draft.py`
-Expected: 12 × PASS.
+Expected: 13 × PASS.
 
 - [ ] **Step 7: Run every suite**
 
@@ -1348,6 +1371,17 @@ def test_secret_bearing_draft_never_touches_disk():
         assert status == "failed"
         assert path is None
         assert not (home / ".claude" / "skillforge" / "drafts").exists()
+    in_sandbox(check)
+
+
+def test_empty_evidence_never_reaches_the_model():
+    """No evidence must cost no tokens -- and must not invent a draft."""
+    def check(home):
+        model = Model(VALID)
+        status, name, path = with_model(model, lambda: draft.produce(
+            1, "make test", "   \n  ", ".", PLUGIN_ROOT))
+        assert (status, name, path) == ("failed", None, None)
+        assert model.calls == []
     in_sandbox(check)
 
 
@@ -1546,6 +1580,11 @@ REJECTED_HEAD = "\n\n===== YOUR PREVIOUS ATTEMPT WAS REJECTED =====\n"
 
 def produce(draft_id, target, evidence, cwd, plugin_root):
     """Draft, validate, scan, dedupe, write. Returns (status, name, path)."""
+    if not evidence.strip():
+        # transcript_slice found nothing in the struggle window, or a single
+        # line blew the byte cap. Either way there is nothing to distill, and
+        # a model call on no evidence invents one.
+        return "failed", None, None
     prompt = build_prompt(target, evidence, plugin_root)
     text = run_model(prompt, cwd)
     if not text:
@@ -1634,7 +1673,7 @@ Add `import datetime` to the module's import block — `main` needs it.
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `python3 tests/test_draft.py`
-Expected: all PASS (12 from Task 5 plus 14 here).
+Expected: all PASS (13 from Task 5 plus 15 here).
 
 - [ ] **Step 8: Prove no suite shells out to `claude`**
 
