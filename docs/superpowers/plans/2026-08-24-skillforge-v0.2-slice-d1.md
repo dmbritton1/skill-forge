@@ -3096,7 +3096,9 @@ git commit -m "$(printf 'test: end-to-end capture, plus user documentation\n\nBr
 Before calling slice D1 done:
 
 - [ ] All eleven suites green: `for f in tests/test_*.py; do python3 "$f" >/dev/null || echo "FAIL $f"; done`
-- [ ] No suite invokes a model or spawns a drafter: `grep -rn "run_model\|_spawn" tests/ | grep -v "= \|real \|with_spawner\|with_model\|def "` prints nothing.
+- [ ] No suite spawns a drafter: `grep -rn "_spawn(" tests/ | grep -v "with_spawner(" | grep -v ":def "` prints nothing.
+- [ ] No suite invokes a model: `grep -rn "run_model(" tests/ | grep -v ":def "` shows only calls inside the stub/swap helpers.
+- [ ] Note: substring greps on `_spawn` / `run_model` WITHOUT the trailing `(` match test *names* and produce false violations. Filter on the call form.
 - [ ] No suite shells out to `claude`: `grep -rn '"claude"' tests/` prints nothing.
 - [ ] Every hook still exits 0 on garbage input: `for h in detect retrieve reconcile sync; do echo 'not json' | python3 scripts/$h.py >/dev/null 2>&1; echo "$h -> $?"; done` prints `-> 0` four times.
 - [ ] The recursion guard holds: `SKILLFORGE_DRAFTING=1 python3 tests/test_guard.py`.
