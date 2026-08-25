@@ -398,6 +398,13 @@ def run(data):
 
     _reconcile_c2(session, cwd, rows, now, final)
     _spawn_drafts(data, session, cwd, signal_rows, drafted, busy)
+    if final:
+        # Breadcrumbs are scratch. The drafts row -- the recurrence memory --
+        # is deliberately not pruned, here or anywhere.
+        try:
+            ledger.prune_signals(session=session)
+        except Exception as err:
+            print("skillforge: signal prune failed: %s" % err, file=sys.stderr)
     # Printed last, and only after the row is already marked delivered.
     if reason:
         print(json.dumps({"decision": "block", "reason": reason}))

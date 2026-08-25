@@ -1,10 +1,12 @@
 """Tests for trust-gated native sync. Run: python3 tests/test_sync.py"""
+import datetime
 import os
 import pathlib
 import sys
 import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
+import ledger
 import sync
 import trust
 
@@ -466,6 +468,33 @@ def test_trusted_outranks_working_for_a_scarce_hot_slot():
             tiers = {e["name"]: e["tier"] for e in read_index(home)["entries"]}
             assert tiers == {"beta": "hot", "alpha": "warm"}, tiers
         with_budget("10", run)
+    in_sandbox(check)
+
+
+def signal_count():
+    con = ledger.connect()
+    try:
+        return con.execute("SELECT COUNT(*) FROM signals").fetchone()[0]
+    finally:
+        con.close()
+
+
+def test_sync_sweeps_breadcrumbs_past_the_ttl():
+    def check(home):
+        stale = (datetime.datetime.now(datetime.timezone.utc)
+                 - datetime.timedelta(hours=sync.SIGNAL_TTL_HOURS + 1)
+                 ).isoformat(timespec="seconds")
+        ledger.log_signal("dead-session", "make test", False, ts=stale)
+        sync.sync()
+        assert signal_count() == 0
+    in_sandbox(check)
+
+
+def test_sync_keeps_fresh_breadcrumbs():
+    def check(home):
+        ledger.log_signal("live-session", "make test", False)
+        sync.sync()
+        assert signal_count() == 1
     in_sandbox(check)
 
 

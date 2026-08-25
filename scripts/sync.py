@@ -88,6 +88,9 @@ def _token_lists(value):
 BUCKET_RANK = {"trusted": 0, "working": 1, "unproven": 2}
 HOT_ELIGIBLE = ("trusted", "working")
 UNKNOWN = ("unproven", 0, "")
+# Catches sessions that died without a clean SessionEnd -- a crash, a kill,
+# a closed terminal. A day is long enough that no live session is swept.
+SIGNAL_TTL_HOURS = 24
 
 
 def _confidence():
@@ -231,6 +234,10 @@ def sync(project_root=None):
     _write_index(trusted)
     _write_triggers(trusted)
     _cleanup_state()
+    try:
+        ledger.prune_signals(older_than_hours=SIGNAL_TTL_HOURS)
+    except Exception:
+        pass    # a stale breadcrumb is harmless; a failed sync is not
     return counts
 
 

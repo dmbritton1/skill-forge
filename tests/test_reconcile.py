@@ -818,6 +818,47 @@ def test_delivery_survives_a_session_with_no_c2_events():
     in_sandbox(check)
 
 
+def signal_sessions():
+    con = ledger.connect()
+    try:
+        return [r[0] for r in con.execute(
+            "SELECT session FROM signals ORDER BY id")]
+    finally:
+        con.close()
+
+
+def test_session_end_prunes_this_sessions_breadcrumbs():
+    def check(home):
+        write_index(home, [])
+        struggle(session="s1")
+        struggle(session="s2")
+        with_spawner(Spawner(), lambda: reconcile.run(
+            {"session_id": "s1", "cwd": ".", "hook_event_name": "SessionEnd"}))
+        assert set(signal_sessions()) == {"s2"}
+    in_sandbox(check)
+
+
+def test_stop_does_not_prune_breadcrumbs():
+    def check(home):
+        write_index(home, [])
+        struggle()
+        with_spawner(Spawner(), stop)
+        assert signal_sessions() == ["s1", "s1", "s1"]
+    in_sandbox(check)
+
+
+def test_session_end_keeps_the_draft_row():
+    """Breadcrumbs are scratch; draft outcomes are the recurrence memory."""
+    def check(home):
+        write_index(home, [])
+        struggle()
+        with_spawner(Spawner(), stop)
+        with_spawner(Spawner(), lambda: reconcile.run(
+            {"session_id": "s1", "cwd": ".", "hook_event_name": "SessionEnd"}))
+        assert len(draft_rows()) == 1
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
