@@ -168,6 +168,40 @@ def test_delete_refuses_an_entry_outside_the_store():
     in_sandbox(check)
 
 
+def test_delete_of_a_project_skill_does_not_strip_the_shared_index():
+    """Re-sync after delete must use the skill's OWN root, not the caller's
+    cwd/--project-root -- else index.json is rebuilt without every other
+    skill belonging to that (unvisited) project."""
+    def check(home):
+        proj = home / "myrepo"
+        for name in ("alpha", "kept"):
+            d = proj / ".claude" / "skillforge" / "skills" / name
+            d.mkdir(parents=True, exist_ok=True)
+            text = SKILL % name
+            (d / "SKILL.md").write_text(text, encoding="utf-8")
+            trust.record(name, text, "self")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        sync.sync(project_root=str(proj))
+
+        native = proj / ".claude" / "skills" / "skillforge-hot" / "alpha"
+        assert native.exists(), "precondition: alpha must be hot before delete"
+        assert any(r["name"] == "kept" for r in library.rows()), \
+            "precondition: kept must be indexed before delete"
+
+        old_cwd = os.getcwd()
+        os.chdir(str(home))   # cwd != proj, exactly what `--project-root .` gives
+        try:
+            rc, _ = capture(["delete", "alpha", "--project-root", "."])
+        finally:
+            os.chdir(old_cwd)
+
+        assert rc == 0
+        assert not native.exists()
+        assert any(r["name"] == "kept" for r in library.rows()), \
+            "a sibling project skill must survive deleting another one"
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

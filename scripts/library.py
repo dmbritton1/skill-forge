@@ -65,14 +65,19 @@ def cmd_delete(name, project_root):
         return 1
 
     shutil.rmtree(str(store), ignore_errors=True)
-    native = root / ".claude" / "skills" / "skillforge-hot" / name
-    if native.is_dir():
-        shutil.rmtree(str(native), ignore_errors=True)
     reg = trust.load()
     reg.pop(name, None)
     trust.save(reg)
     ledger.log_event("delete", name, outcome="deleted")
-    sync.sync(project_root=project_root)
+    # Re-sync from the skill's OWN base, not the --project-root argument:
+    # sync() only rebuilds index.json for the bases it's given, so syncing
+    # any other base would strip every other skill belonging to this one
+    # out of the shared index until someone re-syncs from the right root.
+    # sync() also owns native-dir eviction (its docstring: "the ONLY writer
+    # of native skill dirs") -- with the trust entry already popped above,
+    # this same call evicts the skill's native copy too, so no separate
+    # rmtree is needed here.
+    sync.sync(project_root=str(root) if root != Path.home() else None)
     print("deleted: %s" % name)
     return 0
 
