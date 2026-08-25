@@ -2940,6 +2940,23 @@ def inline_drafter(reply):
     return spawn
 
 
+def write_transcript(home):
+    """A dated transcript inside the struggle window.
+
+    Without this, `stop()` carries no transcript_path, transcript_slice
+    returns "", and produce()'s empty-evidence guard bails to `failed`
+    BEFORE the stubbed model is called -- so the e2e tests pass without
+    ever reaching the drafter. Any stop() that is meant to trigger a spawn
+    must pass transcript_path.
+    """
+    p = home / "transcript.jsonl"
+    p.write_text(json.dumps({
+        "timestamp": "2026-08-24T11:00:00.000Z",
+        "message": "flushed the widget, then closed the pool"}) + "\n",
+        encoding="utf-8")
+    return str(p)
+
+
 def stop(**extra):
     data = {"session_id": "s1", "cwd": ".", "hook_event_name": "Stop"}
     data.update(extra)
@@ -2966,7 +2983,10 @@ def test_struggle_becomes_a_delivered_draft():
         bash("python3 tests/test_widget.py", False)
 
         # First Stop: the signal fires and the drafter runs (inline here).
-        assert with_spawner(inline_drafter(DRAFTED), stop) == ""
+        # transcript_path is required -- see write_transcript's docstring.
+        transcript = write_transcript(home)
+        assert with_spawner(inline_drafter(DRAFTED),
+                            lambda: stop(transcript_path=transcript)) == ""
 
         con = ledger.connect()
         try:
