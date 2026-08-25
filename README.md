@@ -91,6 +91,40 @@ warm and are injected with hedged wording. `trusted` here means repeatedly
 verified in real sessions — the parent spec's Tier A conjunct (independent
 validation) arrives in slice D.
 
+## Automatic capture
+
+You do not have to remember `/skillforge:learn`. When a command fails twice
+in a row and then succeeds, SkillForge treats that as a lesson worth
+keeping: it drafts a skill from that stretch of the session in a background
+process, and interrupts with the finished draft the moment it is ready. You
+approve it or discard it — nothing is ever saved silently.
+
+- **What triggers it:** two consecutive failures on the same command,
+  followed by a success. A test that passes on the first retry is not a
+  struggle and drafts nothing.
+- **What it costs:** one `claude -p` call per signal, on your subscription,
+  in a detached process. Your session never waits on it. Override the model
+  with `SKILLFORGE_DRAFT_MODEL` (default `sonnet`).
+- **Where drafts live:** `~/.claude/skillforge/drafts/`. Discarding one
+  deletes the file but remembers that you discarded it, so a repeat proposal
+  for the same command says so.
+- **Duplicates:** a draft that closely restates a skill you already have is
+  dropped without bothering you.
+
+The drafter runs with `--safe-mode`, which disables hooks in the child
+process — SkillForge cannot trigger itself — while keeping your
+subscription login. `--bare` would also disable hooks but forces an API
+key, which is why it is not used.
+
+## Reviewing what you have
+
+`/skillforge:library` lists every saved skill with the confidence it has
+earned: `unproven` (no real session has verified it), `working` (at least
+one has), `trusted` (two or more clean sessions, no failures, used within
+90 days). It will show any skill in full, and delete one on request.
+Deleting a skill leaves its ledger history intact, so re-saving the same
+name starts from `unproven` rather than silently inheriting an old bucket.
+
 ## Tests
 
     for t in tests/test_*.py; do python3 "$t" || echo "FAILED $t"; done
