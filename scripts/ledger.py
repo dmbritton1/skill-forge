@@ -144,6 +144,32 @@ def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
         con.close()
 
 
+def confidence(path=None):
+    """{skill: {"bucket", "successes", "failures", "last_used"}}; empty on failure.
+
+    An empty map reads as `unproven` everywhere, which is the safe
+    direction: a broken ledger empties the hot tier rather than promoting on
+    stale data. A dict rather than a tuple because two consumers now read
+    different fields from it, and positional drift between them would be
+    silent.
+    """
+    stats = {}
+    try:
+        con = connect(path)
+        try:
+            for skill, wins, losses, last_used, bucket in con.execute(
+                    "SELECT skill, success_sessions, failure_sessions,"
+                    " last_used, bucket FROM skill_confidence"):
+                stats[skill] = {"bucket": bucket or "unproven",
+                                "successes": wins or 0, "failures": losses or 0,
+                                "last_used": last_used or ""}
+        finally:
+            con.close()
+    except Exception:
+        pass
+    return stats
+
+
 def now_utc():
     return datetime.datetime.now(datetime.timezone.utc)
 
