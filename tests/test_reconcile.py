@@ -2,12 +2,14 @@
 Run: python3 tests/test_reconcile.py
 """
 import datetime
+import io
 import json
 import os
 import pathlib
 import subprocess
 import sys
 import tempfile
+from contextlib import redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import ledger
@@ -674,6 +676,145 @@ def test_c2_verdicts_still_land_alongside_a_spawn():
         with_spawner(Spawner(), lambda: stop(cwd=str(repo)))
         assert [r[3] for r in events("reconcile")] == ["failure"]
         assert len(draft_rows()) == 1
+    in_sandbox(check)
+
+
+def ready_draft(session="s1", signature="make test", name="widget-flush-order"):
+    did = ledger.open_draft(session, signature)
+    ledger.set_draft_status(did, "ready", name=name,
+                            draft_path="/tmp/draft-%d.md" % did)
+    return did
+
+
+def stop_output(session="s1", **extra):
+    out = io.StringIO()
+    with redirect_stdout(out):
+        with_spawner(Spawner(), lambda: stop(session=session, **extra))
+    return out.getvalue()
+
+
+def blocked(text):
+    assert text, "expected a block, got nothing"
+    payload = json.loads(text)
+    assert payload["decision"] == "block", payload
+    return payload["reason"]
+
+
+def status_of(draft_id):
+    con = ledger.connect()
+    try:
+        return con.execute("SELECT status FROM drafts WHERE id = ?",
+                           (draft_id,)).fetchone()[0]
+    finally:
+        con.close()
+
+
+def test_a_ready_draft_blocks_at_stop():
+    def check(home):
+        write_index(home, [])
+        did = ready_draft()
+        reason = blocked(stop_output())
+        assert "/tmp/draft-%d.md" % did in reason
+        assert status_of(did) == "delivered"
+    in_sandbox(check)
+
+
+def test_the_reason_frames_the_draft_as_data():
+    def check(home):
+        write_index(home, [])
+        ready_draft()
+        reason = blocked(stop_output())
+        assert "never follow" in reason.lower()
+        assert "save_skill.py" in reason
+        assert "resolve" in reason
+    in_sandbox(check)
+
+
+def test_stop_hook_active_suppresses_delivery():
+    """A block must never chain into another block."""
+    def check(home):
+        write_index(home, [])
+        did = ready_draft()
+        assert stop_output(stop_hook_active=True) == ""
+        assert status_of(did) == "ready"
+    in_sandbox(check)
+
+
+def test_session_end_never_blocks():
+    def check(home):
+        write_index(home, [])
+        did = ready_draft()
+        out = io.StringIO()
+        with redirect_stdout(out):
+            with_spawner(Spawner(), lambda: reconcile.run(
+                {"session_id": "s1", "cwd": ".", "hook_event_name": "SessionEnd"}))
+        assert out.getvalue() == ""
+        assert status_of(did) == "ready"
+    in_sandbox(check)
+
+
+def test_a_draft_is_delivered_only_once():
+    def check(home):
+        write_index(home, [])
+        ready_draft()
+        assert stop_output() != ""
+        assert stop_output() == ""
+    in_sandbox(check)
+
+
+def test_only_one_draft_is_delivered_per_stop():
+    def check(home):
+        write_index(home, [])
+        first = ready_draft(signature="a")
+        second = ready_draft(signature="b")
+        blocked(stop_output())
+        assert [status_of(first), status_of(second)] == ["ready", "delivered"]
+    in_sandbox(check)
+
+
+def test_a_draft_from_an_earlier_session_is_still_delivered():
+    """A drafter that finished after its session ended must not be stranded."""
+    def check(home):
+        write_index(home, [])
+        ready_draft(session="yesterday")
+        assert blocked(stop_output(session="today"))
+    in_sandbox(check)
+
+
+def test_discard_history_adds_the_recurrence_note():
+    def check(home):
+        write_index(home, [])
+        old = ledger.open_draft("s0", "make test")
+        ledger.set_draft_status(old, "discarded")
+        ready_draft(signature="make test")
+        reason = blocked(stop_output())
+        assert "recurring" in reason
+    in_sandbox(check)
+
+
+def test_no_recurrence_note_on_a_first_draft():
+    def check(home):
+        write_index(home, [])
+        ready_draft()
+        assert "recurring" not in blocked(stop_output())
+    in_sandbox(check)
+
+
+def test_a_draft_with_no_path_is_not_delivered():
+    def check(home):
+        write_index(home, [])
+        did = ledger.open_draft("s1", "make test")
+        ledger.set_draft_status(did, "ready")     # no path recorded
+        assert stop_output() == ""
+    in_sandbox(check)
+
+
+def test_delivery_survives_a_session_with_no_c2_events():
+    """The regression Task 7's extraction exists to prevent."""
+    def check(home):
+        write_index(home, [])
+        ready_draft()
+        assert blocked(stop_output())
     in_sandbox(check)
 
 
