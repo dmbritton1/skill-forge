@@ -100,7 +100,14 @@ def test_list_names_every_trusted_skill():
 def test_delete_removes_store_native_and_trust_entry():
     def check(home):
         store = put_skill(home, "alpha")
+        # A fresh skill is `unproven`, so sync leaves it warm and never
+        # materializes it. Give it a verified session so it earns `working`
+        # and goes hot -- without this the native-dir assertion below passes
+        # because the directory never existed, not because delete removed it.
+        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        sync.sync()
         native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
+        assert native.exists(), "precondition: skill must be hot before delete"
         assert "alpha" in trust.load()
         rc, _ = capture(["delete", "alpha", "--project-root", str(home)])
         assert rc == 0
