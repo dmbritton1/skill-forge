@@ -58,6 +58,27 @@ def _tail_bytes(lines, cap):
     return "\n".join(out)
 
 
+def evidence_window(since_str, until_str):
+    """(since, until) for the evidence slice, from two signal timestamps.
+
+    ledger.log_signal stores isoformat(timespec="seconds"), so both stamps
+    name a SECOND, not an instant, while transcript entries carry
+    microseconds. Comparing them closed against the truncated `until` drops
+    the rest of that second -- and that is precisely where the entry for the
+    command that finally passed lives, because the breadcrumb is written from
+    that same tool call. It also makes the window zero-width whenever a whole
+    struggle lands inside one second, which yields empty evidence and a silent
+    `failed` draft.
+
+    So the upper bound covers the whole second it names. The lower bound needs
+    no such help: truncating down is already inclusive.
+    """
+    since = ledger.parse_ts(since_str) or datetime.datetime.min.replace(
+        tzinfo=datetime.timezone.utc)
+    until = ledger.parse_ts(until_str) or ledger.now_utc()
+    return since, until + datetime.timedelta(seconds=1, microseconds=-1)
+
+
 def transcript_slice(transcript_path, since, until):
     """The struggle window of a session transcript, under the byte cap.
 
@@ -285,9 +306,7 @@ def main(argv=None):
         print("draft %d: %s" % (args.draft_id, args.status))
         return 0
 
-    since = ledger.parse_ts(args.since) or datetime.datetime.min.replace(
-        tzinfo=datetime.timezone.utc)
-    until = ledger.parse_ts(args.until) or ledger.now_utc()
+    since, until = evidence_window(args.since, args.until)
     try:
         evidence = transcript_slice(args.transcript, since, until)
         status, name, path = produce(args.draft_id, args.target, evidence,

@@ -91,6 +91,46 @@ def test_transcript_slice_of_a_missing_file_is_empty():
                                   ledger.parse_ts(when(12))) == ""
 
 
+def test_evidence_window_covers_the_whole_second_until_names():
+    """Signal stamps are second-truncated; transcript stamps are not.
+
+    ledger.log_signal stores isoformat(timespec="seconds"), so `until` names
+    a second, not an instant. Compared closed against microsecond transcript
+    entries it excludes the rest of its own second -- which is exactly where
+    the entry for the command that finally PASSED lives, since the breadcrumb
+    is written from that same tool call.
+    """
+    since, until = draft.evidence_window("2026-08-24T11:00:00+00:00",
+                                         "2026-08-24T11:00:30+00:00")
+    assert since == ledger.parse_ts("2026-08-24T11:00:00+00:00")
+    assert ledger.parse_ts("2026-08-24T11:00:30.812000Z") <= until
+    assert until < ledger.parse_ts("2026-08-24T11:00:31+00:00")
+
+
+def test_evidence_window_is_not_zero_width_when_a_struggle_fits_in_one_second():
+    """Every breadcrumb inside one second collapses since == until.
+
+    Real sessions are human-paced, but fast commands do land in the same
+    second, and a zero-width window silently produces empty evidence and a
+    `failed` draft -- with no error anywhere, because hooks are silent.
+    """
+    since, until = draft.evidence_window("2026-08-24T11:00:00+00:00",
+                                         "2026-08-24T11:00:00+00:00")
+    assert since < until
+
+
+def test_transcript_slice_keeps_the_entry_that_recorded_the_fix():
+    """End to end over the seam: the passing command must survive the window."""
+    since, until = draft.evidence_window("2026-08-24T11:00:00+00:00",
+                                         "2026-08-24T11:00:30+00:00")
+    with tempfile.TemporaryDirectory() as tmp:
+        p = transcript(tmp, [entry("2026-08-24T11:00:05.100Z", "the failure"),
+                             entry("2026-08-24T11:00:30.812Z", "the fix")])
+        out = draft.transcript_slice(p, since, until)
+        assert "the fix" in out
+        assert "the failure" in out
+
+
 def test_transcript_slice_is_empty_when_dated_but_window_matches_nothing():
     """A dated transcript with nothing in the window must not fall back.
 
