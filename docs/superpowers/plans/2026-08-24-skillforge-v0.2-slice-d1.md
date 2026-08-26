@@ -62,22 +62,33 @@ import retrieve
 import sync
 
 
-class ExplodingStdin:
-    """Proves the guard returned before the hook touched its payload."""
+class CountingStdin:
+    """Counts reads so the assertion survives the hooks' own catch-all.
+
+    An exception-raising stub cannot prove ordering here: detect, reconcile,
+    and retrieve wrap their stdin read in `except Exception`, which would
+    swallow the raise and still return 0 -- so the test would pass with or
+    without the guard.
+    """
+
+    def __init__(self):
+        self.reads = 0
 
     def read(self, *args):
-        raise AssertionError("hook read stdin inside a drafter")
+        self.reads += 1
+        return ""
 
 
 def in_drafter(fn):
     old_home = os.environ["HOME"]
     os.environ["SKILLFORGE_DRAFTING"] = "1"
     old_stdin = sys.stdin
-    sys.stdin = ExplodingStdin()
+    stdin = CountingStdin()
+    sys.stdin = stdin
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
         try:
-            fn(pathlib.Path(tmp))
+            fn(pathlib.Path(tmp), stdin)
         finally:
             sys.stdin = old_stdin
             os.environ["HOME"] = old_home
@@ -93,22 +104,32 @@ def silent(main, argv):
 
 
 def test_detect_is_inert():
-    in_drafter(lambda home: silent(detect.main, []))
+    def check(home, stdin):
+        silent(detect.main, [])
+        assert stdin.reads == 0
+    in_drafter(check)
 
 
 def test_retrieve_is_inert():
-    in_drafter(lambda home: silent(retrieve.main, []))
+    def check(home, stdin):
+        silent(retrieve.main, [])
+        assert stdin.reads == 0
+    in_drafter(check)
 
 
 def test_reconcile_is_inert():
-    in_drafter(lambda home: silent(reconcile.main, []))
+    def check(home, stdin):
+        silent(reconcile.main, [])
+        assert stdin.reads == 0
+    in_drafter(check)
 
 
 def test_sync_is_inert():
-    def check(home):
+    def check(home, stdin):
         silent(sync.main, [])
         # sync reads no stdin, so the proof is that it wrote no derived state
         assert not (home / ".claude" / "skillforge" / "index.json").exists()
+        assert stdin.reads == 0
     in_drafter(check)
 
 
@@ -138,7 +159,9 @@ if __name__ == "__main__":
 - [ ] **Step 2: Run the test to verify it fails**
 
 Run: `python3 tests/test_guard.py`
-Expected: FAIL — `AssertionError: hook read stdin inside a drafter` from `test_detect_is_inert`.
+Expected: FAIL — `AssertionError` on `assert stdin.reads == 0` from `test_detect_is_inert`.
+
+The counter, not an exception, is what proves ordering here. An earlier draft of this plan used a stub whose `read()` raised, and it was vacuous: `detect.main`, `reconcile.main`, and `retrieve.main` each wrap their stdin read in `except Exception`, which swallows a raised `AssertionError`, prints it to stderr, and still returns 0 — so three of the four tests passed with the guard absent. Do not reintroduce a raising stub.
 
 - [ ] **Step 3: Add the guard to all four hooks**
 
@@ -979,6 +1002,18 @@ def test_transcript_slice_falls_back_to_the_tail_when_undated():
         assert "not json at all" in out
 
 
+def test_transcript_slice_is_empty_when_dated_but_window_matches_nothing():
+    """A dated transcript with nothing in the window must not fall back.
+
+    Falling back here would send an unrelated slice of the session as evidence
+    for this struggle, and the resulting draft would look entirely legitimate.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        p = transcript(tmp, [entry(when(3), "early"), entry(when(20), "late")])
+        assert draft.transcript_slice(p, ledger.parse_ts(when(10)),
+                                      ledger.parse_ts(when(12))) == ""
+
+
 def test_transcript_slice_respects_the_byte_cap():
     with tempfile.TemporaryDirectory() as tmp:
         big = [entry(when(11), "x" * 4000) for _ in range(100)]
@@ -1118,9 +1153,14 @@ def transcript_slice(transcript_path, since, until):
     """The struggle window of a session transcript, under the byte cap.
 
     ponytail: a recency window, not semantic selection -- the signal already
-    told us which slice of the session matters. Timestamp filtering first;
-    a transcript whose entries carry no parseable stamp falls back to the
-    tail of the file, which is the same window reached another way.
+    told us which slice of the session matters.
+
+    The tail fallback fires ONLY when nothing in the file carried a parseable
+    stamp. A transcript that IS dated but has nothing in the window means the
+    window genuinely matched nothing; returning the tail there would hand the
+    model an unrelated slice of session and let it draft a confident skill
+    about the wrong work. An earlier draft of this plan wrote `kept or lines`,
+    which conflated the two -- do not reintroduce it.
     """
     try:
         raw = Path(transcript_path).read_text(encoding="utf-8", errors="replace")
@@ -1128,11 +1168,17 @@ def transcript_slice(transcript_path, since, until):
         return ""
     lines = raw.splitlines()
     kept = []
+    dated = False
     for line in lines:
         ts = _entry_ts(line)
-        if ts is not None and since <= ts <= until:
+        if ts is None:
+            continue
+        dated = True
+        if since <= ts <= until:
             kept.append(line)
-    return _tail_bytes(kept or lines, EVIDENCE_MAX_BYTES)
+    if not dated:
+        return _tail_bytes(lines, EVIDENCE_MAX_BYTES)
+    return _tail_bytes(kept, EVIDENCE_MAX_BYTES)
 ```
 
 - [ ] **Step 5: Add the prompt builder**
@@ -1195,7 +1241,7 @@ def build_prompt(target, evidence, plugin_root):
 - [ ] **Step 6: Run the tests to verify they pass**
 
 Run: `python3 tests/test_draft.py`
-Expected: 12 × PASS.
+Expected: 13 × PASS.
 
 - [ ] **Step 7: Run every suite**
 
@@ -1328,6 +1374,17 @@ def test_secret_bearing_draft_never_touches_disk():
     in_sandbox(check)
 
 
+def test_empty_evidence_never_reaches_the_model():
+    """No evidence must cost no tokens -- and must not invent a draft."""
+    def check(home):
+        model = Model(VALID)
+        status, name, path = with_model(model, lambda: draft.produce(
+            1, "make test", "   \n  ", ".", PLUGIN_ROOT))
+        assert (status, name, path) == ("failed", None, None)
+        assert model.calls == []
+    in_sandbox(check)
+
+
 def test_model_failure_marks_failed():
     def check(home):
         assert produce(Model(None))[0] == "failed"
@@ -1376,9 +1433,13 @@ def test_write_draft_is_atomic_and_leaves_no_temp():
 def test_cli_run_records_the_final_status():
     def check(home):
         did = ledger.open_draft("s1", "make test")
+        # A real transcript is required: blank evidence short-circuits before
+        # the model is ever called, and this test exercises the CLI's
+        # status-recording wiring, not that guard.
+        tp = transcript(home, [entry(when(11), "struggled, then fixed it")])
         with_model(Model(VALID), lambda: draft.main(
             ["run", "--draft-id", str(did), "--target", "make test",
-             "--plugin-root", str(PLUGIN_ROOT)]))
+             "--transcript", str(tp), "--plugin-root", str(PLUGIN_ROOT)]))
         con = ledger.connect()
         try:
             row = con.execute("SELECT status, name FROM drafts WHERE id = ?",
@@ -1396,9 +1457,13 @@ def test_cli_run_marks_failed_when_the_worker_raises():
         def boom(*a, **k):
             raise RuntimeError("nope")
 
+        # Non-blank evidence, so `boom` is actually reached. Without a
+        # transcript this test passes VACUOUSLY: it asserts "failed" and gets
+        # "failed" because the short-circuit fired, not because boom raised.
+        tp = transcript(home, [entry(when(11), "struggled, then fixed it")])
         with_model(boom, lambda: draft.main(
             ["run", "--draft-id", str(did), "--target", "make test",
-             "--plugin-root", str(PLUGIN_ROOT)]))
+             "--transcript", str(tp), "--plugin-root", str(PLUGIN_ROOT)]))
         con = ledger.connect()
         try:
             assert con.execute("SELECT status FROM drafts WHERE id = ?",
@@ -1523,6 +1588,11 @@ REJECTED_HEAD = "\n\n===== YOUR PREVIOUS ATTEMPT WAS REJECTED =====\n"
 
 def produce(draft_id, target, evidence, cwd, plugin_root):
     """Draft, validate, scan, dedupe, write. Returns (status, name, path)."""
+    if not evidence.strip():
+        # transcript_slice found nothing in the struggle window, or a single
+        # line blew the byte cap. Either way there is nothing to distill, and
+        # a model call on no evidence invents one.
+        return "failed", None, None
     prompt = build_prompt(target, evidence, plugin_root)
     text = run_model(prompt, cwd)
     if not text:
@@ -1611,7 +1681,7 @@ Add `import datetime` to the module's import block — `main` needs it.
 - [ ] **Step 7: Run the tests to verify they pass**
 
 Run: `python3 tests/test_draft.py`
-Expected: all PASS (12 from Task 5 plus 14 here).
+Expected: all PASS (13 from Task 5 plus 15 here).
 
 - [ ] **Step 8: Prove no suite shells out to `claude`**
 
@@ -2491,7 +2561,14 @@ def test_list_names_every_trusted_skill():
 def test_delete_removes_store_native_and_trust_entry():
     def check(home):
         store = put_skill(home, "alpha")
+        # A fresh skill is `unproven`, so sync leaves it warm and never
+        # materializes it. Give it a verified session so it earns `working`
+        # and goes hot -- without this the native-dir assertion below passes
+        # because the directory never existed, not because delete removed it.
+        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        sync.sync()
         native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
+        assert native.exists(), "precondition: skill must be hot before delete"
         assert "alpha" in trust.load()
         rc, _ = capture(["delete", "alpha", "--project-root", str(home)])
         assert rc == 0
@@ -2687,14 +2764,20 @@ def cmd_delete(name, project_root):
         return 1
 
     shutil.rmtree(str(store), ignore_errors=True)
-    native = root / ".claude" / "skills" / "skillforge-hot" / name
-    if native.is_dir():
-        shutil.rmtree(str(native), ignore_errors=True)
     reg = trust.load()
     reg.pop(name, None)
     trust.save(reg)
     ledger.log_event("delete", name, outcome="deleted")
-    sync.sync(project_root=project_root)
+    # Re-sync from the skill's OWN base, not the --project-root argument:
+    # sync() only rebuilds index.json for the bases it's given, so syncing
+    # any other base would strip every other skill belonging to this one
+    # out of the shared index until someone re-syncs from the right root.
+    # sync() also owns native-dir eviction (its docstring: "the ONLY writer
+    # of native skill dirs") -- with the trust entry already popped above,
+    # this same call evicts the skill's native copy too, so no separate
+    # rmtree is needed here. An earlier draft of this plan passed
+    # `project_root` and rmtree'd the native dir by hand; do not restore it.
+    sync.sync(project_root=str(root) if root != Path.home() else None)
     print("deleted: %s" % name)
     return 0
 
@@ -2857,6 +2940,37 @@ def inline_drafter(reply):
     return spawn
 
 
+def write_transcript(home):
+    """A stand-in transcript file for the drafter to read as evidence.
+
+    draft.transcript_slice() returns "" for a missing/empty path, and
+    draft.produce() refuses to call the model on empty evidence (by
+    design -- a model call with nothing to distill invents a skill). The
+    lines here carry no parseable `timestamp`, so transcript_slice falls
+    through to its undated tail fallback and returns this text whole,
+    regardless of the signal's since/until window.
+
+    UNDATED IS DELIBERATE -- do not "fix" it by adding a timestamp.
+    since/until are derived from the breadcrumb rows' own ts values, which
+    are wall-clock `now_utc()` at the moment the test runs. A hardcoded
+    date would set dated=True, match nothing in the window, and yield
+    empty evidence -- reintroducing the very short-circuit this helper
+    exists to prevent. A computed-from-now timestamp would work but buys
+    nothing here: the windowed branch is already covered directly by
+    test_draft.py (test_transcript_slice_keeps_only_the_window and
+    test_transcript_slice_is_empty_when_dated_but_window_matches_nothing).
+
+    Every stop() that is meant to trigger a spawn must pass
+    transcript_path. Without it, produce()'s empty-evidence guard bails to
+    `failed` BEFORE the stubbed model is called, and the e2e tests pass
+    without ever reaching the drafter.
+    """
+    p = home / "transcript.jsonl"
+    p.write_text("widget flush before pool close, then teardown\n",
+                 encoding="utf-8")
+    return str(p)
+
+
 def stop(**extra):
     data = {"session_id": "s1", "cwd": ".", "hook_event_name": "Stop"}
     data.update(extra)
@@ -2883,7 +2997,10 @@ def test_struggle_becomes_a_delivered_draft():
         bash("python3 tests/test_widget.py", False)
 
         # First Stop: the signal fires and the drafter runs (inline here).
-        assert with_spawner(inline_drafter(DRAFTED), stop) == ""
+        # transcript_path is required -- see write_transcript's docstring.
+        transcript = write_transcript(home)
+        assert with_spawner(inline_drafter(DRAFTED),
+                            lambda: stop(transcript_path=transcript)) == ""
 
         con = ledger.connect()
         try:
@@ -3022,11 +3139,14 @@ git commit -m "$(printf 'test: end-to-end capture, plus user documentation\n\nBr
 ---
 
 ## Verification checklist
+> **If your harness refuses this compound command** (worktree-isolated sessions may reject a loop with a redirect as too complex to verify), run the suites one per command instead — `python3 tests/test_ledger.py`, `python3 tests/test_detect.py`, and so on. Same result; the loop is a convenience, not a requirement.
 
 Before calling slice D1 done:
 
 - [ ] All eleven suites green: `for f in tests/test_*.py; do python3 "$f" >/dev/null || echo "FAIL $f"; done`
-- [ ] No suite invokes a model or spawns a drafter: `grep -rn "run_model\|_spawn" tests/ | grep -v "= \|real \|with_spawner\|with_model\|def "` prints nothing.
+- [ ] No suite spawns a drafter: `grep -rn "_spawn(" tests/ | grep -v "with_spawner(" | grep -v ":def "` prints nothing.
+- [ ] No suite invokes a model: `grep -rn "run_model(" tests/ | grep -v ":def "` shows only calls inside the stub/swap helpers.
+- [ ] Note: substring greps on `_spawn` / `run_model` WITHOUT the trailing `(` match test *names* and produce false violations. Filter on the call form.
 - [ ] No suite shells out to `claude`: `grep -rn '"claude"' tests/` prints nothing.
 - [ ] Every hook still exits 0 on garbage input: `for h in detect retrieve reconcile sync; do echo 'not json' | python3 scripts/$h.py >/dev/null 2>&1; echo "$h -> $?"; done` prints `-> 0` four times.
 - [ ] The recursion guard holds: `SKILLFORGE_DRAFTING=1 python3 tests/test_guard.py`.

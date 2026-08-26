@@ -26,6 +26,7 @@ import trust
 MAX_OUTPUT_CHARS = 64 * 1024
 MAX_ANTISKILLS = 2
 INJECT_BUDGET_TOKENS = 1200
+TARGET_MAX_TOKENS = 24
 
 
 def triggers_path():
@@ -51,6 +52,30 @@ def bash_outcome(resp):
             if key in resp:
                 return "failure" if resp[key] else "success"
     return None
+
+
+def target_key(command):
+    """Stable grouping key for "this same command, run again" (design 2).
+
+    ponytail: the exact tokenized command, capped so a heredoc is bounded
+    rather than stored whole. `pytest -x t.py` after `pytest t.py` does NOT
+    group, because the inserted flag shifts the sequence -- a missed signal.
+    The trade-off runs the other way too: tokenize() drops punctuation, so
+    `cat a.txt > b.txt` and `cat a.txt b.txt` collide on the same key, as do
+    `rm -rf /tmp/x` and `rm -rf /tmp x`. Rare, and low-harm even when it
+    happens -- a spurious draft still has to clear the novelty gate and
+    human approval -- but real, not one-sided. Upgrade path if either miss
+    rate ever matters: key on the first token plus the longest token.
+    """
+    return " ".join(patterns.tokenize(command)[:TARGET_MAX_TOKENS])
+
+
+def _log_signal(*args, **kwargs):
+    """Breadcrumbs are best-effort like every other ledger write."""
+    try:
+        ledger.log_signal(*args, **kwargs)
+    except Exception as err:
+        print("skillforge: signal write failed: %s" % err, file=sys.stderr)
 
 
 def _log(*args, **kwargs):
@@ -100,18 +125,31 @@ def response_text(resp):
 
 
 def run(data):
+    session = retrieve.sanitize_session(data.get("session_id"))
+    resp = data.get("tool_response")
+    is_bash = data.get("tool_name") == "Bash"
+    command = ""
+    outcome = None
+    # Slice D1: the breadcrumb is written BEFORE the trigger index is
+    # consulted. It has nothing to do with triggers, and load_triggers()
+    # returns None on a corrupt file as well as a missing one -- leaving
+    # this below the guard let a single truncated write silently disable
+    # automatic capture for the whole session.
+    if is_bash:
+        tool_input = data.get("tool_input")
+        command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+        outcome = bash_outcome(resp)
+        key = target_key(command)
+        if outcome is not None and key:
+            _log_signal(session, key, outcome == "success")
+
     idx = load_triggers()
     if not idx:
         return 0
-    session = retrieve.sanitize_session(data.get("session_id"))
     cwd = data.get("cwd") or os.getcwd()
-    resp = data.get("tool_response")
 
-    if data.get("tool_name") == "Bash":
-        tool_input = data.get("tool_input")
-        command = tool_input.get("command", "") if isinstance(tool_input, dict) else ""
+    if is_bash:
         cmd_tokens = patterns.tokenize(command)
-        outcome = bash_outcome(resp)
         verified = set()
         for v in idx.get("verifications", []):
             name = v.get("skill")
@@ -177,6 +215,11 @@ def run(data):
 
 
 def main(argv=None):
+    # A drafter (slice D1) is a Claude Code process spawned by these very
+    # hooks. `claude -p --safe-mode` already disables hooks in the child;
+    # this is the guard that survives a change in what --safe-mode covers.
+    if os.environ.get("SKILLFORGE_DRAFTING"):
+        return 0
     try:
         return run(json.load(sys.stdin))
     except Exception as e:
