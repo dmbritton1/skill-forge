@@ -102,9 +102,11 @@ approve it or discard it — nothing is ever saved silently.
 - **What triggers it:** two consecutive failures on the same command,
   followed by a success. A test that passes on the first retry is not a
   struggle and drafts nothing.
-- **What it costs:** one `claude -p` call per signal, on your subscription,
-  in a detached process. Your session never waits on it. Override the model
-  with `SKILLFORGE_DRAFT_MODEL` (default `sonnet`).
+- **What it costs:** one `claude -p` call per signal, in a detached process.
+  Your session never waits on it. Billed against your subscription, unless
+  `ANTHROPIC_API_KEY` is set in your environment — the drafter inherits it
+  like any other `claude` invocation, and `--safe-mode` does not change
+  that. Override the model with `SKILLFORGE_DRAFT_MODEL` (default `sonnet`).
 - **Where drafts live:** `~/.claude/skillforge/drafts/`. Discarding one
   deletes the file but remembers that you discarded it, so a repeat proposal
   for the same command says so.

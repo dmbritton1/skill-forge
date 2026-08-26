@@ -396,6 +396,15 @@ def run(data):
     finally:
         con.close()
 
+    # Printed as soon as the connection is closed and the row is already
+    # marked delivered -- not last. _reconcile_c2 and _spawn_drafts below
+    # can both raise (git subprocesses, file reads, Popen), and main()'s
+    # catch-all would otherwise swallow the exception and lose this
+    # delivery permanently: the row already says 'delivered', so a draft
+    # that never gets printed is a draft that never reaches the user.
+    if reason:
+        print(json.dumps({"decision": "block", "reason": reason}))
+
     _reconcile_c2(session, cwd, rows, now, final)
     _spawn_drafts(data, session, cwd, signal_rows, drafted, busy)
     if final:
@@ -405,9 +414,6 @@ def run(data):
             ledger.prune_signals(session=session)
         except Exception as err:
             print("skillforge: signal prune failed: %s" % err, file=sys.stderr)
-    # Printed last, and only after the row is already marked delivered.
-    if reason:
-        print(json.dumps({"decision": "block", "reason": reason}))
     return 0
 
 

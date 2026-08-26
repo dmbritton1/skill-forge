@@ -214,6 +214,16 @@ def test_invalid_draft_is_retried_once_then_succeeds():
     in_sandbox(check)
 
 
+def test_invalid_then_abort_on_retry_is_aborted_not_failed():
+    """The novelty gate firing on the retry is still the gate working."""
+    def check(home):
+        model = Model(INVALID, "ABORT: not novel after all")
+        status, name, path = produce(model)
+        assert (status, name, path) == ("aborted", None, None)
+        assert len(model.calls) == 2
+    in_sandbox(check)
+
+
 def test_invalid_twice_fails_and_does_not_call_a_third_time():
     def check(home):
         model = Model(INVALID, INVALID, VALID)

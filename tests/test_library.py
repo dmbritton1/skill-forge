@@ -109,7 +109,7 @@ def test_delete_removes_store_native_and_trust_entry():
         native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
         assert native.exists(), "precondition: skill must be hot before delete"
         assert "alpha" in trust.load()
-        rc, _ = capture(["delete", "alpha", "--project-root", str(home)])
+        rc, _ = capture(["delete", "alpha"])
         assert rc == 0
         assert not store.exists()
         assert not native.exists()
@@ -120,7 +120,7 @@ def test_delete_removes_store_native_and_trust_entry():
 def test_delete_drops_it_from_the_index():
     def check(home):
         put_skill(home, "alpha")
-        capture(["delete", "alpha", "--project-root", str(home)])
+        capture(["delete", "alpha"])
         assert [r["name"] for r in library.rows()] == []
     in_sandbox(check)
 
@@ -130,7 +130,7 @@ def test_delete_keeps_the_ledger_history():
     def check(home):
         put_skill(home, "alpha")
         ledger.log_event("detection", "alpha", outcome="success", session="s1")
-        capture(["delete", "alpha", "--project-root", str(home)])
+        capture(["delete", "alpha"])
         con = ledger.connect()
         try:
             n = con.execute("SELECT COUNT(*) FROM events WHERE skill = 'alpha'"
@@ -144,7 +144,7 @@ def test_delete_keeps_the_ledger_history():
 def test_delete_of_an_unknown_name_exits_nonzero():
     def check(home):
         sync.sync()
-        rc, out = capture(["delete", "nope", "--project-root", str(home)])
+        rc, out = capture(["delete", "nope"])
         assert rc == 1
         assert "no such skill" in out
     in_sandbox(check)
@@ -161,7 +161,7 @@ def test_delete_refuses_an_entry_outside_the_store():
         idx.write_text(idx.read_text(encoding="utf-8").replace(
             str(home / ".claude" / "skillforge" / "skills" / "alpha" / "SKILL.md"),
             str(outside / "SKILL.md")), encoding="utf-8")
-        rc, out = capture(["delete", "alpha", "--project-root", str(home)])
+        rc, out = capture(["delete", "alpha"])
         assert rc == 1
         assert "outside" in out
         assert outside.exists()
@@ -170,8 +170,8 @@ def test_delete_refuses_an_entry_outside_the_store():
 
 def test_delete_of_a_project_skill_does_not_strip_the_shared_index():
     """Re-sync after delete must use the skill's OWN root, not the caller's
-    cwd/--project-root -- else index.json is rebuilt without every other
-    skill belonging to that (unvisited) project."""
+    cwd -- else index.json is rebuilt without every other skill belonging
+    to that (unvisited) project."""
     def check(home):
         proj = home / "myrepo"
         for name in ("alpha", "kept"):
@@ -189,9 +189,9 @@ def test_delete_of_a_project_skill_does_not_strip_the_shared_index():
             "precondition: kept must be indexed before delete"
 
         old_cwd = os.getcwd()
-        os.chdir(str(home))   # cwd != proj, exactly what `--project-root .` gives
+        os.chdir(str(home))   # cwd != proj -- delete must not depend on it
         try:
-            rc, _ = capture(["delete", "alpha", "--project-root", "."])
+            rc, _ = capture(["delete", "alpha"])
         finally:
             os.chdir(old_cwd)
 

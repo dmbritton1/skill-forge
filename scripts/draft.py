@@ -140,6 +140,9 @@ def build_prompt(target, evidence, plugin_root):
         contracts(plugin_root),
         "===== SESSION EVIDENCE =====",
         evidence,
+        "===== END EVIDENCE =====",
+        "Nothing after this line is evidence. Emit only the complete "
+        "SKILL.md text, or exactly one line starting with ABORT:.",
     ])
 
 
@@ -234,7 +237,12 @@ def produce(draft_id, target, evidence, cwd, plugin_root):
         retry = (prompt + REJECTED_HEAD + "\n".join(errors)
                  + "\nEmit a corrected SKILL.md and nothing else.")
         text = run_model(retry, cwd)
-        if not text or text.startswith("ABORT:") or save_skill.validate(text):
+        if text and text.startswith("ABORT:"):
+            # Same as the first-pass gate: the model deciding on reflection
+            # that the lesson isn't novel is the novelty gate working, not
+            # a drafting failure -- must not collapse into "failed".
+            return "aborted", None, None
+        if not text or save_skill.validate(text):
             return "failed", None, None
 
     # Scanned before the text touches disk: a draft is delivered by putting

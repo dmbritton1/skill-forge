@@ -49,15 +49,18 @@ def cmd_list():
     return 0
 
 
-def cmd_delete(name, project_root):
+def cmd_delete(name):
     entry = next((e for e in (retrieve.load_index() or {}).get("entries", [])
                   if e.get("name") == name), None)
     if entry is None:
         print("no such skill in the index: %r" % name)
         return 1
     # Resolved from the index by name, never from a path argument -- and then
-    # checked against the store root anyway, because index.json is derived
-    # state on disk that a tampered or stale build could point anywhere.
+    # checked against the entry's own root anyway. `store` and `root` both
+    # come from the same index entry, so this does not defend against a
+    # tampered index (whoever controls one controls both); it catches
+    # internal inconsistency -- an entry whose path has drifted outside its
+    # own declared root -- before shutil.rmtree runs.
     store = Path(entry.get("path", "")).parent
     root = Path(entry.get("root", ""))
     if (root / ".claude" / "skillforge") not in store.parents:
@@ -88,11 +91,10 @@ def main(argv=None):
     sub.add_parser("list")
     d = sub.add_parser("delete")
     d.add_argument("name")
-    d.add_argument("--project-root", default=".")
     args = ap.parse_args(argv)
     if args.cmd == "list":
         return cmd_list()
-    return cmd_delete(args.name, args.project_root)
+    return cmd_delete(args.name)
 
 
 if __name__ == "__main__":

@@ -431,6 +431,15 @@ def test_target_key_of_empty_command_is_empty():
     assert detect.target_key("") == ""
 
 
+def test_target_key_is_case_insensitive():
+    assert detect.target_key("make TEST") == detect.target_key("make test")
+
+
+def test_target_key_punctuation_collision():
+    """Documented trade-off: dropped punctuation can cause a false grouping."""
+    assert detect.target_key("cat a.txt > b.txt") == detect.target_key("cat a.txt b.txt")
+
+
 def test_bash_failure_writes_a_breadcrumb():
     def check(home):
         write_triggers(home)
@@ -473,6 +482,24 @@ def test_empty_command_writes_no_breadcrumb():
         write_triggers(home)
         detect.run(bash_call("", False))
         assert signals() == []
+    in_sandbox(check)
+
+
+def test_breadcrumb_written_with_no_triggers_file_on_disk():
+    """Regression: the breadcrumb must not be gated on load_triggers()."""
+    def check(home):
+        detect.run(bash_call("make test", False))
+        assert signals() == [("s1", detect.target_key("make test"), 1)]
+    in_sandbox(check)
+
+
+def test_breadcrumb_written_with_corrupt_triggers_file():
+    def check(home):
+        p = home / ".claude" / "skillforge" / "triggers.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{bad", encoding="utf-8")
+        detect.run(bash_call("make test", False))
+        assert signals() == [("s1", detect.target_key("make test"), 1)]
     in_sandbox(check)
 
 
