@@ -72,10 +72,11 @@ def cmd_delete(name):
     reg.pop(name, None)
     trust.save(reg)
     ledger.log_event("delete", name, outcome="deleted")
-    # Re-sync from the skill's OWN base, not the --project-root argument:
+    # Re-sync from the skill's OWN base, resolved from its index entry above:
     # sync() only rebuilds index.json for the bases it's given, so syncing
     # any other base would strip every other skill belonging to this one
     # out of the shared index until someone re-syncs from the right root.
+    # (This is why delete takes no --project-root -- passing one was the bug.)
     # sync() also owns native-dir eviction (its docstring: "the ONLY writer
     # of native skill dirs") -- with the trust entry already popped above,
     # this same call evicts the skill's native copy too, so no separate
