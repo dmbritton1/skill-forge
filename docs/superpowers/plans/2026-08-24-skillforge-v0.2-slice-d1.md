@@ -2941,19 +2941,33 @@ def inline_drafter(reply):
 
 
 def write_transcript(home):
-    """A dated transcript inside the struggle window.
+    """A stand-in transcript file for the drafter to read as evidence.
 
-    Without this, `stop()` carries no transcript_path, transcript_slice
-    returns "", and produce()'s empty-evidence guard bails to `failed`
-    BEFORE the stubbed model is called -- so the e2e tests pass without
-    ever reaching the drafter. Any stop() that is meant to trigger a spawn
-    must pass transcript_path.
+    draft.transcript_slice() returns "" for a missing/empty path, and
+    draft.produce() refuses to call the model on empty evidence (by
+    design -- a model call with nothing to distill invents a skill). The
+    lines here carry no parseable `timestamp`, so transcript_slice falls
+    through to its undated tail fallback and returns this text whole,
+    regardless of the signal's since/until window.
+
+    UNDATED IS DELIBERATE -- do not "fix" it by adding a timestamp.
+    since/until are derived from the breadcrumb rows' own ts values, which
+    are wall-clock `now_utc()` at the moment the test runs. A hardcoded
+    date would set dated=True, match nothing in the window, and yield
+    empty evidence -- reintroducing the very short-circuit this helper
+    exists to prevent. A computed-from-now timestamp would work but buys
+    nothing here: the windowed branch is already covered directly by
+    test_draft.py (test_transcript_slice_keeps_only_the_window and
+    test_transcript_slice_is_empty_when_dated_but_window_matches_nothing).
+
+    Every stop() that is meant to trigger a spawn must pass
+    transcript_path. Without it, produce()'s empty-evidence guard bails to
+    `failed` BEFORE the stubbed model is called, and the e2e tests pass
+    without ever reaching the drafter.
     """
     p = home / "transcript.jsonl"
-    p.write_text(json.dumps({
-        "timestamp": "2026-08-24T11:00:00.000Z",
-        "message": "flushed the widget, then closed the pool"}) + "\n",
-        encoding="utf-8")
+    p.write_text("widget flush before pool close, then teardown\n",
+                 encoding="utf-8")
     return str(p)
 
 
