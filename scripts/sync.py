@@ -106,8 +106,17 @@ def _write_json(p, obj):
     """
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".tmp-%d" % os.getpid())
-    tmp.write_text(json.dumps(obj, indent=2), encoding="utf-8")
-    os.replace(str(tmp), str(p))
+    try:
+        tmp.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+        os.replace(str(tmp), str(p))
+    finally:
+        # Nothing globs this directory, so an orphan is only litter -- but it
+        # is litter written exactly when the disk is already full, and unlike
+        # retrieve.save_state's temps, _cleanup_state never sweeps it.
+        try:
+            tmp.unlink(missing_ok=True)   # already gone after a good replace
+        except OSError:
+            pass
 
 
 def _write_index(items):

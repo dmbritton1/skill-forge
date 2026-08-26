@@ -565,6 +565,10 @@ def test_an_interrupted_write_leaves_the_previous_index_intact():
 
         assert p.read_text() == before, "the previous index was corrupted"
         assert json.loads(p.read_text())["entries"] == []
+        # And it leaves no orphan behind: nothing sweeps this directory, so a
+        # temp stranded by a failed write would persist forever.
+        assert not list(p.parent.glob("*.tmp-*")), \
+            sorted(x.name for x in p.parent.iterdir())
     in_sandbox(check)
 
 

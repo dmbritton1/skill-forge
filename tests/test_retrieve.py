@@ -89,7 +89,8 @@ def test_load_index_missing_or_corrupt_returns_none():
         p = home / ".claude" / "skillforge" / "index.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("{not json", encoding="utf-8")
-        assert retrieve.load_index() is None
+        with redirect_stderr(io.StringIO()):   # the corrupt-index warning
+            assert retrieve.load_index() is None
     in_sandbox(check)
 
 
@@ -118,8 +119,9 @@ def test_search_no_match_says_so():
 
 
 def run_hook_capture(data):
+    """(rc, stdout). stderr swallowed -- see test_detect.run_capture."""
     out = io.StringIO()
-    with redirect_stdout(out):
+    with redirect_stdout(out), redirect_stderr(io.StringIO()):
         rc = retrieve.run_hook(data)
     return rc, out.getvalue()
 

@@ -6,7 +6,7 @@ import os
 import pathlib
 import sys
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import detect
@@ -63,8 +63,12 @@ def symptom_entry(home, name, path):
 
 
 def run_capture(data):
+    """(rc, stdout). stderr is swallowed, never asserted on: these tests
+    constrain the control channel, and a green run should look green even
+    when a case deliberately feeds the hook a corrupt index. Tests that DO
+    assert on stderr redirect it themselves."""
     out = io.StringIO()
-    with redirect_stdout(out):
+    with redirect_stdout(out), redirect_stderr(io.StringIO()):
         rc = detect.run(data)
     return rc, out.getvalue()
 
@@ -499,7 +503,8 @@ def test_breadcrumb_written_with_corrupt_triggers_file():
         p = home / ".claude" / "skillforge" / "triggers.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("{bad", encoding="utf-8")
-        detect.run(bash_call("make test", False))
+        with redirect_stderr(io.StringIO()):   # the corrupt-index warning
+            detect.run(bash_call("make test", False))
         assert signals() == [("s1", detect.target_key("make test"), 1)]
     in_sandbox(check)
 
