@@ -1,5 +1,6 @@
 """Tests for the PostToolUse detection hook (slice C1 design §4). Run: python3 tests/test_detect.py"""
 import io
+import contextlib
 import json
 import os
 import pathlib
@@ -509,6 +510,37 @@ def test_breadcrumbs_carry_the_session():
         detect.run(bash_call("make test", True, session="alpha"))
         detect.run(bash_call("make test", True, session="beta"))
         assert [r[0] for r in signals()] == ["alpha", "beta"]
+    in_sandbox(check)
+
+
+def test_a_corrupt_triggers_file_is_reported_not_silently_ignored():
+    """Missing and corrupt are opposite situations; both returned None.
+
+    Missing is normal -- it is the state of every fresh install before the
+    first sync, so silence is right. Corrupt is never normal, and it costs
+    the whole session's skill injection. Collapsing the two is what makes
+    that loss invisible; it is the same conflation that hid the breadcrumb
+    coupling through eleven tasks and two clean reviews.
+    """
+    def check(home):
+        p = home / ".claude" / "skillforge" / "triggers.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("{ this is not json", encoding="utf-8")
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            assert detect.load_triggers() is None
+        assert "corrupt" in err.getvalue().lower(), repr(err.getvalue())
+        assert "triggers.json" in err.getvalue()
+    in_sandbox(check)
+
+
+def test_a_missing_triggers_file_is_silent():
+    """The normal pre-sync state must not warn -- that is not a fault."""
+    def check(home):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            assert detect.load_triggers() is None
+        assert err.getvalue() == "", repr(err.getvalue())
     in_sandbox(check)
 
 

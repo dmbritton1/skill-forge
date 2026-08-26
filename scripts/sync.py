@@ -93,25 +93,40 @@ UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0, "last_used": ""}
 SIGNAL_TTL_HOURS = 24
 
 
+def _write_json(p, obj):
+    """Atomic: a reader must never see a half-written index.
+
+    Both compiled indexes are rewritten wholesale on every sync, while the
+    hooks read them on every tool call and every prompt. A bare write_text
+    truncates first and fills second, so a crash, a kill, or a full disk in
+    that gap leaves a truncated file -- and both readers treat unparseable
+    as absent, silently disabling injection for the rest of the session.
+
+    Same directory as the destination, or os.replace is not atomic.
+    """
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.name + ".tmp-%d" % os.getpid())
+    tmp.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+    os.replace(str(tmp), str(p))
+
+
 def _write_index(items):
     p = Path.home() / ".claude" / "skillforge" / "index.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
     entries = [{"name": s["name"], "kind": s["kind"], "scope": s["scope"],
                 "root": str(s["base"]), "description": s["description"],
                 "tier": s["tier"], "bucket": s["bucket"],
                 "est_tokens": est_tokens(s["text"]),
                 "fingerprints": s["fingerprints"],
                 "path": str(s["path"])} for s in items]
-    p.write_text(json.dumps({
+    _write_json(p, {
         "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
         "hot_budget_tokens": hot_budget(),
-        "entries": entries}, indent=2), encoding="utf-8")
+        "entries": entries})
 
 
 def _write_triggers(items):
     """Compile the PostToolUse hook's index: small on purpose, it loads per tool call."""
     p = Path.home() / ".claude" / "skillforge" / "triggers.json"
-    p.parent.mkdir(parents=True, exist_ok=True)
     # kind-filtered: validate() never forbids `symptoms:` on a kind: skill,
     # but only anti-skills spend the anti-skill budget and get framed as one
     # (detect.py). Fingerprints ride along on each symptom entry so the
@@ -121,9 +136,9 @@ def _write_triggers(items):
             for s in items if s["kind"] == "antiskill" for toks in s["symptoms"]]
     vers = [{"skill": s["name"], "root": str(s["base"]), "tokens": toks}
             for s in items for toks in s["verification"]]
-    p.write_text(json.dumps({
+    _write_json(p, {
         "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-        "symptoms": syms, "verifications": vers}, indent=2), encoding="utf-8")
+        "symptoms": syms, "verifications": vers})
 
 
 def _cleanup_state():

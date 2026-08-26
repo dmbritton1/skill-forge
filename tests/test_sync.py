@@ -1,5 +1,6 @@
 """Tests for trust-gated native sync. Run: python3 tests/test_sync.py"""
 import datetime
+import json
 import os
 import pathlib
 import sys
@@ -495,6 +496,75 @@ def test_sync_keeps_fresh_breadcrumbs():
         ledger.log_signal("live-session", "make test", False)
         sync.sync()
         assert signal_count() == 1
+    in_sandbox(check)
+
+
+def test_index_and_triggers_go_through_an_atomic_rename():
+    """A reader must never see a half-written index.
+
+    Both files are rewritten wholesale on every sync while hooks read them
+    on every tool call and prompt. A bare write_text truncates first and
+    fills second; a crash in that gap leaves a truncated file, which both
+    readers treat as "no index" -- silently disabling injection until the
+    next successful sync.
+    """
+    def check(home):
+        seen = []
+        real = os.replace
+
+        def spy(src, dst):
+            seen.append((src, dst))
+            return real(src, dst)
+
+        os.replace = spy
+        try:
+            sync._write_index([])
+            sync._write_triggers([])
+        finally:
+            os.replace = real
+
+        d = home / ".claude" / "skillforge"
+        assert len(seen) == 2, "writes did not go through os.replace: %r" % (seen,)
+        for src, dst in seen:
+            # Same directory, or the rename is not atomic on POSIX.
+            assert os.path.dirname(src) == os.path.dirname(dst), (src, dst)
+        assert not list(d.glob("*.tmp-*")), sorted(x.name for x in d.iterdir())
+        assert json.loads((d / "index.json").read_text())["entries"] == []
+        assert json.loads((d / "triggers.json").read_text())["symptoms"] == []
+    in_sandbox(check)
+
+
+def test_an_interrupted_write_leaves_the_previous_index_intact():
+    """The point of temp-then-rename: an interrupted write is a no-op.
+
+    Injects a partial write -- content lands, then the write fails -- which
+    is what a full disk or a kill mid-write actually looks like. Writing
+    straight to the destination corrupts it; writing to a temp does not,
+    because os.replace never runs.
+    """
+    def check(home):
+        sync._write_index([])
+        p = home / ".claude" / "skillforge" / "index.json"
+        before = p.read_text()
+        assert json.loads(before)["entries"] == []
+
+        real = pathlib.Path.write_text
+
+        def partial(self, data, *a, **k):
+            real(self, data[:len(data) // 2], *a, **k)   # truncated on disk
+            raise OSError(28, "No space left on device")
+
+        pathlib.Path.write_text = partial
+        try:
+            try:
+                sync._write_index([])
+            except OSError:
+                pass
+        finally:
+            pathlib.Path.write_text = real
+
+        assert p.read_text() == before, "the previous index was corrupted"
+        assert json.loads(p.read_text())["entries"] == []
     in_sandbox(check)
 
 

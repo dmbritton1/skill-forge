@@ -34,9 +34,22 @@ def triggers_path():
 
 
 def load_triggers():
+    """The compiled trigger index, or None.
+
+    Absent and corrupt are opposite situations and both yield None, so they
+    are reported differently. Absent is normal -- every install is in that
+    state until the first sync. Corrupt is never normal and costs the whole
+    session's injection, so it says so on stderr rather than looking like a
+    quiet session with nothing to inject. stdout stays clean either way:
+    that is the harness's control channel.
+    """
     try:
         return json.loads(triggers_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError:
+        return None
+    except ValueError as err:      # bad JSON, and UnicodeDecodeError for binary
+        print("skillforge: triggers.json is corrupt, ignoring it: %s" % err,
+              file=sys.stderr)
         return None
 
 
