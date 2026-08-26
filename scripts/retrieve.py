@@ -78,9 +78,18 @@ def bm25(query_tokens, corpus):
 
 
 def load_index():
+    """The compiled skill index, or None.
+
+    Absent and corrupt both yield None but mean opposite things -- see
+    detect.load_triggers for the reasoning. Reported the same way here.
+    """
     try:
         return json.loads(index_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError:
+        return None
+    except ValueError as err:      # bad JSON, and UnicodeDecodeError for binary
+        print("skillforge: index.json is corrupt, ignoring it: %s" % err,
+              file=sys.stderr)
         return None
 
 

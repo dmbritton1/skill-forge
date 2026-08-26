@@ -5,7 +5,7 @@ import os
 import pathlib
 import sys
 import tempfile
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import retrieve
@@ -89,7 +89,8 @@ def test_load_index_missing_or_corrupt_returns_none():
         p = home / ".claude" / "skillforge" / "index.json"
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("{not json", encoding="utf-8")
-        assert retrieve.load_index() is None
+        with redirect_stderr(io.StringIO()):   # the corrupt-index warning
+            assert retrieve.load_index() is None
     in_sandbox(check)
 
 
@@ -118,8 +119,9 @@ def test_search_no_match_says_so():
 
 
 def run_hook_capture(data):
+    """(rc, stdout). stderr swallowed -- see test_detect.run_capture."""
     out = io.StringIO()
-    with redirect_stdout(out):
+    with redirect_stdout(out), redirect_stderr(io.StringIO()):
         rc = retrieve.run_hook(data)
     return rc, out.getvalue()
 
@@ -514,6 +516,30 @@ def test_working_skill_reaches_context_unhedged():
         ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
         assert "(apply if relevant)" in ctx
         assert "unproven" not in ctx
+    in_sandbox(check)
+
+
+def test_a_corrupt_index_is_reported_and_a_missing_one_is_not():
+    """Same distinction as detect.load_triggers, on the other compiled index.
+
+    A corrupt index.json costs every consumer -- retrieval, detection,
+    reconciliation and the library view all read it -- so it is worth one
+    stderr line. A missing one is just an install that has not synced yet.
+    """
+    def check(home):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            assert retrieve.load_index() is None
+        assert err.getvalue() == "", "missing index must be silent: %r" % err.getvalue()
+
+        p = home / ".claude" / "skillforge" / "index.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("not json at all {", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            assert retrieve.load_index() is None
+        assert "corrupt" in err.getvalue().lower(), repr(err.getvalue())
+        assert "index.json" in err.getvalue()
     in_sandbox(check)
 
 

@@ -9,8 +9,9 @@ Two layers run on every tool call:
                   is the trap announcing itself, so answer it in the same
                   turn (the anti-skill fast path, spec 8.1).
 
-Failure is always silent: exit 0, no output. A broken index must never
-break a tool call.
+Failure is always silent on stdout: exit 0, nothing on the control channel.
+A broken index must never break a tool call. Diagnostics go to stderr,
+which the harness does not parse.
 """
 import json
 import os
@@ -34,9 +35,22 @@ def triggers_path():
 
 
 def load_triggers():
+    """The compiled trigger index, or None.
+
+    Absent and corrupt are opposite situations and both yield None, so they
+    are reported differently. Absent is normal -- every install is in that
+    state until the first sync. Corrupt is never normal and costs the whole
+    session's injection, so it says so on stderr rather than looking like a
+    quiet session with nothing to inject. stdout stays clean either way:
+    that is the harness's control channel.
+    """
     try:
         return json.loads(triggers_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except OSError:
+        return None
+    except ValueError as err:      # bad JSON, and UnicodeDecodeError for binary
+        print("skillforge: triggers.json is corrupt, ignoring it: %s" % err,
+              file=sys.stderr)
         return None
 
 
