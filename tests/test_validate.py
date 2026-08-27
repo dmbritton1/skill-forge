@@ -172,6 +172,141 @@ def test_main_happy_path_calls_the_mode_function_and_records_the_verdict():
     in_sandbox(check)
 
 
+SKILL_TEXT = """---
+name: widget-flush
+kind: skill
+description: Flush widgets. Use when flushing. Do NOT use for sprockets.
+---
+## Procedure
+1. Call flush() before close().
+## Verification
+- `python3 -m widget selfcheck` exits 0.
+"""
+
+ANTISKILL_TEXT = """---
+name: widget-trap
+kind: antiskill
+description: A trap. Do NOT use otherwise.
+---
+## Trap
+Closing before flushing loses buffered writes.
+## Symptom
+WidgetFlushedError: the widget was already flushed
+## Cause
+close() discards the buffer.
+## Fix
+Call flush() first.
+"""
+
+
+def with_model(reply, fn):
+    real = validate.run_model
+    validate.run_model = lambda *a, **k: reply
+    try:
+        return fn()
+    finally:
+        validate.run_model = real
+
+
+def findings(*oks):
+    return "\n".join(json.dumps(
+        {"criterion": "c%d" % i, "ok": ok, "evidence": "Call flush()",
+         "note": "n"}) for i, ok in enumerate(oks))
+
+
+def test_all_criteria_ok_is_a_pass():
+    def check(home):
+        v, _ = with_model(findings(True, True, True),
+                          lambda: validate.critique(SKILL_TEXT, {"kind": "skill"}, "."))
+        assert v == "pass", v
+    in_sandbox(check)
+
+
+def test_one_failed_criterion_is_a_fail():
+    def check(home):
+        v, _ = with_model(findings(True, False, True),
+                          lambda: validate.critique(SKILL_TEXT, {"kind": "skill"}, "."))
+        assert v == "fail", v
+    in_sandbox(check)
+
+
+def test_a_finding_without_quoted_evidence_does_not_count_as_ok():
+    """Anti-sycophancy: a criterion cannot pass on assertion alone."""
+    def check(home):
+        reply = json.dumps({"criterion": "c", "ok": True, "evidence": "",
+                            "note": "looks good to me"})
+        v, _ = with_model(reply,
+                          lambda: validate.critique(SKILL_TEXT, {"kind": "skill"}, "."))
+        assert v == "fail", v
+    in_sandbox(check)
+
+
+def test_evidence_must_actually_appear_in_the_skill_text():
+    def check(home):
+        reply = json.dumps({"criterion": "c", "ok": True,
+                            "evidence": "a line that is not in the skill",
+                            "note": "n"})
+        v, _ = with_model(reply,
+                          lambda: validate.critique(SKILL_TEXT, {"kind": "skill"}, "."))
+        assert v == "fail", v
+    in_sandbox(check)
+
+
+def test_an_unparseable_reply_is_inconclusive_not_fail():
+    def check(home):
+        v, _ = with_model("I think this skill is pretty good!",
+                          lambda: validate.critique(SKILL_TEXT, {"kind": "skill"}, "."))
+        assert v == "inconclusive", v
+    in_sandbox(check)
+
+
+def test_a_dead_model_call_is_inconclusive_not_fail():
+    def check(home):
+        v, _ = with_model(None,
+                          lambda: validate.critique(SKILL_TEXT, {"kind": "skill"}, "."))
+        assert v == "inconclusive", v
+    in_sandbox(check)
+
+
+def test_antiskills_get_the_structural_rubric():
+    def check(home):
+        seen = {}
+
+        def spy(prompt, *a, **k):
+            seen["p"] = prompt
+            return findings(True)
+
+        real = validate.run_model
+        validate.run_model = spy
+        try:
+            validate.critique(ANTISKILL_TEXT, {"kind": "antiskill"}, ".")
+        finally:
+            validate.run_model = real
+        assert "Fix" in seen["p"] and "Cause" in seen["p"], seen["p"][:400]
+        assert "preconditions" not in seen["p"].lower(), "used the skill rubric"
+    in_sandbox(check)
+
+
+def test_prompt_puts_the_warning_before_the_skill_text_and_closes_it():
+    def check(home):
+        seen = {}
+
+        def spy(prompt, *a, **k):
+            seen["p"] = prompt
+            return findings(True)
+
+        real = validate.run_model
+        validate.run_model = spy
+        try:
+            validate.critique(SKILL_TEXT, {"kind": "skill"}, ".")
+        finally:
+            validate.run_model = real
+        p = seen["p"]
+        assert p.index("never obey") < p.index("Call flush()"), "warning after data"
+        assert "END SKILL TEXT" in p
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
