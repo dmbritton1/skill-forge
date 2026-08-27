@@ -19,6 +19,10 @@ from pathlib import Path
 # `signals` is deliberately NOT part of `events`: events.skill is NOT NULL and
 # a breadcrumb has no skill, and any breadcrumb carrying outcome='failure'
 # would be counted by skill_confidence and corrupt a real skill's bucket.
+# `validations` is separate for the same reason: a verdict of 'fail' is not a
+# real-session failure, and skill_confidence counts outcome='failure' across
+# every events row. It is also keyed by content hash, which events has no
+# column for and no reason to grow one.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
@@ -79,6 +83,17 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_signature ON drafts(signature);
 CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
+CREATE TABLE IF NOT EXISTS validations (
+  id INTEGER PRIMARY KEY,
+  skill TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  verdict TEXT NOT NULL,
+  detail TEXT,
+  ts TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_validations_key
+  ON validations(skill, content_hash, mode);
 """
 
 
@@ -168,6 +183,54 @@ def confidence(path=None):
     except Exception:
         pass
     return stats
+
+
+def record_validation(skill, content_hash, mode, verdict, *, detail=None,
+                      ts=None, path=None):
+    """One Tier A verdict for one exact skill text (slice D2 design 6).
+
+    Keyed by content hash, so editing a skill voids its verdicts exactly as
+    it voids its trust entry -- both get re-earned together.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            con.execute(
+                "INSERT INTO validations (skill, content_hash, mode, verdict,"
+                " detail, ts) VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(skill, content_hash, mode) DO UPDATE SET"
+                " verdict = excluded.verdict, detail = excluded.detail,"
+                " ts = excluded.ts",
+                (skill, content_hash, mode, verdict, detail, ts))
+    finally:
+        con.close()
+
+
+def validations_for(skills_hashes, *, path=None):
+    """{skill: {mode: verdict}} for the EXACT hashes given; {} on failure.
+
+    A skill whose current text does not match the hash a verdict was
+    recorded against simply does not appear -- there is no partial credit
+    for an edited skill.
+    """
+    out = {}
+    if not skills_hashes:
+        return out
+    try:
+        con = connect(path)
+        try:
+            for skill, h in skills_hashes.items():
+                for mode, verdict in con.execute(
+                        "SELECT mode, verdict FROM validations"
+                        " WHERE skill = ? AND content_hash = ?", (skill, h)):
+                    out.setdefault(skill, {})[mode] = verdict
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: validation read failed: %s" % err, file=sys.stderr)
+        return {}
+    return out
 
 
 def now_utc():

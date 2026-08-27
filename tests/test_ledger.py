@@ -1,5 +1,6 @@
 """Tests for the SQLite event ledger (spec 9.2). Run: python3 tests/test_ledger.py"""
 import datetime
+import os
 import pathlib
 import sys
 import tempfile
@@ -7,6 +8,16 @@ import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import ledger
+
+
+def in_sandbox(fn):
+    old_home = os.environ["HOME"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        try:
+            fn(pathlib.Path(tmp))
+        finally:
+            os.environ["HOME"] = old_home
 
 
 def test_log_event_writes_row():
@@ -388,6 +399,68 @@ def test_session_query_uses_the_session_index():
         plan_text = " ".join(str(row) for row in plan)
         assert "idx_events_session" in plan_text, plan_text
         assert "SCAN events" not in plan_text, plan_text
+
+
+def test_validation_roundtrips_for_its_own_hash():
+    def check(home):
+        ledger.record_validation("widget-trap", "hash-aaa", "critique", "pass")
+        got = ledger.validations_for({"widget-trap": "hash-aaa"})
+        assert got == {"widget-trap": {"critique": "pass"}}, got
+    in_sandbox(check)
+
+
+def test_a_verdict_does_not_survive_an_edit():
+    """The whole point of hash-keying: pass critique, edit the body, and the
+    pass must NOT carry over to the new text."""
+    def check(home):
+        ledger.record_validation("widget-trap", "hash-aaa", "critique", "pass")
+        got = ledger.validations_for({"widget-trap": "hash-bbb"})
+        assert got == {}, got
+    in_sandbox(check)
+
+
+def test_recording_the_same_key_twice_replaces_rather_than_duplicates():
+    def check(home):
+        ledger.record_validation("w", "h", "executable", "inconclusive")
+        ledger.record_validation("w", "h", "executable", "pass")
+        assert ledger.validations_for({"w": "h"}) == {"w": {"executable": "pass"}}
+        con = ledger.connect()
+        try:
+            n = con.execute("SELECT COUNT(*) FROM validations").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 1, n
+    in_sandbox(check)
+
+
+def test_both_modes_coexist_for_one_skill():
+    def check(home):
+        ledger.record_validation("w", "h", "critique", "pass")
+        ledger.record_validation("w", "h", "executable", "fail")
+        assert ledger.validations_for({"w": "h"}) == {
+            "w": {"critique": "pass", "executable": "fail"}}
+    in_sandbox(check)
+
+
+def test_validations_never_reach_skill_confidence():
+    """A failed validation must not be counted as a real-session failure.
+
+    skill_confidence counts outcome='failure' across events. This is the
+    same trap the `signals` table was kept out of events to avoid.
+    """
+    def check(home):
+        ledger.log_event("detection", "w", outcome="success", session="s1")
+        ledger.log_event("detection", "w", outcome="success", session="s2")
+        ledger.record_validation("w", "h", "executable", "fail")
+        con = ledger.connect()
+        try:
+            row = con.execute(
+                "SELECT failure_sessions FROM skill_confidence WHERE skill = 'w'"
+            ).fetchone()
+        finally:
+            con.close()
+        assert row[0] == 0, row
+    in_sandbox(check)
 
 
 if __name__ == "__main__":
