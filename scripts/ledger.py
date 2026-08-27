@@ -46,6 +46,9 @@ SELECT skill,
   COALESCE(SUM(event_type = 'injection'), 0)  AS injections,
   MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
 FROM events GROUP BY skill;
+-- `organic_bucket` is the ledger's half of the answer: what real sessions
+-- have shown. The final bucket ANDs in Tier A (slice D2 design 9), which
+-- needs a content hash this view cannot see, so confidence() applies it.
 CREATE VIEW IF NOT EXISTS skill_confidence AS
 WITH t AS (
   SELECT skill,
@@ -62,7 +65,7 @@ SELECT skill, success_sessions, failure_sessions, last_used,
       THEN 'trusted'
     WHEN success_sessions >= 1 AND success_sessions > failure_sessions THEN 'working'
     ELSE 'unproven'
-  END AS bucket
+  END AS organic_bucket
 FROM t;
 CREATE TABLE IF NOT EXISTS signals (
   id INTEGER PRIMARY KEY,
@@ -96,6 +99,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_validations_key
   ON validations(skill, content_hash, mode);
 """
 
+# Bumped whenever an existing object's DEFINITION changes -- CREATE ... IF NOT
+# EXISTS silently leaves an old view in place, so a rename needs an explicit
+# DROP. Read once per connect (one indexed SELECT); DDL runs only when behind,
+# because detect.py connects on every tool call.
+SCHEMA_VERSION = 2
+
+MIGRATIONS = {
+    2: ("DROP VIEW IF EXISTS skill_confidence",),
+}
+
 
 def default_path():
     return Path.home() / ".claude" / "skillforge" / "ledger.db"
@@ -119,6 +132,7 @@ def connect(path=None):
         except sqlite3.OperationalError:
             pass
     con.executescript(SCHEMA)
+    _migrate(con)
     # One fingerprint credit and one verdict per (session, skill) are design
     # invariants (spec 9.1/9.3), enforced here as partial unique indexes
     # rather than inside SCHEMA's executescript: a pre-existing ledger that
@@ -140,6 +154,38 @@ def connect(path=None):
         except sqlite3.DatabaseError:
             pass
     return con
+
+
+def _migrate(con):
+    """Best-effort, at-most-once schema migration.
+
+    Every statement is idempotent, and the whole thing is wrapped: a
+    migration failure must never take down the hook that happened to open
+    the database. The version row is written last, so a partial run is
+    retried rather than skipped.
+    """
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS meta"
+                    " (key TEXT PRIMARY KEY, value TEXT)")
+        row = con.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        have = int(row[0]) if row else 0
+        if have >= SCHEMA_VERSION:
+            return
+        with con:
+            for v in sorted(MIGRATIONS):
+                if v > have:
+                    for stmt in MIGRATIONS[v]:
+                        con.execute(stmt)
+            # DROP removed the view; SCHEMA recreates it on the next
+            # executescript, so run it here rather than waiting a connect.
+            con.executescript(SCHEMA)
+            con.execute("INSERT INTO meta (key, value) VALUES"
+                        " ('schema_version', ?)"
+                        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        (str(SCHEMA_VERSION),))
+    except sqlite3.DatabaseError as err:
+        print("skillforge: schema migration failed: %s" % err, file=sys.stderr)
 
 
 def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
@@ -174,7 +220,7 @@ def confidence(path=None):
         try:
             for skill, wins, losses, last_used, bucket in con.execute(
                     "SELECT skill, success_sessions, failure_sessions,"
-                    " last_used, bucket FROM skill_confidence"):
+                    " last_used, organic_bucket FROM skill_confidence"):
                 stats[skill] = {"bucket": bucket or "unproven",
                                 "successes": wins or 0, "failures": losses or 0,
                                 "last_used": last_used or ""}

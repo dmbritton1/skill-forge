@@ -2,6 +2,7 @@
 import datetime
 import os
 import pathlib
+import sqlite3
 import sys
 import tempfile
 import threading
@@ -161,7 +162,7 @@ def bucket_of(db, skill):
     con = ledger.connect(db)
     try:
         row = con.execute(
-            "SELECT bucket FROM skill_confidence WHERE skill = ?", (skill,)).fetchone()
+            "SELECT organic_bucket FROM skill_confidence WHERE skill = ?", (skill,)).fetchone()
         return row[0] if row else None
     finally:
         con.close()
@@ -460,6 +461,64 @@ def test_validations_never_reach_skill_confidence():
         finally:
             con.close()
         assert row[0] == 0, row
+    in_sandbox(check)
+
+
+C2_VIEW = """
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY, event_type TEXT NOT NULL, skill TEXT NOT NULL,
+  session TEXT, turn INTEGER, tier TEXT, "trigger" TEXT, detection TEXT,
+  preexisting_fingerprint INTEGER, outcome TEXT, ts TEXT NOT NULL);
+CREATE VIEW IF NOT EXISTS skill_confidence AS
+SELECT skill, 0 AS success_sessions, 0 AS failure_sessions,
+       NULL AS last_used, 'unproven' AS bucket
+FROM events GROUP BY skill;
+"""
+
+
+def test_migration_renames_the_bucket_column_on_an_existing_database():
+    """A C2-era database has a view with a `bucket` column. CREATE VIEW IF NOT
+    EXISTS will not replace it, so connect() must migrate explicitly."""
+    def check(home):
+        p = home / ".claude" / "skillforge" / "ledger.db"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        old = sqlite3.connect(str(p))
+        old.executescript(C2_VIEW)
+        old.close()
+
+        con = ledger.connect()
+        try:
+            cols = [d[0] for d in con.execute(
+                "SELECT * FROM skill_confidence LIMIT 0").description]
+        finally:
+            con.close()
+        assert "organic_bucket" in cols, cols
+        assert "bucket" not in cols, cols
+    in_sandbox(check)
+
+
+def test_migration_records_its_version_and_does_not_repeat():
+    def check(home):
+        ledger.connect().close()
+        con = ledger.connect()
+        try:
+            v = con.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        finally:
+            con.close()
+        assert v and int(v[0]) == ledger.SCHEMA_VERSION, v
+    in_sandbox(check)
+
+
+def test_a_fresh_database_gets_the_new_view_directly():
+    def check(home):
+        con = ledger.connect()
+        try:
+            cols = [d[0] for d in con.execute(
+                "SELECT * FROM skill_confidence LIMIT 0").description]
+        finally:
+            con.close()
+        assert "organic_bucket" in cols, cols
     in_sandbox(check)
 
 
