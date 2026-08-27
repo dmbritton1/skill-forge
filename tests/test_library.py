@@ -64,7 +64,10 @@ def test_confidence_reports_both_sides():
         conf = ledger.confidence(path=db)
         assert conf["foo"]["successes"] == 1
         assert conf["foo"]["failures"] == 1
-        assert conf["foo"]["bucket"] == "unproven"
+        # Contract update, not a softened assertion: without hashes there is
+        # deliberately no "bucket" key at all -- see
+        # test_confidence_without_hashes_refuses_to_answer_bucket.
+        assert conf["foo"]["organic_bucket"] == "unproven"
 
 
 def test_list_reports_bucket_and_counts():

@@ -205,29 +205,57 @@ def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
         con.close()
 
 
-def confidence(path=None):
-    """{skill: {"bucket", "successes", "failures", "last_used"}}; empty on failure.
+def confidence(path=None, hashes=None):
+    """Confidence per skill; empty on failure.
+
+    With `hashes` ({skill: content_hash}) the Tier A conjunct is applied and
+    each entry carries "bucket". Without it each entry carries
+    "organic_bucket" and NO "bucket" -- a caller that forgets the hashes gets
+    a KeyError rather than the weaker pre-D2 answer, which is the one
+    direction this system must never fail in silently.
 
     An empty map reads as `unproven` everywhere, which is the safe
     direction: a broken ledger empties the hot tier rather than promoting on
-    stale data. A dict rather than a tuple because two consumers now read
-    different fields from it, and positional drift between them would be
-    silent.
+    stale data.
     """
     stats = {}
     try:
         con = connect(path)
         try:
-            for skill, wins, losses, last_used, bucket in con.execute(
+            for skill, wins, losses, last_used, organic in con.execute(
                     "SELECT skill, success_sessions, failure_sessions,"
                     " last_used, organic_bucket FROM skill_confidence"):
-                stats[skill] = {"bucket": bucket or "unproven",
+                stats[skill] = {"organic_bucket": organic or "unproven",
                                 "successes": wins or 0, "failures": losses or 0,
                                 "last_used": last_used or ""}
         finally:
             con.close()
-    except Exception:
-        pass
+    except Exception as err:
+        print("skillforge: confidence read failed: %s" % err, file=sys.stderr)
+        return {}
+    if hashes is None:
+        return stats
+
+    verdicts = validations_for(hashes, path=path)
+    for skill in verdicts:
+        # skill_confidence is grouped over `events`, so a skill that has never
+        # been used has no row there at all -- and Tier A alone can promote it
+        # ("pass"/"pass" with zero organic successes is `trusted`). Give it the
+        # zero record the view would have shown, so the conjunct has something
+        # to promote instead of the caller silently seeing an absent skill.
+        stats.setdefault(skill, {"organic_bucket": "unproven", "successes": 0,
+                                 "failures": 0, "last_used": ""})
+    for skill, s in stats.items():
+        v = verdicts.get(skill, {})
+        # `organic_bucket == 'trusted'` already encodes both the k>=2 rule and
+        # the 90-day window, so reuse it rather than re-deriving them here:
+        # two implementations of one rule is how they drift apart.
+        s["bucket"] = ("trusted"
+                       if (v.get("critique") == "pass"
+                           and (v.get("executable") == "pass"
+                                or s["organic_bucket"] == "trusted"))
+                       else ("working" if s["organic_bucket"] == "trusted"
+                             else s["organic_bucket"]))
     return stats
 
 

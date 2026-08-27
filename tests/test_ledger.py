@@ -522,6 +522,66 @@ def test_a_fresh_database_gets_the_new_view_directly():
     in_sandbox(check)
 
 
+def _seed(skill, successes, failures=0):
+    for i in range(successes):
+        ledger.log_event("detection", skill, outcome="success",
+                         session="s-ok-%d" % i)
+    for i in range(failures):
+        ledger.log_event("detection", skill, outcome="failure",
+                         session="s-bad-%d" % i)
+
+
+def test_conjunct_truth_table():
+    """This rule decides what sits in context on every prompt, so every
+    combination is checked rather than sampled."""
+    cases = [
+        # (critique, executable, organic_successes, expected_bucket)
+        (None,       None,   0, "unproven"),
+        (None,       None,   2, "working"),    # organic alone is NOT enough
+        ("pass",     None,   0, "unproven"),
+        ("pass",     None,   1, "working"),
+        ("pass",     None,   2, "trusted"),    # critique + k>=2
+        ("pass",     "pass", 0, "trusted"),    # executable substitutes for k>=2
+        ("pass",     "fail", 2, "trusted"),    # fail vetoes nothing
+        ("pass",     "inconclusive", 2, "trusted"),
+        ("fail",     "pass", 2, "working"),    # nothing substitutes for critique
+        ("inconclusive", "pass", 2, "working"),
+    ]
+    for i, (crit, exe, wins, want) in enumerate(cases):
+        def check(home, crit=crit, exe=exe, wins=wins, want=want, i=i):
+            name = "s%d" % i
+            _seed(name, wins)
+            if crit:
+                ledger.record_validation(name, "h", "critique", crit)
+            if exe:
+                ledger.record_validation(name, "h", "executable", exe)
+            got = ledger.confidence(hashes={name: "h"}).get(
+                name, {"bucket": "unproven"})["bucket"]
+            assert got == want, "%r -> %r, want %r" % (
+                (crit, exe, wins), got, want)
+        in_sandbox(check)
+
+
+def test_confidence_without_hashes_refuses_to_answer_bucket():
+    """A caller that forgets the hashes must not silently get the weaker,
+    pre-D2 answer."""
+    def check(home):
+        _seed("w", 2)
+        entry = ledger.confidence()["w"]
+        assert entry["organic_bucket"] == "trusted", entry
+        assert "bucket" not in entry, entry
+    in_sandbox(check)
+
+
+def test_an_edited_skill_loses_its_conjunct():
+    def check(home):
+        _seed("w", 2)
+        ledger.record_validation("w", "old-hash", "critique", "pass")
+        assert ledger.confidence(hashes={"w": "old-hash"})["w"]["bucket"] == "trusted"
+        assert ledger.confidence(hashes={"w": "new-hash"})["w"]["bucket"] == "working"
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -19,20 +19,24 @@ import retrieve
 import sync
 import trust
 
-UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0, "last_used": ""}
+UNKNOWN = {"organic_bucket": "unproven", "successes": 0, "failures": 0,
+           "last_used": ""}
 COLUMNS = ("name", "kind", "scope", "tier", "bucket", "successes", "failures",
            "last_used", "path")
 
 
 def rows():
     """One dict per indexed skill, index metadata joined to ledger confidence."""
+    # TASK 9 REPLACES THIS: reads the organic half only, so the library shows
+    # the organic bucket, not the Tier A one. Task 9 passes hashes and
+    # restores ["bucket"].
     conf = ledger.confidence()
     out = []
     for e in (retrieve.load_index() or {}).get("entries", []):
         c = conf.get(e.get("name"), UNKNOWN)
         out.append({"name": e.get("name", ""), "kind": e.get("kind", ""),
                     "scope": e.get("scope", ""), "tier": e.get("tier", ""),
-                    "bucket": c["bucket"], "successes": c["successes"],
+                    "bucket": c["organic_bucket"], "successes": c["successes"],
                     "failures": c["failures"], "last_used": c["last_used"],
                     "path": e.get("path", "")})
     return sorted(out, key=lambda r: r["name"])

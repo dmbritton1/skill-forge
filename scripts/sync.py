@@ -87,7 +87,8 @@ def _token_lists(value):
 
 BUCKET_RANK = {"trusted": 0, "working": 1, "unproven": 2}
 HOT_ELIGIBLE = ("trusted", "working")
-UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0, "last_used": ""}
+UNKNOWN = {"organic_bucket": "unproven", "successes": 0, "failures": 0,
+           "last_used": ""}
 # Catches sessions that died without a clean SessionEnd -- a crash, a kill,
 # a closed terminal. A day is long enough that no live session is swept.
 SIGNAL_TTL_HOURS = 24
@@ -191,9 +192,12 @@ def sync(project_root=None):
 
     # Hot ranking (slice C2 design 5): bucket, then successful sessions, then
     # recency, then name -- via chained stable sorts, last sort = primary key.
+    #
+    # TASK 8 REPLACES THIS: reads the organic half only, so Tier A is not yet
+    # enforced on the hot tier. Task 8 passes hashes and restores ["bucket"].
     conf = ledger.confidence()
     for s in trusted:
-        s["bucket"] = conf.get(s["name"], UNKNOWN)["bucket"]
+        s["bucket"] = conf.get(s["name"], UNKNOWN)["organic_bucket"]
     trusted.sort(key=lambda s: s["name"])
     trusted.sort(key=lambda s: conf.get(s["name"], UNKNOWN)["last_used"], reverse=True)
     trusted.sort(key=lambda s: conf.get(s["name"], UNKNOWN)["successes"], reverse=True)
