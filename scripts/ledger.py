@@ -49,6 +49,12 @@ FROM events GROUP BY skill;
 -- `organic_bucket` is the ledger's half of the answer: what real sessions
 -- have shown. The final bucket ANDs in Tier A (slice D2 design 9), which
 -- needs a content hash this view cannot see, so confidence() applies it.
+-- `fresh` is the rule's third conjunct (design 9: last_used empty or age <= 90
+-- days) exposed as its own column. It is a TOP-LEVEL conjunct, so it must hold
+-- even when Tier A satisfies the middle one -- reading it off `organic_bucket`
+-- would skip it exactly when an executable pass carried the middle disjunct.
+-- Computed once here and consumed twice, so the window cannot drift between
+-- the SQL and the Python.
 CREATE VIEW IF NOT EXISTS skill_confidence AS
 WITH t AS (
   SELECT skill,
@@ -57,16 +63,18 @@ WITH t AS (
     COUNT(DISTINCT CASE WHEN outcome = 'failure' THEN COALESCE(session, '') END)
       AS failure_sessions,
     MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
-  FROM events GROUP BY skill)
-SELECT skill, success_sessions, failure_sessions, last_used,
+  FROM events GROUP BY skill),
+f AS (
+  SELECT *, (last_used IS NULL
+             OR julianday('now') - julianday(last_used) <= 90) AS fresh
+  FROM t)
+SELECT skill, success_sessions, failure_sessions, last_used, fresh,
   CASE
-    WHEN success_sessions >= 2 AND failure_sessions = 0
-         AND (last_used IS NULL OR julianday('now') - julianday(last_used) <= 90)
-      THEN 'trusted'
+    WHEN success_sessions >= 2 AND failure_sessions = 0 AND fresh THEN 'trusted'
     WHEN success_sessions >= 1 AND success_sessions > failure_sessions THEN 'working'
     ELSE 'unproven'
   END AS organic_bucket
-FROM t;
+FROM f;
 CREATE TABLE IF NOT EXISTS signals (
   id INTEGER PRIMARY KEY,
   session TEXT NOT NULL,
@@ -103,10 +111,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_validations_key
 # EXISTS silently leaves an old view in place, so a rename needs an explicit
 # DROP. Read once per connect (one indexed SELECT); DDL runs only when behind,
 # because detect.py connects on every tool call.
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 MIGRATIONS = {
     2: ("DROP VIEW IF EXISTS skill_confidence",),
+    3: ("DROP VIEW IF EXISTS skill_confidence",),
 }
 
 
@@ -222,12 +231,13 @@ def confidence(path=None, hashes=None):
     try:
         con = connect(path)
         try:
-            for skill, wins, losses, last_used, organic in con.execute(
+            for skill, wins, losses, last_used, fresh, organic in con.execute(
                     "SELECT skill, success_sessions, failure_sessions,"
-                    " last_used, organic_bucket FROM skill_confidence"):
+                    " last_used, fresh, organic_bucket FROM skill_confidence"):
                 stats[skill] = {"organic_bucket": organic or "unproven",
                                 "successes": wins or 0, "failures": losses or 0,
-                                "last_used": last_used or ""}
+                                "last_used": last_used or "",
+                                "fresh": bool(fresh)}
         finally:
             con.close()
     except Exception as err:
@@ -243,17 +253,23 @@ def confidence(path=None, hashes=None):
         # ("pass"/"pass" with zero organic successes is `trusted`). Give it the
         # zero record the view would have shown, so the conjunct has something
         # to promote instead of the caller silently seeing an absent skill.
+        # `fresh` is True because it has no last_used to be stale against --
+        # the same answer the view's own expression gives for a NULL.
         stats.setdefault(skill, {"organic_bucket": "unproven", "successes": 0,
-                                 "failures": 0, "last_used": ""})
+                                 "failures": 0, "last_used": "",
+                                 "fresh": True})
     for skill, s in stats.items():
         v = verdicts.get(skill, {})
-        # `organic_bucket == 'trusted'` already encodes both the k>=2 rule and
-        # the 90-day window, so reuse it rather than re-deriving them here:
-        # two implementations of one rule is how they drift apart.
+        # The three top-level conjuncts of design 9, in order. `fresh` is ANDed
+        # separately rather than read off `organic_bucket == 'trusted'`: that
+        # only carries the window on the k>=2 branch, so an executable pass
+        # would otherwise promote a skill last used years ago and it would
+        # never decay back out of the hot tier.
         s["bucket"] = ("trusted"
                        if (v.get("critique") == "pass"
                            and (v.get("executable") == "pass"
-                                or s["organic_bucket"] == "trusted"))
+                                or s["organic_bucket"] == "trusted")
+                           and s["fresh"])
                        else ("working" if s["organic_bucket"] == "trusted"
                              else s["organic_bucket"]))
     return stats

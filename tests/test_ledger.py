@@ -522,43 +522,55 @@ def test_a_fresh_database_gets_the_new_view_directly():
     in_sandbox(check)
 
 
-def _seed(skill, successes, failures=0):
+def _seed(skill, successes, failures=0, age_days=0):
+    ts = days_ago(age_days) if age_days else None
     for i in range(successes):
         ledger.log_event("detection", skill, outcome="success",
-                         session="s-ok-%d" % i)
+                         session="s-ok-%d" % i, ts=ts)
     for i in range(failures):
         ledger.log_event("detection", skill, outcome="failure",
-                         session="s-bad-%d" % i)
+                         session="s-bad-%d" % i, ts=ts)
 
 
 def test_conjunct_truth_table():
     """This rule decides what sits in context on every prompt, so every
     combination is checked rather than sampled."""
     cases = [
-        # (critique, executable, organic_successes, expected_bucket)
-        (None,       None,   0, "unproven"),
-        (None,       None,   2, "working"),    # organic alone is NOT enough
-        ("pass",     None,   0, "unproven"),
-        ("pass",     None,   1, "working"),
-        ("pass",     None,   2, "trusted"),    # critique + k>=2
-        ("pass",     "pass", 0, "trusted"),    # executable substitutes for k>=2
-        ("pass",     "fail", 2, "trusted"),    # fail vetoes nothing
-        ("pass",     "inconclusive", 2, "trusted"),
-        ("fail",     "pass", 2, "working"),    # nothing substitutes for critique
-        ("inconclusive", "pass", 2, "working"),
+        # (critique, executable, organic_successes, age_days, expected_bucket)
+        (None,       None,   0, 0, "unproven"),
+        (None,       None,   2, 0, "working"),    # organic alone is NOT enough
+        ("pass",     None,   0, 0, "unproven"),
+        ("pass",     None,   1, 0, "working"),
+        ("pass",     None,   2, 0, "trusted"),    # critique + k>=2
+        ("pass",     "pass", 0, 0, "trusted"),    # executable substitutes for k>=2
+        ("pass",     "fail", 2, 0, "trusted"),    # fail vetoes nothing
+        ("pass",     "inconclusive", 2, 0, "trusted"),
+        ("fail",     "pass", 2, 0, "working"),    # nothing substitutes for critique
+        ("inconclusive", "pass", 2, 0, "working"),
+        # Freshness is a TOP-LEVEL conjunct: an executable pass carries the
+        # middle disjunct but must not carry this one, or a skill validated
+        # once would sit in context forever.
+        ("pass",     "pass", 2, 400, "working"),
     ]
-    for i, (crit, exe, wins, want) in enumerate(cases):
-        def check(home, crit=crit, exe=exe, wins=wins, want=want, i=i):
+    for i, (crit, exe, wins, age, want) in enumerate(cases):
+        def check(home, crit=crit, exe=exe, wins=wins, age=age, want=want, i=i):
             name = "s%d" % i
-            _seed(name, wins)
+            _seed(name, wins, age_days=age)
             if crit:
                 ledger.record_validation(name, "h", "critique", crit)
             if exe:
                 ledger.record_validation(name, "h", "executable", exe)
-            got = ledger.confidence(hashes={name: "h"}).get(
-                name, {"bucket": "unproven"})["bucket"]
+            conf = ledger.confidence(hashes={name: "h"})
+            if not (wins or crit or exe):
+                # No events and no hash-matching verdict, so nothing put this
+                # skill in the map at all. Assert that absence directly: read
+                # through a caller-side default and the row would pass even if
+                # the conjunct never ran.
+                assert name not in conf, conf
+                return
+            got = conf[name]["bucket"]
             assert got == want, "%r -> %r, want %r" % (
-                (crit, exe, wins), got, want)
+                (crit, exe, wins, age), got, want)
         in_sandbox(check)
 
 
