@@ -803,6 +803,120 @@ def test_only_the_session_start_entry_point_schedules_a_run():
     in_sandbox(check)
 
 
+def test_a_trusted_skill_with_no_critique_verdict_is_a_critique_candidate():
+    """Finding 3. save_skill's spawn-on-save was the ONLY critique call site,
+    so a skill pulled from a repo and approved through /skillforge:review was
+    never critiqued -- and executable_candidates requires a critique pass, so
+    it was capped at `working` permanently, against design decision 1.
+    """
+    def check(home):
+        trusted = [candidate(home, name="a")]
+        assert sync.critique_candidates(trusted, CONF, {}) == ["a"]
+        for verdict in ("pass", "fail"):
+            assert sync.critique_candidates(
+                trusted, CONF, {"a": {"critique": verdict}}) == [], verdict
+    in_sandbox(check)
+
+
+def test_a_critique_candidate_needs_no_runnable_verification():
+    """The executable preconditions are executable's. Critique reads text."""
+    def check(home):
+        trusted = [candidate(home, kind="antiskill", text=ANTISKILL % "a")]
+        assert sync.critique_candidates(trusted, CONF, {}) == ["a"]
+    in_sandbox(check)
+
+
+def test_sync_main_spawns_one_critique_for_an_uncritiqued_trusted_skill():
+    """The pull path, the approve path, and a lost spawn, covered in one
+    place: validate.main early-returns on an existing verdict for the hash and
+    the per-(skill, mode) flock makes a concurrent run a no-op, so a repeat
+    spawn costs one Popen that exits immediately."""
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            for n in ("aaa-skill", "bbb-skill"):
+                md = put_skill(home, n, runnable_skill(home, n))
+                trust.record(n, md.read_text(encoding="utf-8"), "self")
+            sync.main([])
+        finally:
+            sync._spawn_validation = real
+        crit = [s for s in seen if s[1] == "critique"]
+        assert len(crit) == 1, seen          # one per session, like executable
+        # Neither is an executable candidate yet: that needs a critique pass.
+        assert [s for s in seen if s[1] == "executable"] == [], seen
+    in_sandbox(check)
+
+
+def test_sync_main_does_not_respawn_critique_for_the_current_hash():
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            n = "aaa-skill"
+            md = put_skill(home, n, runnable_skill(home, n))
+            text = md.read_text(encoding="utf-8")
+            trust.record(n, text, "self")
+            ledger.record_validation(n, trust.content_hash(text),
+                                     "critique", "pass")
+            sync.main([])
+        finally:
+            sync._spawn_validation = real
+        assert [s for s in seen if s[1] == "critique"] == [], seen
+        assert seen == [(n, "executable")], seen
+    in_sandbox(check)
+
+
+def test_an_attempted_candidate_sorts_last_but_is_still_offered():
+    """Finding 4. The runtime gates record no verdict, so a skill that hits a
+    PERMANENT one -- the vacuity gate is deterministic for a given text and
+    repo HEAD -- sorted first every session forever and starved every other
+    candidate, while running a worktree and a skill-authored command each
+    time. Deprioritized rather than excluded, so a genuinely transient failure
+    is still retried once everything else has had its turn.
+    """
+    def check(home):
+        conf = {"a": {"successes": 5}, "b": {"successes": 0}}
+        trusted = [dict(candidate(home, name=n), saved_ts=t)
+                   for n, t in (("a", 2.0), ("b", 1.0))]
+        verdicts = {n: {"critique": "pass"} for n in "ab"}
+        assert sync.executable_candidates(trusted, conf, verdicts) == ["a", "b"]
+        got = sync.executable_candidates(trusted, conf, verdicts,
+                                         attempts={"a": {"executable"}})
+        assert got == ["b", "a"], got
+    in_sandbox(check)
+
+
+def test_sync_deprioritizes_a_skill_already_attempted_for_this_hash():
+    """The wiring, not just the comparator: sync() must read the attempt rows.
+
+    Mutation proof: drop the attempts argument in sync() and the best-evidence
+    skill leads the list again, exactly as it did every session before.
+    """
+    def check(home):
+        for n, wins in (("aaa-skill", 2), ("bbb-skill", 0)):
+            md = put_skill(home, n, runnable_skill(home, n))
+            text = md.read_text(encoding="utf-8")
+            trust.record(n, text, "self")
+            ledger.record_validation(n, trust.content_hash(text),
+                                     "critique", "pass")
+            for i in range(wins):
+                earn_success(n, session="s%s%d" % (n, i))
+        first = sync.sync()["executable_candidates"]
+        assert first == ["aaa-skill", "bbb-skill"], first
+        ledger.record_attempt(
+            "aaa-skill",
+            trust.content_hash(
+                (home / ".claude" / "skillforge" / "skills" / "aaa-skill"
+                 / "SKILL.md").read_text(encoding="utf-8")),
+            "executable")
+        after = sync.sync()["executable_candidates"]
+        assert after == ["bbb-skill", "aaa-skill"], after
+    in_sandbox(check)
+
+
 def test_index_entries_carry_provenance():
     """validate.executable() reads entry["provenance"]["repo"] to know which
     repo to reproduce; without this carry it is `inconclusive` every time."""
