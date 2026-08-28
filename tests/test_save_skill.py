@@ -12,6 +12,12 @@ import save_skill
 import ledger
 import trust
 
+# Every successful save spawns critique in the background (Task 7). No suite
+# may spawn a real subprocess, so the seam is stubbed inert here for every
+# test in this file; the two spawn tests below install their own stub over
+# top of this one and restore it (not the real Popen-backed function).
+save_skill._spawn_validation = lambda name, mode: None
+
 VALID_SKILL = """---
 name: test-skill
 kind: skill
@@ -77,6 +83,12 @@ def write_draft(tmp, text):
     draft = tmp / "draft.md"
     draft.write_text(text, encoding="utf-8")
     return str(draft)
+
+
+def write_candidate(home):
+    """A valid skill draft named widget-flush, for the spawn-on-save tests."""
+    text = VALID_SKILL.replace("name: test-skill", "name: widget-flush")
+    return write_draft(home, text)
 
 
 def test_valid_global_skill_saves_and_materializes():
@@ -446,6 +458,35 @@ def test_warm_message_names_unproven_not_budget():
         assert "indexed: warm tier" in text
         assert "unproven" in text
         assert "hot budget full" not in text
+    in_sandbox(check)
+
+
+def test_a_successful_save_spawns_critique():
+    def check(home, tmp):
+        seen = []
+        real = save_skill._spawn_validation
+        save_skill._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            rc = save_skill.main([str(write_candidate(home)), "--scope", "global"])
+        finally:
+            save_skill._spawn_validation = real
+        assert rc == 0, rc
+        assert seen == [("widget-flush", "critique")], seen
+    in_sandbox(check)
+
+
+def test_a_failed_save_spawns_nothing():
+    def check(home, tmp):
+        seen = []
+        real = save_skill._spawn_validation
+        save_skill._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            bad = home / "bad.md"
+            bad.write_text("no frontmatter here", encoding="utf-8")
+            save_skill.main([str(bad), "--scope", "global"])
+        finally:
+            save_skill._spawn_validation = real
+        assert seen == [], seen
     in_sandbox(check)
 
 

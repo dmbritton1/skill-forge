@@ -11,7 +11,9 @@ Usage: save_skill.py DRAFT.md --scope {global,project} [--project-root DIR]
 """
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -158,6 +160,17 @@ def _warm_reason(name):
     return "hot budget full"
 
 
+def _spawn_validation(name, mode):
+    """Detached, never waited on; its own function so tests replace it."""
+    argv = [sys.executable,
+            str(Path(__file__).resolve().parent / "validate.py"), mode,
+            "--skill", name]
+    subprocess.Popen(argv, cwd=str(Path(__file__).resolve().parent.parent),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True,
+                     env=dict(os.environ, SKILLFORGE_DRAFTING="1"))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("draft", help="path to the drafted SKILL.md")
@@ -243,6 +256,14 @@ def main(argv=None):
         print("materialized: %s" % (native / "SKILL.md"))
     else:
         print("indexed: warm tier (%s)" % _warm_reason(fm["name"]))
+
+    # Legibility is checked on every save, detached: critique reads only the
+    # text, so it needs no environment and the user waits on nothing.
+    try:
+        _spawn_validation(fm["name"], "critique")
+    except Exception as err:
+        print("skillforge: validation spawn failed: %s" % err, file=sys.stderr)
+
     return 0
 
 
