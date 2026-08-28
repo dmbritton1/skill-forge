@@ -171,6 +171,28 @@ def test_delete_refuses_an_entry_outside_the_store():
     in_sandbox(check)
 
 
+def test_list_shows_both_verdicts():
+    def check(home):
+        path = put_skill(home, "widget-flush")
+        text = (pathlib.Path(path) / "SKILL.md").read_text(encoding="utf-8")
+        h = trust.content_hash(text)
+        ledger.record_validation("widget-flush", h, "critique", "pass")
+        ledger.record_validation("widget-flush", h, "executable", "fail")
+        row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
+        assert row["critique"] == "pass", row
+        assert row["executable"] == "fail", row
+    in_sandbox(check)
+
+
+def test_an_unvalidated_skill_shows_a_blank_not_a_pass():
+    def check(home):
+        put_skill(home, "widget-flush")
+        row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
+        assert row["critique"] == "", row
+        assert row["executable"] == "", row
+    in_sandbox(check)
+
+
 def test_delete_of_a_project_skill_does_not_strip_the_shared_index():
     """Re-sync after delete must use the skill's OWN root, not the caller's
     cwd -- else index.json is rebuilt without every other skill belonging
