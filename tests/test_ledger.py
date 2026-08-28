@@ -594,6 +594,42 @@ def test_an_edited_skill_loses_its_conjunct():
     in_sandbox(check)
 
 
+def test_an_attempt_roundtrips_for_its_own_hash_and_is_idempotent():
+    def check(home):
+        ledger.record_attempt("w", "h", "executable")
+        ledger.record_attempt("w", "h", "executable")
+        assert ledger.attempts_for({"w": "h"}) == {"w": {"executable"}}
+        assert ledger.attempts_for({"w": "other-hash"}) == {}
+        con = ledger.connect()
+        try:
+            n = con.execute(
+                "SELECT COUNT(*) FROM validation_attempts").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 1, n
+    in_sandbox(check)
+
+
+def test_an_attempt_is_not_a_verdict():
+    """Finding 4's whole constraint. `pass`/`fail`/`inconclusive` is a closed
+    set that feeds the conjunct, so "we tried this text and got no verdict"
+    must be invisible to validations_for and to confidence -- otherwise a
+    bookkeeping row would decide what enters context on every prompt.
+
+    Mutation proof: record the attempt as a validations row instead (any mode,
+    any verdict string) and one of these three assertions fails.
+    """
+    def check(home):
+        _seed("w", 2)
+        ledger.record_validation("w", "h", "critique", "pass")
+        before = ledger.confidence(hashes={"w": "h"})["w"]["bucket"]
+        assert before == "trusted", before
+        ledger.record_attempt("w", "h", "executable")
+        assert ledger.validations_for({"w": "h"}) == {"w": {"critique": "pass"}}
+        assert ledger.confidence(hashes={"w": "h"})["w"]["bucket"] == "trusted"
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

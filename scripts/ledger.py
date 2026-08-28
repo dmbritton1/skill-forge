@@ -105,6 +105,13 @@ CREATE TABLE IF NOT EXISTS validations (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_validations_key
   ON validations(skill, content_hash, mode);
+CREATE TABLE IF NOT EXISTS validation_attempts (
+  skill TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  PRIMARY KEY (skill, content_hash, mode)
+);
 """
 
 # Bumped whenever an existing object's DEFINITION changes -- CREATE ... IF NOT
@@ -319,6 +326,62 @@ def validations_for(skills_hashes, *, path=None):
             con.close()
     except Exception as err:
         print("skillforge: validation read failed: %s" % err, file=sys.stderr)
+        return {}
+    return out
+
+
+def record_attempt(skill, content_hash, mode, *, ts=None, path=None):
+    """Record that this mode ran against this exact text and got no verdict.
+
+    Its own table, NOT a `validations` row, and that separation is the point:
+    `verdict` holds a closed set (pass | fail | inconclusive) that feeds the
+    Tier A conjunct, so a bookkeeping row smuggled in there would be one
+    validations_for() could hand to confidence() -- and to validate.main's
+    "already answered for this hash" early return, which would lock the skill
+    out of a real run forever. Here it is invisible to both by construction
+    rather than by everyone remembering to filter.
+
+    What it is for: the runtime gates record no verdict (ruling R12), but some
+    of them are PERMANENT for a given text -- the vacuity gate above all, which
+    is deterministic for a text and a repo HEAD. Without a record of the
+    attempt, such a skill sorts first every session forever and starves every
+    other candidate. sync deprioritizes on this; it never excludes on it, so a
+    transient failure is still retried.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            con.execute(
+                "INSERT INTO validation_attempts (skill, content_hash, mode,"
+                " ts) VALUES (?,?,?,?)"
+                " ON CONFLICT(skill, content_hash, mode) DO UPDATE SET"
+                " ts = excluded.ts", (skill, content_hash, mode, ts))
+    finally:
+        con.close()
+
+
+def attempts_for(skills_hashes, *, path=None):
+    """{skill: {mode, ...}} for the EXACT hashes given; {} on failure.
+
+    Hash-keyed like the verdicts: editing a skill clears its attempt history
+    along with its verdicts, and the new text gets a fresh turn at the front.
+    """
+    out = {}
+    if not skills_hashes:
+        return out
+    try:
+        con = connect(path)
+        try:
+            for skill, h in skills_hashes.items():
+                for (mode,) in con.execute(
+                        "SELECT mode FROM validation_attempts"
+                        " WHERE skill = ? AND content_hash = ?", (skill, h)):
+                    out.setdefault(skill, set()).add(mode)
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: attempt read failed: %s" % err, file=sys.stderr)
         return {}
     return out
 
