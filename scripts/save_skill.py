@@ -36,8 +36,9 @@ def parse_frontmatter(text):
     """Return (dict, body) from a --- fenced frontmatter block, or (None, text).
 
     ponytail: line-based parse, no YAML dep -- the distiller controls the
-    format. Handles top-level `key: value` and folded scalars (`key: >`);
-    nested maps (e.g. preconditions) are skipped, not needed for validation.
+    format. Handles top-level `key: value`, folded scalars (`key: >`), lists,
+    and ONE level of nested map (`provenance:` / `preconditions:`) whose
+    values stay strings -- deeper nesting and flow maps are not unpacked.
     """
     text = text.replace("\r\n", "\n")
     if not text.startswith("---\n"):
@@ -77,6 +78,21 @@ def parse_frontmatter(text):
                     j += 1
                 if items:
                     fm[key] = items
+                    i = j
+                    continue
+                # One level of nested `key: value` (provenance, preconditions).
+                # Needed, not cosmetic: validate.executable() reads
+                # provenance.repo out of the index entry sync.py compiles from
+                # this dict, and without this branch `provenance` parsed to ""
+                # and executable mode was inconclusive for every real skill.
+                nested = {}
+                j = i + 1
+                while j < len(lines) and re.match(r"^\s+[A-Za-z][\w.-]*:", lines[j]):
+                    k, _, v = lines[j].strip().partition(":")
+                    nested[k.strip()] = v.strip().strip("\"'")
+                    j += 1
+                if nested:
+                    fm[key] = nested
                     i = j
                     continue
             fm[key] = val

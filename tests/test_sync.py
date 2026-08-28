@@ -11,6 +11,16 @@ import ledger
 import sync
 import trust
 
+# sync() schedules one executable validation run per session (Task 8). No
+# suite may spawn a real subprocess, so the seam is stubbed inert here for
+# every test in this file; the spawn test below installs its own stub over
+# the top of this one and restores it (not the real Popen-backed function).
+# The real function is saved first: the env-inspection tests at the bottom
+# call it directly (with subprocess.Popen itself stubbed out) to check what
+# it builds, and would otherwise see this inert lambda instead.
+_REAL_SPAWN_VALIDATION = sync._spawn_validation
+sync._spawn_validation = lambda name, mode: None
+
 SKILL = """---
 name: %s
 kind: skill
@@ -570,6 +580,209 @@ def test_an_interrupted_write_leaves_the_previous_index_intact():
         assert not list(p.parent.glob("*.tmp-*")), \
             sorted(x.name for x in p.parent.iterdir())
     in_sandbox(check)
+
+
+SKILL_WITH_PROVENANCE = """---
+name: %s
+kind: skill
+description: A thing. Do NOT use otherwise.
+verification.command: "npx stripe trigger payment_intent.succeeded"
+provenance:
+  repo: /tmp/acme-storefront
+  distilled: 2026-08-01
+---
+## Procedure
+1. Do it.
+## Verification
+Run the command.
+"""
+
+
+def test_sync_applies_the_tier_a_conjunct_to_tiering():
+    """Two clean sessions alone are `working`; `trusted` needs a critique pass.
+
+    (Adapted from the brief: put_skill() writes a store file, it does not
+    trust it, so trust.record() is added the way every other test here does
+    it. The brief's `tier == "warm"` assertion is replaced by `hot`: working
+    is hot-eligible -- test_working_skill_goes_hot has always asserted that
+    -- so the conjunct's effect is on the bucket, which is asserted.)
+    """
+    def check(home):
+        path = put_skill(home, "widget-flush")
+        text = pathlib.Path(path).read_text(encoding="utf-8")
+        trust.record("widget-flush", text, "self")
+        for i in range(2):
+            ledger.log_event("detection", "widget-flush", outcome="success",
+                             session="s%d" % i)
+        sync.sync()
+        entry = [e for e in read_index(home)["entries"]
+                 if e["name"] == "widget-flush"][0]
+        assert entry["bucket"] == "working", entry
+        assert entry["tier"] == "hot", entry
+
+        ledger.record_validation("widget-flush", trust.content_hash(text),
+                                 "critique", "pass")
+        sync.sync()
+        entry = [e for e in read_index(home)["entries"]
+                 if e["name"] == "widget-flush"][0]
+        assert entry["bucket"] == "trusted", entry
+    in_sandbox(check)
+
+
+def test_executable_candidates_are_ordered_by_evidence_then_recency():
+    conf = {"a": {"successes": 0}, "b": {"successes": 3}, "c": {"successes": 1}}
+    trusted = [{"name": n, "saved_ts": t} for n, t in
+               (("a", "2026-01-03"), ("b", "2026-01-01"), ("c", "2026-01-02"))]
+    verdicts = {n: {"critique": "pass"} for n in "abc"}
+    got = sync.executable_candidates(trusted, conf, verdicts)
+    assert got == ["b", "c", "a"], got
+
+
+def test_executable_candidates_break_ties_by_recency():
+    """Equal evidence: only the saved_ts comparator can order these, and it
+    must reverse the input order to prove it ran at all."""
+    conf = {"a": {"successes": 2}, "b": {"successes": 2}}
+    trusted = [{"name": "a", "saved_ts": 100.0}, {"name": "b", "saved_ts": 200.0}]
+    verdicts = {n: {"critique": "pass"} for n in "ab"}
+    got = sync.executable_candidates(trusted, conf, verdicts)
+    assert got == ["b", "a"], got
+
+
+def test_a_skill_without_critique_is_not_an_executable_candidate():
+    conf = {"a": {"successes": 5}}
+    trusted = [{"name": "a", "saved_ts": "2026-01-01"}]
+    assert sync.executable_candidates(trusted, conf, {}) == []
+    assert sync.executable_candidates(
+        trusted, conf, {"a": {"critique": "fail"}}) == []
+
+
+def test_a_skill_already_executable_validated_is_not_a_candidate():
+    conf = {"a": {"successes": 5}}
+    trusted = [{"name": "a", "saved_ts": "2026-01-01"}]
+    for verdict in ("pass", "fail", "inconclusive"):
+        assert sync.executable_candidates(
+            trusted, conf,
+            {"a": {"critique": "pass", "executable": verdict}}) == [], verdict
+
+
+def test_an_antiskill_is_not_an_executable_candidate():
+    """Anti-skills carry no verification.command by design, so executable
+    mode can only ever answer `inconclusive` -- which is no longer recorded,
+    so an anti-skill candidate would burn the one slot every session."""
+    conf = {"a": {"successes": 5}}
+    trusted = [{"name": "a", "saved_ts": 1.0, "kind": "antiskill",
+                "verification_command": "npx stripe trigger x"}]
+    verdicts = {"a": {"critique": "pass"}}
+    assert sync.executable_candidates(trusted, conf, verdicts) == []
+    trusted[0]["kind"] = "skill"        # identical otherwise: `kind` excluded it
+    assert sync.executable_candidates(trusted, conf, verdicts) == ["a"]
+
+
+def test_a_skill_without_a_verification_command_is_not_a_candidate():
+    conf = {"a": {"successes": 5}}
+    trusted = [{"name": "a", "saved_ts": 1.0, "kind": "skill",
+                "verification_command": ""}]
+    verdicts = {"a": {"critique": "pass"}}
+    assert sync.executable_candidates(trusted, conf, verdicts) == []
+    trusted[0]["verification_command"] = "npx stripe trigger x"
+    assert sync.executable_candidates(trusted, conf, verdicts) == ["a"]
+
+
+def test_sync_spawns_at_most_one_executable_run():
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            for n in ("aaa-skill", "bbb-skill"):
+                p = put_skill(home, n, SKILL_WITH_TRIGGERS % n)
+                text = pathlib.Path(p).read_text(encoding="utf-8")
+                trust.record(n, text, "self")
+                ledger.record_validation(
+                    n, trust.content_hash(text), "critique", "pass")
+            sync.sync()
+        finally:
+            sync._spawn_validation = real
+        assert len(seen) == 1, seen
+        assert seen[0][1] == "executable", seen
+    in_sandbox(check)
+
+
+def test_index_entries_carry_provenance():
+    """validate.executable() reads entry["provenance"]["repo"] to know which
+    repo to reproduce; without this carry it is `inconclusive` every time."""
+    def check(home):
+        md = put_skill(home, "stripe-hook", SKILL_WITH_PROVENANCE % "stripe-hook")
+        trust.record("stripe-hook", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["provenance"] == {"repo": "/tmp/acme-storefront",
+                                       "distilled": "2026-08-01"}, entry
+    in_sandbox(check)
+
+
+def test_a_non_mapping_provenance_does_not_raise():
+    def check(home):
+        text = (SKILL_WITH_PROVENANCE % "stripe-hook").replace(
+            "provenance:\n  repo: /tmp/acme-storefront\n  distilled: 2026-08-01",
+            "provenance: garbage")
+        md = put_skill(home, "stripe-hook", text)
+        trust.record("stripe-hook", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["provenance"] == {}, entry
+    in_sandbox(check)
+
+
+def _capture_popen_env(name="widget-flush", mode="executable"):
+    """Call the REAL _spawn_validation with subprocess.Popen stubbed out.
+
+    Never spawns a real process -- Popen itself is replaced -- but still
+    exercises the actual env-construction logic in sync.py, which the
+    seam-swap test above never touches (it replaces _spawn_validation
+    wholesale). Returns the `env` kwarg the real function handed to Popen.
+    """
+    calls = []
+    real_popen = sync.subprocess.Popen
+
+    class DummyProc:
+        pass
+
+    def fake_popen(argv, **kwargs):
+        calls.append(kwargs.get("env"))
+        return DummyProc()
+
+    sync.subprocess.Popen = fake_popen
+    try:
+        _REAL_SPAWN_VALIDATION(name, mode)
+    finally:
+        sync.subprocess.Popen = real_popen
+    return calls[0]
+
+
+def test_spawn_does_not_manufacture_the_drafting_flag():
+    """validate.py's main() returns 0 as its first statement when the flag is
+    set, so forcing it here would make every scheduled run a silent no-op."""
+    old = os.environ.pop("SKILLFORGE_DRAFTING", None)
+    try:
+        env = _capture_popen_env()
+        assert "SKILLFORGE_DRAFTING" not in env, env
+    finally:
+        if old is not None:
+            os.environ["SKILLFORGE_DRAFTING"] = old
+
+
+def test_spawn_inherits_the_drafting_flag_when_already_set():
+    old = os.environ.get("SKILLFORGE_DRAFTING")
+    os.environ["SKILLFORGE_DRAFTING"] = "1"
+    try:
+        env = _capture_popen_env()
+        assert env.get("SKILLFORGE_DRAFTING") == "1", env
+    finally:
+        if old is None:
+            del os.environ["SKILLFORGE_DRAFTING"]
+        else:
+            os.environ["SKILLFORGE_DRAFTING"] = old
 
 
 if __name__ == "__main__":

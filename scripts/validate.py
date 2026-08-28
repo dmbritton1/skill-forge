@@ -332,8 +332,8 @@ def executable(text, entry):
     # useless. A bare temp dir is no better: the verification would fail for
     # want of a repo and we would bill a model call to produce a spurious
     # `fail`. An environment we cannot construct is "we could not test this".
-    # sync.py carries no `provenance` into index.json yet, so this is the
-    # answer for every real skill until it does.
+    # sync.py carries `provenance` into index.json (Task 8), so this is the
+    # answer only for a skill whose provenance.repo is not a local git repo.
     repo = (entry.get("provenance") or {}).get("repo") or ""
     if not repo or not (Path(repo) / ".git").exists():
         return "inconclusive", "no provenance.repo resolving to a local git repo"
@@ -439,9 +439,9 @@ def main(argv=None):
             # this hash, so recording one would lock the skill out of a real
             # run forever -- for its current text, past whatever transient
             # caused it: a model that was down, a worktree that failed, a
-            # missing binary, or (until sync.py carries provenance) every
-            # executable run there is. Not re-attempting an ineligible skill
-            # is the candidate filter's job, not the verdict cache's.
+            # missing binary, a provenance.repo that is not on this machine.
+            # Not re-attempting an ineligible skill is the candidate filter's
+            # job (sync.executable_candidates), not the verdict cache's.
             if verdict != "inconclusive":
                 ledger.record_validation(args.skill, h, args.mode, verdict,
                                          detail=detail)

@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -53,11 +54,22 @@ def _meta(text):
     fm, _ = parse_frontmatter(text)
     fm = fm or {}
     desc = fm.get("description", "")
+    cmd = fm.get("verification.command")
+    prov = fm.get("provenance")
     return {
         "description": desc if isinstance(desc, str) else "",
         "symptoms": _token_lists(fm.get("symptoms")),
         "fingerprints": _token_lists(fm.get("fingerprints")),
-        "verification": _token_lists([fm.get("verification.command")]),
+        "verification": _token_lists([cmd]),
+        # Raw, alongside the tokenized patterns: executable validation needs
+        # to know whether a command EXISTS, and _token_lists drops one-token
+        # commands (`true`, `make`) for pattern-matching reasons that have
+        # nothing to do with whether the skill can be run.
+        "verification_command": cmd if isinstance(cmd, str) else "",
+        # validate.executable() reads provenance.repo to know which repo to
+        # reproduce in. Frontmatter is untrusted (spec 11.2): anything but a
+        # mapping reads as absent rather than raising into the hook.
+        "provenance": prov if isinstance(prov, dict) else {},
     }
 
 
@@ -87,7 +99,7 @@ def _token_lists(value):
 
 BUCKET_RANK = {"trusted": 0, "working": 1, "unproven": 2}
 HOT_ELIGIBLE = ("trusted", "working")
-UNKNOWN = {"organic_bucket": "unproven", "successes": 0, "failures": 0,
+UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0,
            "last_used": ""}
 # Catches sessions that died without a clean SessionEnd -- a crash, a kill,
 # a closed terminal. A day is long enough that no live session is swept.
@@ -127,6 +139,7 @@ def _write_index(items):
                 "tier": s["tier"], "bucket": s["bucket"],
                 "est_tokens": est_tokens(s["text"]),
                 "fingerprints": s["fingerprints"],
+                "provenance": s["provenance"],
                 "path": str(s["path"])} for s in items]
     _write_json(p, {
         "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
@@ -164,6 +177,57 @@ def _cleanup_state():
             pass
 
 
+def executable_candidates(trusted, conf, verdicts):
+    """Names eligible for an executable run, best evidence first.
+
+    Ordered rather than threshold-gated (slice D2 design 3): gating on
+    organic successes would deadlock skills whose whole value is mid-task
+    recall -- they never match a prompt, so they never earn a success, so
+    they would never validate, so they would never reach the tier that
+    surfaces them.
+
+    A skill that can only ever answer `inconclusive` is excluded here rather
+    than left to the verdict cache: validate.py deliberately does not record
+    an `inconclusive` (ruling R12), so an ineligible candidate would be
+    picked again every session and burn the one slot forever.
+    """
+    out = []
+    for s in trusted:
+        v = verdicts.get(s["name"], {})
+        if v.get("critique") != "pass" or v.get("executable"):
+            continue
+        # Anti-skills carry no verification.command by design, and a skill
+        # without one has nothing to run. `.get(..., True)`: entries built by
+        # sync() always carry both keys; the sentinel keeps the bare
+        # {"name", "saved_ts"} entries of the ordering unit tests eligible.
+        if s.get("kind") == "antiskill" or not s.get("verification_command", True):
+            continue
+        out.append(s)
+    out.sort(key=lambda s: s.get("saved_ts", 0), reverse=True)
+    out.sort(key=lambda s: conf.get(s["name"], UNKNOWN).get("successes", 0),
+             reverse=True)
+    return [s["name"] for s in out]
+
+
+def _spawn_validation(name, mode):
+    """Detached, never waited on; its own function so tests replace it.
+
+    Plain os.environ, NOT dict(os.environ, SKILLFORGE_DRAFTING="1") -- same
+    reasoning as save_skill._spawn_validation: validate.py's main() returns 0
+    as its first statement when that flag is set, so forcing it here would
+    make every scheduled run a silent no-op. Inheriting os.environ unchanged
+    still lets the flag through when it is genuinely set (sync running inside
+    a drafting session), which is the one case where going inert is correct.
+    """
+    argv = [sys.executable,
+            str(Path(__file__).resolve().parent / "validate.py"), mode,
+            "--skill", name]
+    subprocess.Popen(argv, cwd=str(Path(__file__).resolve().parent.parent),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True,
+                     env=os.environ)
+
+
 def sync(project_root=None):
     counts = {"materialized": 0, "evicted": 0, "quarantined": 0}
     bases = [Path.home()]
@@ -186,18 +250,24 @@ def sync(project_root=None):
                     "description": meta["description"],
                     "symptoms": meta["symptoms"],
                     "fingerprints": meta["fingerprints"],
-                    "verification": meta["verification"]})
+                    "verification": meta["verification"],
+                    "verification_command": meta["verification_command"],
+                    "provenance": meta["provenance"],
+                    # "most recently saved": the store file's own mtime. Every
+                    # save path writes it, and it needs no ledger row.
+                    "saved_ts": md.stat().st_mtime})
             else:
                 counts["quarantined"] += 1
 
     # Hot ranking (slice C2 design 5): bucket, then successful sessions, then
     # recency, then name -- via chained stable sorts, last sort = primary key.
     #
-    # TASK 8 REPLACES THIS: reads the organic half only, so Tier A is not yet
-    # enforced on the hot tier. Task 8 passes hashes and restores ["bucket"].
-    conf = ledger.confidence()
+    # Tier A is enforced here, not in the view: verdicts are keyed by content
+    # hash, and only this loop knows each skill's current text.
+    hashes = {s["name"]: trust.content_hash(s["text"]) for s in trusted}
+    conf = ledger.confidence(hashes=hashes)
     for s in trusted:
-        s["bucket"] = conf.get(s["name"], UNKNOWN)["organic_bucket"]
+        s["bucket"] = conf.get(s["name"], UNKNOWN)["bucket"]
     trusted.sort(key=lambda s: s["name"])
     trusted.sort(key=lambda s: conf.get(s["name"], UNKNOWN)["last_used"], reverse=True)
     trusted.sort(key=lambda s: conf.get(s["name"], UNKNOWN)["successes"], reverse=True)
@@ -240,6 +310,14 @@ def sync(project_root=None):
 
     _write_index(trusted)
     _write_triggers(trusted)
+    # One per session: executable mode is an agentic run, not a single turn.
+    try:
+        names = executable_candidates(
+            trusted, conf, ledger.validations_for(hashes))
+        if names:
+            _spawn_validation(names[0], "executable")
+    except Exception as err:
+        print("skillforge: executable schedule failed: %s" % err, file=sys.stderr)
     _cleanup_state()
     try:
         ledger.prune_signals(older_than_hours=SIGNAL_TTL_HOURS)
