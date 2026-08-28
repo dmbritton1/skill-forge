@@ -19,6 +19,10 @@ from pathlib import Path
 # `signals` is deliberately NOT part of `events`: events.skill is NOT NULL and
 # a breadcrumb has no skill, and any breadcrumb carrying outcome='failure'
 # would be counted by skill_confidence and corrupt a real skill's bucket.
+# `validations` is separate for the same reason: a verdict of 'fail' is not a
+# real-session failure, and skill_confidence counts outcome='failure' across
+# every events row. It is also keyed by content hash, which events has no
+# column for and no reason to grow one.
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY,
@@ -42,6 +46,15 @@ SELECT skill,
   COALESCE(SUM(event_type = 'injection'), 0)  AS injections,
   MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
 FROM events GROUP BY skill;
+-- `organic_bucket` is the ledger's half of the answer: what real sessions
+-- have shown. The final bucket ANDs in Tier A (slice D2 design 9), which
+-- needs a content hash this view cannot see, so confidence() applies it.
+-- `fresh` is the rule's third conjunct (design 9: last_used empty or age <= 90
+-- days) exposed as its own column. It is a TOP-LEVEL conjunct, so it must hold
+-- even when Tier A satisfies the middle one -- reading it off `organic_bucket`
+-- would skip it exactly when an executable pass carried the middle disjunct.
+-- Computed once here and consumed twice, so the window cannot drift between
+-- the SQL and the Python.
 CREATE VIEW IF NOT EXISTS skill_confidence AS
 WITH t AS (
   SELECT skill,
@@ -50,16 +63,18 @@ WITH t AS (
     COUNT(DISTINCT CASE WHEN outcome = 'failure' THEN COALESCE(session, '') END)
       AS failure_sessions,
     MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
-  FROM events GROUP BY skill)
-SELECT skill, success_sessions, failure_sessions, last_used,
+  FROM events GROUP BY skill),
+f AS (
+  SELECT *, (last_used IS NULL
+             OR julianday('now') - julianday(last_used) <= 90) AS fresh
+  FROM t)
+SELECT skill, success_sessions, failure_sessions, last_used, fresh,
   CASE
-    WHEN success_sessions >= 2 AND failure_sessions = 0
-         AND (last_used IS NULL OR julianday('now') - julianday(last_used) <= 90)
-      THEN 'trusted'
+    WHEN success_sessions >= 2 AND failure_sessions = 0 AND fresh THEN 'trusted'
     WHEN success_sessions >= 1 AND success_sessions > failure_sessions THEN 'working'
     ELSE 'unproven'
-  END AS bucket
-FROM t;
+  END AS organic_bucket
+FROM f;
 CREATE TABLE IF NOT EXISTS signals (
   id INTEGER PRIMARY KEY,
   session TEXT NOT NULL,
@@ -79,7 +94,36 @@ CREATE TABLE IF NOT EXISTS drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_drafts_signature ON drafts(signature);
 CREATE INDEX IF NOT EXISTS idx_drafts_status ON drafts(status);
+CREATE TABLE IF NOT EXISTS validations (
+  id INTEGER PRIMARY KEY,
+  skill TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  verdict TEXT NOT NULL,
+  detail TEXT,
+  ts TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_validations_key
+  ON validations(skill, content_hash, mode);
+CREATE TABLE IF NOT EXISTS validation_attempts (
+  skill TEXT NOT NULL,
+  content_hash TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  ts TEXT NOT NULL,
+  PRIMARY KEY (skill, content_hash, mode)
+);
 """
+
+# Bumped whenever an existing object's DEFINITION changes -- CREATE ... IF NOT
+# EXISTS silently leaves an old view in place, so a rename needs an explicit
+# DROP. Read once per connect (one indexed SELECT); DDL runs only when behind,
+# because detect.py connects on every tool call.
+SCHEMA_VERSION = 3
+
+MIGRATIONS = {
+    2: ("DROP VIEW IF EXISTS skill_confidence",),
+    3: ("DROP VIEW IF EXISTS skill_confidence",),
+}
 
 
 def default_path():
@@ -104,6 +148,7 @@ def connect(path=None):
         except sqlite3.OperationalError:
             pass
     con.executescript(SCHEMA)
+    _migrate(con)
     # One fingerprint credit and one verdict per (session, skill) are design
     # invariants (spec 9.1/9.3), enforced here as partial unique indexes
     # rather than inside SCHEMA's executescript: a pre-existing ledger that
@@ -127,6 +172,38 @@ def connect(path=None):
     return con
 
 
+def _migrate(con):
+    """Best-effort, at-most-once schema migration.
+
+    Every statement is idempotent, and the whole thing is wrapped: a
+    migration failure must never take down the hook that happened to open
+    the database. The version row is written last, so a partial run is
+    retried rather than skipped.
+    """
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS meta"
+                    " (key TEXT PRIMARY KEY, value TEXT)")
+        row = con.execute(
+            "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        have = int(row[0]) if row else 0
+        if have >= SCHEMA_VERSION:
+            return
+        with con:
+            for v in sorted(MIGRATIONS):
+                if v > have:
+                    for stmt in MIGRATIONS[v]:
+                        con.execute(stmt)
+            # DROP removed the view; SCHEMA recreates it on the next
+            # executescript, so run it here rather than waiting a connect.
+            con.executescript(SCHEMA)
+            con.execute("INSERT INTO meta (key, value) VALUES"
+                        " ('schema_version', ?)"
+                        " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                        (str(SCHEMA_VERSION),))
+    except sqlite3.DatabaseError as err:
+        print("skillforge: schema migration failed: %s" % err, file=sys.stderr)
+
+
 def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
               tier=None, trigger=None, detection=None,
               preexisting_fingerprint=None, ts=None, path=None):
@@ -144,30 +221,169 @@ def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
         con.close()
 
 
-def confidence(path=None):
-    """{skill: {"bucket", "successes", "failures", "last_used"}}; empty on failure.
+def confidence(path=None, hashes=None):
+    """Confidence per skill; empty on failure.
+
+    With `hashes` ({skill: content_hash}) the Tier A conjunct is applied and
+    each entry carries "bucket". Without it each entry carries
+    "organic_bucket" and NO "bucket" -- a caller that forgets the hashes gets
+    a KeyError rather than the weaker pre-D2 answer, which is the one
+    direction this system must never fail in silently.
 
     An empty map reads as `unproven` everywhere, which is the safe
     direction: a broken ledger empties the hot tier rather than promoting on
-    stale data. A dict rather than a tuple because two consumers now read
-    different fields from it, and positional drift between them would be
-    silent.
+    stale data.
     """
     stats = {}
     try:
         con = connect(path)
         try:
-            for skill, wins, losses, last_used, bucket in con.execute(
+            for skill, wins, losses, last_used, fresh, organic in con.execute(
                     "SELECT skill, success_sessions, failure_sessions,"
-                    " last_used, bucket FROM skill_confidence"):
-                stats[skill] = {"bucket": bucket or "unproven",
+                    " last_used, fresh, organic_bucket FROM skill_confidence"):
+                stats[skill] = {"organic_bucket": organic or "unproven",
                                 "successes": wins or 0, "failures": losses or 0,
-                                "last_used": last_used or ""}
+                                "last_used": last_used or "",
+                                "fresh": bool(fresh)}
         finally:
             con.close()
-    except Exception:
-        pass
+    except Exception as err:
+        print("skillforge: confidence read failed: %s" % err, file=sys.stderr)
+        return {}
+    if hashes is None:
+        return stats
+
+    verdicts = validations_for(hashes, path=path)
+    for skill in verdicts:
+        # skill_confidence is grouped over `events`, so a skill that has never
+        # been used has no row there at all -- and Tier A alone can promote it
+        # ("pass"/"pass" with zero organic successes is `trusted`). Give it the
+        # zero record the view would have shown, so the conjunct has something
+        # to promote instead of the caller silently seeing an absent skill.
+        # `fresh` is True because it has no last_used to be stale against --
+        # the same answer the view's own expression gives for a NULL.
+        stats.setdefault(skill, {"organic_bucket": "unproven", "successes": 0,
+                                 "failures": 0, "last_used": "",
+                                 "fresh": True})
+    for skill, s in stats.items():
+        v = verdicts.get(skill, {})
+        # The three top-level conjuncts of design 9, in order. `fresh` is ANDed
+        # separately rather than read off `organic_bucket == 'trusted'`: that
+        # only carries the window on the k>=2 branch, so an executable pass
+        # would otherwise promote a skill last used years ago and it would
+        # never decay back out of the hot tier.
+        s["bucket"] = ("trusted"
+                       if (v.get("critique") == "pass"
+                           and (v.get("executable") == "pass"
+                                or s["organic_bucket"] == "trusted")
+                           and s["fresh"])
+                       else ("working" if s["organic_bucket"] == "trusted"
+                             else s["organic_bucket"]))
     return stats
+
+
+def record_validation(skill, content_hash, mode, verdict, *, detail=None,
+                      ts=None, path=None):
+    """One Tier A verdict for one exact skill text (slice D2 design 6).
+
+    Keyed by content hash, so editing a skill voids its verdicts exactly as
+    it voids its trust entry -- both get re-earned together.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            con.execute(
+                "INSERT INTO validations (skill, content_hash, mode, verdict,"
+                " detail, ts) VALUES (?,?,?,?,?,?)"
+                " ON CONFLICT(skill, content_hash, mode) DO UPDATE SET"
+                " verdict = excluded.verdict, detail = excluded.detail,"
+                " ts = excluded.ts",
+                (skill, content_hash, mode, verdict, detail, ts))
+    finally:
+        con.close()
+
+
+def validations_for(skills_hashes, *, path=None):
+    """{skill: {mode: verdict}} for the EXACT hashes given; {} on failure.
+
+    A skill whose current text does not match the hash a verdict was
+    recorded against simply does not appear -- there is no partial credit
+    for an edited skill.
+    """
+    out = {}
+    if not skills_hashes:
+        return out
+    try:
+        con = connect(path)
+        try:
+            for skill, h in skills_hashes.items():
+                for mode, verdict in con.execute(
+                        "SELECT mode, verdict FROM validations"
+                        " WHERE skill = ? AND content_hash = ?", (skill, h)):
+                    out.setdefault(skill, {})[mode] = verdict
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: validation read failed: %s" % err, file=sys.stderr)
+        return {}
+    return out
+
+
+def record_attempt(skill, content_hash, mode, *, ts=None, path=None):
+    """Record that this mode ran against this exact text and got no verdict.
+
+    Its own table, NOT a `validations` row, and that separation is the point:
+    `verdict` holds a closed set (pass | fail | inconclusive) that feeds the
+    Tier A conjunct, so a bookkeeping row smuggled in there would be one
+    validations_for() could hand to confidence() -- and to validate.main's
+    "already answered for this hash" early return, which would lock the skill
+    out of a real run forever. Here it is invisible to both by construction
+    rather than by everyone remembering to filter.
+
+    What it is for: the runtime gates record no verdict (ruling R12), but some
+    of them are PERMANENT for a given text -- the vacuity gate above all, which
+    is deterministic for a text and a repo HEAD. Without a record of the
+    attempt, such a skill sorts first every session forever and starves every
+    other candidate. sync deprioritizes on this; it never excludes on it, so a
+    transient failure is still retried.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            con.execute(
+                "INSERT INTO validation_attempts (skill, content_hash, mode,"
+                " ts) VALUES (?,?,?,?)"
+                " ON CONFLICT(skill, content_hash, mode) DO UPDATE SET"
+                " ts = excluded.ts", (skill, content_hash, mode, ts))
+    finally:
+        con.close()
+
+
+def attempts_for(skills_hashes, *, path=None):
+    """{skill: {mode, ...}} for the EXACT hashes given; {} on failure.
+
+    Hash-keyed like the verdicts: editing a skill clears its attempt history
+    along with its verdicts, and the new text gets a fresh turn at the front.
+    """
+    out = {}
+    if not skills_hashes:
+        return out
+    try:
+        con = connect(path)
+        try:
+            for skill, h in skills_hashes.items():
+                for (mode,) in con.execute(
+                        "SELECT mode FROM validation_attempts"
+                        " WHERE skill = ? AND content_hash = ?", (skill, h)):
+                    out.setdefault(skill, set()).add(mode)
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: attempt read failed: %s" % err, file=sys.stderr)
+        return {}
+    return out
 
 
 def now_utc():

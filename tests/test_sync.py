@@ -11,6 +11,16 @@ import ledger
 import sync
 import trust
 
+# sync() schedules one executable validation run per session (Task 8). No
+# suite may spawn a real subprocess, so the seam is stubbed inert here for
+# every test in this file; the spawn test below installs its own stub over
+# the top of this one and restores it (not the real Popen-backed function).
+# The real function is saved first: the env-inspection tests at the bottom
+# call it directly (with subprocess.Popen itself stubbed out) to check what
+# it builds, and would otherwise see this inert lambda instead.
+_REAL_SPAWN_VALIDATION = sync._spawn_validation
+sync._spawn_validation = lambda name, mode: None
+
 SKILL = """---
 name: %s
 kind: skill
@@ -570,6 +580,420 @@ def test_an_interrupted_write_leaves_the_previous_index_intact():
         assert not list(p.parent.glob("*.tmp-*")), \
             sorted(x.name for x in p.parent.iterdir())
     in_sandbox(check)
+
+
+SKILL_WITH_PROVENANCE = """---
+name: %s
+kind: skill
+description: A thing. Do NOT use otherwise.
+verification.command: "%s"
+provenance:
+  repo: %s
+  distilled: 2026-08-01
+---
+## Procedure
+1. Do it.
+## Verification
+Run the command.
+"""
+
+RUNNABLE_COMMAND = "npx stripe trigger payment_intent.succeeded"
+
+
+def local_repo(home):
+    """A directory validate.unattemptable accepts as provenance.repo.
+
+    It only tests that `.git` exists; nothing in this suite runs git, and the
+    spawn seam is inert, so no worktree is ever built from it.
+    """
+    (home / "repo" / ".git").mkdir(parents=True, exist_ok=True)
+    return str(home / "repo")
+
+
+def runnable_skill(home, name):
+    """Skill text whose executable preconditions all hold."""
+    return SKILL_WITH_PROVENANCE % (name, RUNNABLE_COMMAND, local_repo(home))
+
+
+def candidate(home, name="a", text=None, kind="skill", repo=None):
+    """One entry shaped the way sync() builds them, attemptable by default."""
+    if repo is None:
+        repo = local_repo(home)
+    return {"name": name, "saved_ts": 1.0, "kind": kind,
+            "provenance": {"repo": repo},
+            "text": text if text is not None else runnable_skill(home, name)}
+
+
+def test_sync_applies_the_tier_a_conjunct_to_tiering():
+    """Two clean sessions alone are `working`; `trusted` needs a critique pass.
+
+    (Adapted from the brief: put_skill() writes a store file, it does not
+    trust it, so trust.record() is added the way every other test here does
+    it. The brief's `tier == "warm"` assertion is replaced by `hot`: working
+    is hot-eligible -- test_working_skill_goes_hot has always asserted that
+    -- so the conjunct's effect is on the bucket, which is asserted.)
+    """
+    def check(home):
+        path = put_skill(home, "widget-flush")
+        text = pathlib.Path(path).read_text(encoding="utf-8")
+        trust.record("widget-flush", text, "self")
+        for i in range(2):
+            ledger.log_event("detection", "widget-flush", outcome="success",
+                             session="s%d" % i)
+        sync.sync()
+        entry = [e for e in read_index(home)["entries"]
+                 if e["name"] == "widget-flush"][0]
+        assert entry["bucket"] == "working", entry
+        assert entry["tier"] == "hot", entry
+
+        ledger.record_validation("widget-flush", trust.content_hash(text),
+                                 "critique", "pass")
+        sync.sync()
+        entry = [e for e in read_index(home)["entries"]
+                 if e["name"] == "widget-flush"][0]
+        assert entry["bucket"] == "trusted", entry
+    in_sandbox(check)
+
+
+def test_executable_candidates_are_ordered_by_evidence_then_recency():
+    def check(home):
+        conf = {"a": {"successes": 0}, "b": {"successes": 3}, "c": {"successes": 1}}
+        # Real entries, and float saved_ts: the filter runs unattemptable on
+        # every entry, and st_mtime is what sync() puts in saved_ts.
+        trusted = [dict(candidate(home, name=n), saved_ts=t) for n, t in
+                   (("a", 3.0), ("b", 1.0), ("c", 2.0))]
+        verdicts = {n: {"critique": "pass"} for n in "abc"}
+        got = sync.executable_candidates(trusted, conf, verdicts)
+        assert got == ["b", "c", "a"], got
+    in_sandbox(check)
+
+
+def test_executable_candidates_break_ties_by_recency():
+    """Equal evidence: only the saved_ts comparator can order these, and it
+    must reverse the input order to prove it ran at all."""
+    def check(home):
+        conf = {"a": {"successes": 2}, "b": {"successes": 2}}
+        trusted = [dict(candidate(home, name="a"), saved_ts=100.0),
+                   dict(candidate(home, name="b"), saved_ts=200.0)]
+        verdicts = {n: {"critique": "pass"} for n in "ab"}
+        got = sync.executable_candidates(trusted, conf, verdicts)
+        assert got == ["b", "a"], got
+    in_sandbox(check)
+
+
+def test_a_skill_without_critique_is_not_an_executable_candidate():
+    conf = {"a": {"successes": 5}}
+    trusted = [{"name": "a", "saved_ts": "2026-01-01"}]
+    assert sync.executable_candidates(trusted, conf, {}) == []
+    assert sync.executable_candidates(
+        trusted, conf, {"a": {"critique": "fail"}}) == []
+
+
+def test_a_skill_already_executable_validated_is_not_a_candidate():
+    conf = {"a": {"successes": 5}}
+    trusted = [{"name": "a", "saved_ts": "2026-01-01"}]
+    for verdict in ("pass", "fail", "inconclusive"):
+        assert sync.executable_candidates(
+            trusted, conf,
+            {"a": {"critique": "pass", "executable": verdict}}) == [], verdict
+
+
+# The four refusals validate.unattemptable decides statically. Each test
+# asserts the exclusion AND the positive control -- the same entry with only
+# the named field repaired IS a candidate -- so a filter that excluded
+# everything would fail all four.
+CONF = {"a": {"successes": 5}}
+CRITIQUED = {"a": {"critique": "pass"}}
+
+
+def test_an_antiskill_is_not_an_executable_candidate():
+    """Anti-skills carry no verification.command by design, so executable
+    mode can only ever answer `inconclusive` -- which is no longer recorded,
+    so an anti-skill candidate would burn the one slot every session."""
+    def check(home):
+        trusted = [candidate(home, kind="antiskill")]
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["kind"] = "skill"        # identical otherwise
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
+
+
+def test_a_skill_without_a_verification_command_is_not_a_candidate():
+    def check(home):
+        trusted = [candidate(home, text=SKILL % "a")]   # no verification.command
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["text"] = runnable_skill(home, "a")
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
+
+
+def test_a_command_needing_a_shell_is_not_a_candidate():
+    """verification_argv refuses metacharacters permanently for this text, so
+    offering it again next session can only produce the same inconclusive."""
+    def check(home):
+        shelly = SKILL_WITH_PROVENANCE % ("a", "npm test && npm run lint",
+                                          local_repo(home))
+        trusted = [candidate(home, text=shelly)]
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["text"] = runnable_skill(home, "a")
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
+
+
+def test_a_provenance_repo_that_is_not_local_is_not_a_candidate():
+    """The common case: the distiller writes `repo: <org/repo or local dir
+    name>`, so most skills name a repo that is not a path on this machine."""
+    def check(home):
+        trusted = [candidate(home, repo="acme/storefront")]
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["provenance"] = {"repo": local_repo(home)}
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
+
+
+def test_sync_spawns_at_most_one_executable_run():
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            for n in ("aaa-skill", "bbb-skill"):
+                p = put_skill(home, n, runnable_skill(home, n))
+                text = pathlib.Path(p).read_text(encoding="utf-8")
+                trust.record(n, text, "self")
+                ledger.record_validation(
+                    n, trust.content_hash(text), "critique", "pass")
+            sync.main([])
+        finally:
+            sync._spawn_validation = real
+        assert len(seen) == 1, seen
+        assert seen[0][1] == "executable", seen
+    in_sandbox(check)
+
+
+def test_only_the_session_start_entry_point_schedules_a_run():
+    """sync() selects; main() spawns.
+
+    sync() also runs after every save (save_skill) and every delete
+    (library), and neither goes through main()'s drafting guard -- with the
+    spawn inside sync(), a session with two saves would start up to three
+    executable runs, each a detached `claude -p` plus a worktree of the
+    user's repo plus the skill's own command.
+    """
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            n = "aaa-skill"
+            p = put_skill(home, n, runnable_skill(home, n))
+            text = pathlib.Path(p).read_text(encoding="utf-8")
+            trust.record(n, text, "self")
+            ledger.record_validation(
+                n, trust.content_hash(text), "critique", "pass")
+            counts = sync.sync()
+            assert seen == [], "sync() itself scheduled a run"
+            # Selection still happened -- otherwise this would pass with the
+            # feature removed entirely rather than merely relocated.
+            assert counts["executable_candidates"] == [n], counts
+            assert sync.main([]) == 0
+            assert seen == [(n, "executable")], seen
+        finally:
+            sync._spawn_validation = real
+    in_sandbox(check)
+
+
+def test_a_trusted_skill_with_no_critique_verdict_is_a_critique_candidate():
+    """Finding 3. save_skill's spawn-on-save was the ONLY critique call site,
+    so a skill pulled from a repo and approved through /skillforge:review was
+    never critiqued -- and executable_candidates requires a critique pass, so
+    it was capped at `working` permanently, against design decision 1.
+    """
+    def check(home):
+        trusted = [candidate(home, name="a")]
+        assert sync.critique_candidates(trusted, CONF, {}) == ["a"]
+        for verdict in ("pass", "fail"):
+            assert sync.critique_candidates(
+                trusted, CONF, {"a": {"critique": verdict}}) == [], verdict
+    in_sandbox(check)
+
+
+def test_a_critique_candidate_needs_no_runnable_verification():
+    """The executable preconditions are executable's. Critique reads text."""
+    def check(home):
+        trusted = [candidate(home, kind="antiskill", text=ANTISKILL % "a")]
+        assert sync.critique_candidates(trusted, CONF, {}) == ["a"]
+    in_sandbox(check)
+
+
+def test_sync_main_spawns_one_critique_for_an_uncritiqued_trusted_skill():
+    """The pull path, the approve path, and a lost spawn, covered in one
+    place: validate.main early-returns on an existing verdict for the hash and
+    the per-(skill, mode) flock makes a concurrent run a no-op, so a repeat
+    spawn costs one Popen that exits immediately."""
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            for n in ("aaa-skill", "bbb-skill"):
+                md = put_skill(home, n, runnable_skill(home, n))
+                trust.record(n, md.read_text(encoding="utf-8"), "self")
+            sync.main([])
+        finally:
+            sync._spawn_validation = real
+        crit = [s for s in seen if s[1] == "critique"]
+        assert len(crit) == 1, seen          # one per session, like executable
+        # Neither is an executable candidate yet: that needs a critique pass.
+        assert [s for s in seen if s[1] == "executable"] == [], seen
+    in_sandbox(check)
+
+
+def test_sync_main_does_not_respawn_critique_for_the_current_hash():
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            n = "aaa-skill"
+            md = put_skill(home, n, runnable_skill(home, n))
+            text = md.read_text(encoding="utf-8")
+            trust.record(n, text, "self")
+            ledger.record_validation(n, trust.content_hash(text),
+                                     "critique", "pass")
+            sync.main([])
+        finally:
+            sync._spawn_validation = real
+        assert [s for s in seen if s[1] == "critique"] == [], seen
+        assert seen == [(n, "executable")], seen
+    in_sandbox(check)
+
+
+def test_an_attempted_candidate_sorts_last_but_is_still_offered():
+    """Finding 4. The runtime gates record no verdict, so a skill that hits a
+    PERMANENT one -- the vacuity gate is deterministic for a given text and
+    repo HEAD -- sorted first every session forever and starved every other
+    candidate, while running a worktree and a skill-authored command each
+    time. Deprioritized rather than excluded, so a genuinely transient failure
+    is still retried once everything else has had its turn.
+    """
+    def check(home):
+        conf = {"a": {"successes": 5}, "b": {"successes": 0}}
+        trusted = [dict(candidate(home, name=n), saved_ts=t)
+                   for n, t in (("a", 2.0), ("b", 1.0))]
+        verdicts = {n: {"critique": "pass"} for n in "ab"}
+        assert sync.executable_candidates(trusted, conf, verdicts) == ["a", "b"]
+        got = sync.executable_candidates(trusted, conf, verdicts,
+                                         attempts={"a": {"executable"}})
+        assert got == ["b", "a"], got
+    in_sandbox(check)
+
+
+def test_sync_deprioritizes_a_skill_already_attempted_for_this_hash():
+    """The wiring, not just the comparator: sync() must read the attempt rows.
+
+    Mutation proof: drop the attempts argument in sync() and the best-evidence
+    skill leads the list again, exactly as it did every session before.
+    """
+    def check(home):
+        for n, wins in (("aaa-skill", 2), ("bbb-skill", 0)):
+            md = put_skill(home, n, runnable_skill(home, n))
+            text = md.read_text(encoding="utf-8")
+            trust.record(n, text, "self")
+            ledger.record_validation(n, trust.content_hash(text),
+                                     "critique", "pass")
+            for i in range(wins):
+                earn_success(n, session="s%s%d" % (n, i))
+        first = sync.sync()["executable_candidates"]
+        assert first == ["aaa-skill", "bbb-skill"], first
+        ledger.record_attempt(
+            "aaa-skill",
+            trust.content_hash(
+                (home / ".claude" / "skillforge" / "skills" / "aaa-skill"
+                 / "SKILL.md").read_text(encoding="utf-8")),
+            "executable")
+        after = sync.sync()["executable_candidates"]
+        assert after == ["bbb-skill", "aaa-skill"], after
+    in_sandbox(check)
+
+
+def test_index_entries_carry_provenance():
+    """validate.executable() reads entry["provenance"]["repo"] to know which
+    repo to reproduce; without this carry it is `inconclusive` every time."""
+    def check(home):
+        md = put_skill(home, "stripe-hook", SKILL_WITH_PROVENANCE % (
+            "stripe-hook", RUNNABLE_COMMAND, "/tmp/acme-storefront"))
+        trust.record("stripe-hook", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["provenance"] == {"repo": "/tmp/acme-storefront",
+                                       "distilled": "2026-08-01"}, entry
+    in_sandbox(check)
+
+
+def test_a_non_mapping_provenance_does_not_raise():
+    def check(home):
+        text = (SKILL_WITH_PROVENANCE % (
+            "stripe-hook", RUNNABLE_COMMAND, "/tmp/acme-storefront")).replace(
+            "provenance:\n  repo: /tmp/acme-storefront\n  distilled: 2026-08-01",
+            "provenance: garbage")
+        md = put_skill(home, "stripe-hook", text)
+        trust.record("stripe-hook", md.read_text(encoding="utf-8"), "self")
+        sync.sync()
+        entry = read_index(home)["entries"][0]
+        assert entry["provenance"] == {}, entry
+    in_sandbox(check)
+
+
+def _capture_popen_env(name="widget-flush", mode="executable"):
+    """Call the REAL _spawn_validation with subprocess.Popen stubbed out.
+
+    Never spawns a real process -- Popen itself is replaced -- but still
+    exercises the actual env-construction logic in sync.py, which the
+    seam-swap test above never touches (it replaces _spawn_validation
+    wholesale). Returns the `env` kwarg the real function handed to Popen.
+    """
+    calls = []
+    real_popen = sync.subprocess.Popen
+
+    class DummyProc:
+        pass
+
+    def fake_popen(argv, **kwargs):
+        calls.append(kwargs.get("env"))
+        return DummyProc()
+
+    sync.subprocess.Popen = fake_popen
+    try:
+        _REAL_SPAWN_VALIDATION(name, mode)
+    finally:
+        sync.subprocess.Popen = real_popen
+    return calls[0]
+
+
+def test_spawn_does_not_manufacture_the_drafting_flag():
+    """validate.py's main() returns 0 as its first statement when the flag is
+    set, so forcing it here would make every scheduled run a silent no-op."""
+    old = os.environ.pop("SKILLFORGE_DRAFTING", None)
+    try:
+        env = _capture_popen_env()
+        assert "SKILLFORGE_DRAFTING" not in env, env
+    finally:
+        if old is not None:
+            os.environ["SKILLFORGE_DRAFTING"] = old
+
+
+def test_spawn_inherits_the_drafting_flag_when_already_set():
+    old = os.environ.get("SKILLFORGE_DRAFTING")
+    os.environ["SKILLFORGE_DRAFTING"] = "1"
+    try:
+        env = _capture_popen_env()
+        assert env.get("SKILLFORGE_DRAFTING") == "1", env
+    finally:
+        if old is None:
+            del os.environ["SKILLFORGE_DRAFTING"]
+        else:
+            os.environ["SKILLFORGE_DRAFTING"] = old
 
 
 if __name__ == "__main__":

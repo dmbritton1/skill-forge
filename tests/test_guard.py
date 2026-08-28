@@ -14,6 +14,13 @@ import reconcile
 import retrieve
 import sync
 
+# test_hooks_still_work_without_the_variable calls the REAL sync.main([]),
+# which schedules validation runs. It is safe today only because the temp HOME
+# has no skills -- a property of the fixture, not of this test. Stubbed inert
+# at module scope so the guarantee is structural, exactly as tests/test_sync.py
+# and tests/test_validation_e2e.py do it.
+sync._spawn_validation = lambda name, mode: None
+
 
 class CountingStdin:
     """Counts reads so the assertion survives the hooks' own catch-all.

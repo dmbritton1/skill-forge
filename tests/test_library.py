@@ -64,7 +64,10 @@ def test_confidence_reports_both_sides():
         conf = ledger.confidence(path=db)
         assert conf["foo"]["successes"] == 1
         assert conf["foo"]["failures"] == 1
-        assert conf["foo"]["bucket"] == "unproven"
+        # Contract update, not a softened assertion: without hashes there is
+        # deliberately no "bucket" key at all -- see
+        # test_confidence_without_hashes_refuses_to_answer_bucket.
+        assert conf["foo"]["organic_bucket"] == "unproven"
 
 
 def test_list_reports_bucket_and_counts():
@@ -165,6 +168,28 @@ def test_delete_refuses_an_entry_outside_the_store():
         assert rc == 1
         assert "outside" in out
         assert outside.exists()
+    in_sandbox(check)
+
+
+def test_list_shows_both_verdicts():
+    def check(home):
+        path = put_skill(home, "widget-flush")
+        text = (pathlib.Path(path) / "SKILL.md").read_text(encoding="utf-8")
+        h = trust.content_hash(text)
+        ledger.record_validation("widget-flush", h, "critique", "pass")
+        ledger.record_validation("widget-flush", h, "executable", "fail")
+        row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
+        assert row["critique"] == "pass", row
+        assert row["executable"] == "fail", row
+    in_sandbox(check)
+
+
+def test_an_unvalidated_skill_shows_a_blank_not_a_pass():
+    def check(home):
+        put_skill(home, "widget-flush")
+        row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
+        assert row["critique"] == "", row
+        assert row["executable"] == "", row
     in_sandbox(check)
 
 

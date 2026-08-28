@@ -1,12 +1,24 @@
 """Tests for the SQLite event ledger (spec 9.2). Run: python3 tests/test_ledger.py"""
 import datetime
+import os
 import pathlib
+import sqlite3
 import sys
 import tempfile
 import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import ledger
+
+
+def in_sandbox(fn):
+    old_home = os.environ["HOME"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        try:
+            fn(pathlib.Path(tmp))
+        finally:
+            os.environ["HOME"] = old_home
 
 
 def test_log_event_writes_row():
@@ -150,7 +162,7 @@ def bucket_of(db, skill):
     con = ledger.connect(db)
     try:
         row = con.execute(
-            "SELECT bucket FROM skill_confidence WHERE skill = ?", (skill,)).fetchone()
+            "SELECT organic_bucket FROM skill_confidence WHERE skill = ?", (skill,)).fetchone()
         return row[0] if row else None
     finally:
         con.close()
@@ -388,6 +400,234 @@ def test_session_query_uses_the_session_index():
         plan_text = " ".join(str(row) for row in plan)
         assert "idx_events_session" in plan_text, plan_text
         assert "SCAN events" not in plan_text, plan_text
+
+
+def test_validation_roundtrips_for_its_own_hash():
+    def check(home):
+        ledger.record_validation("widget-trap", "hash-aaa", "critique", "pass")
+        got = ledger.validations_for({"widget-trap": "hash-aaa"})
+        assert got == {"widget-trap": {"critique": "pass"}}, got
+    in_sandbox(check)
+
+
+def test_a_verdict_does_not_survive_an_edit():
+    """The whole point of hash-keying: pass critique, edit the body, and the
+    pass must NOT carry over to the new text."""
+    def check(home):
+        ledger.record_validation("widget-trap", "hash-aaa", "critique", "pass")
+        got = ledger.validations_for({"widget-trap": "hash-bbb"})
+        assert got == {}, got
+    in_sandbox(check)
+
+
+def test_recording_the_same_key_twice_replaces_rather_than_duplicates():
+    def check(home):
+        ledger.record_validation("w", "h", "executable", "inconclusive")
+        ledger.record_validation("w", "h", "executable", "pass")
+        assert ledger.validations_for({"w": "h"}) == {"w": {"executable": "pass"}}
+        con = ledger.connect()
+        try:
+            n = con.execute("SELECT COUNT(*) FROM validations").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 1, n
+    in_sandbox(check)
+
+
+def test_both_modes_coexist_for_one_skill():
+    def check(home):
+        ledger.record_validation("w", "h", "critique", "pass")
+        ledger.record_validation("w", "h", "executable", "fail")
+        assert ledger.validations_for({"w": "h"}) == {
+            "w": {"critique": "pass", "executable": "fail"}}
+    in_sandbox(check)
+
+
+def test_validations_never_reach_skill_confidence():
+    """A failed validation must not be counted as a real-session failure.
+
+    skill_confidence counts outcome='failure' across events. This is the
+    same trap the `signals` table was kept out of events to avoid.
+    """
+    def check(home):
+        ledger.log_event("detection", "w", outcome="success", session="s1")
+        ledger.log_event("detection", "w", outcome="success", session="s2")
+        ledger.record_validation("w", "h", "executable", "fail")
+        con = ledger.connect()
+        try:
+            row = con.execute(
+                "SELECT failure_sessions FROM skill_confidence WHERE skill = 'w'"
+            ).fetchone()
+        finally:
+            con.close()
+        assert row[0] == 0, row
+    in_sandbox(check)
+
+
+C2_VIEW = """
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY, event_type TEXT NOT NULL, skill TEXT NOT NULL,
+  session TEXT, turn INTEGER, tier TEXT, "trigger" TEXT, detection TEXT,
+  preexisting_fingerprint INTEGER, outcome TEXT, ts TEXT NOT NULL);
+CREATE VIEW IF NOT EXISTS skill_confidence AS
+SELECT skill, 0 AS success_sessions, 0 AS failure_sessions,
+       NULL AS last_used, 'unproven' AS bucket
+FROM events GROUP BY skill;
+"""
+
+
+def test_migration_renames_the_bucket_column_on_an_existing_database():
+    """A C2-era database has a view with a `bucket` column. CREATE VIEW IF NOT
+    EXISTS will not replace it, so connect() must migrate explicitly."""
+    def check(home):
+        p = home / ".claude" / "skillforge" / "ledger.db"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        old = sqlite3.connect(str(p))
+        old.executescript(C2_VIEW)
+        old.close()
+
+        con = ledger.connect()
+        try:
+            cols = [d[0] for d in con.execute(
+                "SELECT * FROM skill_confidence LIMIT 0").description]
+        finally:
+            con.close()
+        assert "organic_bucket" in cols, cols
+        assert "bucket" not in cols, cols
+    in_sandbox(check)
+
+
+def test_migration_records_its_version_and_does_not_repeat():
+    def check(home):
+        ledger.connect().close()
+        con = ledger.connect()
+        try:
+            v = con.execute(
+                "SELECT value FROM meta WHERE key = 'schema_version'").fetchone()
+        finally:
+            con.close()
+        assert v and int(v[0]) == ledger.SCHEMA_VERSION, v
+    in_sandbox(check)
+
+
+def test_a_fresh_database_gets_the_new_view_directly():
+    def check(home):
+        con = ledger.connect()
+        try:
+            cols = [d[0] for d in con.execute(
+                "SELECT * FROM skill_confidence LIMIT 0").description]
+        finally:
+            con.close()
+        assert "organic_bucket" in cols, cols
+    in_sandbox(check)
+
+
+def _seed(skill, successes, failures=0, age_days=0):
+    ts = days_ago(age_days) if age_days else None
+    for i in range(successes):
+        ledger.log_event("detection", skill, outcome="success",
+                         session="s-ok-%d" % i, ts=ts)
+    for i in range(failures):
+        ledger.log_event("detection", skill, outcome="failure",
+                         session="s-bad-%d" % i, ts=ts)
+
+
+def test_conjunct_truth_table():
+    """This rule decides what sits in context on every prompt, so every
+    combination is checked rather than sampled."""
+    cases = [
+        # (critique, executable, organic_successes, age_days, expected_bucket)
+        (None,       None,   0, 0, "unproven"),
+        (None,       None,   2, 0, "working"),    # organic alone is NOT enough
+        ("pass",     None,   0, 0, "unproven"),
+        ("pass",     None,   1, 0, "working"),
+        ("pass",     None,   2, 0, "trusted"),    # critique + k>=2
+        ("pass",     "pass", 0, 0, "trusted"),    # executable substitutes for k>=2
+        ("pass",     "fail", 2, 0, "trusted"),    # fail vetoes nothing
+        ("pass",     "inconclusive", 2, 0, "trusted"),
+        ("fail",     "pass", 2, 0, "working"),    # nothing substitutes for critique
+        ("inconclusive", "pass", 2, 0, "working"),
+        # Freshness is a TOP-LEVEL conjunct: an executable pass carries the
+        # middle disjunct but must not carry this one, or a skill validated
+        # once would sit in context forever.
+        ("pass",     "pass", 2, 400, "working"),
+    ]
+    for i, (crit, exe, wins, age, want) in enumerate(cases):
+        def check(home, crit=crit, exe=exe, wins=wins, age=age, want=want, i=i):
+            name = "s%d" % i
+            _seed(name, wins, age_days=age)
+            if crit:
+                ledger.record_validation(name, "h", "critique", crit)
+            if exe:
+                ledger.record_validation(name, "h", "executable", exe)
+            conf = ledger.confidence(hashes={name: "h"})
+            if not (wins or crit or exe):
+                # No events and no hash-matching verdict, so nothing put this
+                # skill in the map at all. Assert that absence directly: read
+                # through a caller-side default and the row would pass even if
+                # the conjunct never ran.
+                assert name not in conf, conf
+                return
+            got = conf[name]["bucket"]
+            assert got == want, "%r -> %r, want %r" % (
+                (crit, exe, wins, age), got, want)
+        in_sandbox(check)
+
+
+def test_confidence_without_hashes_refuses_to_answer_bucket():
+    """A caller that forgets the hashes must not silently get the weaker,
+    pre-D2 answer."""
+    def check(home):
+        _seed("w", 2)
+        entry = ledger.confidence()["w"]
+        assert entry["organic_bucket"] == "trusted", entry
+        assert "bucket" not in entry, entry
+    in_sandbox(check)
+
+
+def test_an_edited_skill_loses_its_conjunct():
+    def check(home):
+        _seed("w", 2)
+        ledger.record_validation("w", "old-hash", "critique", "pass")
+        assert ledger.confidence(hashes={"w": "old-hash"})["w"]["bucket"] == "trusted"
+        assert ledger.confidence(hashes={"w": "new-hash"})["w"]["bucket"] == "working"
+    in_sandbox(check)
+
+
+def test_an_attempt_roundtrips_for_its_own_hash_and_is_idempotent():
+    def check(home):
+        ledger.record_attempt("w", "h", "executable")
+        ledger.record_attempt("w", "h", "executable")
+        assert ledger.attempts_for({"w": "h"}) == {"w": {"executable"}}
+        assert ledger.attempts_for({"w": "other-hash"}) == {}
+        con = ledger.connect()
+        try:
+            n = con.execute(
+                "SELECT COUNT(*) FROM validation_attempts").fetchone()[0]
+        finally:
+            con.close()
+        assert n == 1, n
+    in_sandbox(check)
+
+
+def test_an_attempt_is_not_a_verdict():
+    """Finding 4's whole constraint. `pass`/`fail`/`inconclusive` is a closed
+    set that feeds the conjunct, so "we tried this text and got no verdict"
+    must be invisible to validations_for and to confidence -- otherwise a
+    bookkeeping row would decide what enters context on every prompt.
+
+    Mutation proof: record the attempt as a validations row instead (any mode,
+    any verdict string) and one of these three assertions fails.
+    """
+    def check(home):
+        _seed("w", 2)
+        ledger.record_validation("w", "h", "critique", "pass")
+        before = ledger.confidence(hashes={"w": "h"})["w"]["bucket"]
+        assert before == "trusted", before
+        ledger.record_attempt("w", "h", "executable")
+        assert ledger.validations_for({"w": "h"}) == {"w": {"critique": "pass"}}
+        assert ledger.confidence(hashes={"w": "h"})["w"]["bucket"] == "trusted"
+    in_sandbox(check)
 
 
 if __name__ == "__main__":

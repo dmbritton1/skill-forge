@@ -12,6 +12,7 @@ import datetime
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -20,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
 import patterns
 import trust
+import validate
 
 
 def native_root(base):
@@ -53,11 +55,17 @@ def _meta(text):
     fm, _ = parse_frontmatter(text)
     fm = fm or {}
     desc = fm.get("description", "")
+    cmd = fm.get("verification.command")
+    prov = fm.get("provenance")
     return {
         "description": desc if isinstance(desc, str) else "",
         "symptoms": _token_lists(fm.get("symptoms")),
         "fingerprints": _token_lists(fm.get("fingerprints")),
-        "verification": _token_lists([fm.get("verification.command")]),
+        "verification": _token_lists([cmd]),
+        # validate.executable() reads provenance.repo to know which repo to
+        # reproduce in. Frontmatter is untrusted (spec 11.2): anything but a
+        # mapping reads as absent rather than raising into the hook.
+        "provenance": prov if isinstance(prov, dict) else {},
     }
 
 
@@ -87,7 +95,8 @@ def _token_lists(value):
 
 BUCKET_RANK = {"trusted": 0, "working": 1, "unproven": 2}
 HOT_ELIGIBLE = ("trusted", "working")
-UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0, "last_used": ""}
+UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0,
+           "last_used": ""}
 # Catches sessions that died without a clean SessionEnd -- a crash, a kill,
 # a closed terminal. A day is long enough that no live session is swept.
 SIGNAL_TTL_HOURS = 24
@@ -126,6 +135,7 @@ def _write_index(items):
                 "tier": s["tier"], "bucket": s["bucket"],
                 "est_tokens": est_tokens(s["text"]),
                 "fingerprints": s["fingerprints"],
+                "provenance": s["provenance"],
                 "path": str(s["path"])} for s in items]
     _write_json(p, {
         "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
@@ -163,8 +173,108 @@ def _cleanup_state():
             pass
 
 
+def _ordered(cands, conf, attempts, mode):
+    """Best evidence first, then most recently saved, attempted ones last.
+
+    The two evidence sorts are slice D2 design 3. The third is the forward
+    progress guarantee: an attempt row means "we ran this mode against this
+    exact text and got no verdict", and some of those refusals are permanent
+    for the text (the vacuity gate is deterministic for a text and a repo
+    HEAD). Deprioritized rather than excluded -- exclusion would drop a
+    genuinely transient failure forever, while sorting last still guarantees
+    every other candidate gets its turn first.
+    """
+    cands.sort(key=lambda s: s.get("saved_ts", 0.0), reverse=True)
+    cands.sort(key=lambda s: conf.get(s["name"], UNKNOWN).get("successes", 0),
+               reverse=True)
+    cands.sort(key=lambda s: mode in attempts.get(s["name"], ()))
+    return [s["name"] for s in cands]
+
+
+def critique_candidates(trusted, conf, verdicts, attempts=None):
+    """Trusted skills with no critique verdict for their current hash.
+
+    save_skill's spawn-on-save used to be the ONLY critique call site, which
+    left two holes. A skill obtained by `git pull` and approved through
+    /skillforge:review was never critiqued at all -- and executable_candidates
+    requires a critique pass, so it was capped at `working` permanently,
+    against design decision 1 ("quarantined and pulled skills get critique").
+    And a lost spawn -- a killed process, a sleeping machine, an unparseable
+    reply -- had no retry path anywhere, so one transient model failure capped
+    a skill forever.
+
+    Re-offering here is idempotent and nearly free: validate.main returns
+    early on an existing verdict for the hash, and the per-(skill, mode) flock
+    makes a concurrent run a no-op, so a repeat spawn costs one Popen that
+    exits immediately. Rate-limited to one per session by main(), the same
+    discipline as executable -- hence the ordering, which is executable's.
+
+    No unattemptable() filter: those are executable's preconditions (a
+    worktree, a runnable command, a local repo). Critique reads text, so every
+    trusted skill can always answer it.
+    """
+    out = [s for s in trusted if not verdicts.get(s["name"], {}).get("critique")]
+    return _ordered(out, conf, attempts or {}, "critique")
+
+
+def executable_candidates(trusted, conf, verdicts, attempts=None):
+    """Names eligible for an executable run, best evidence first.
+
+    Ordered rather than threshold-gated (slice D2 design 3): gating on
+    organic successes would deadlock skills whose whole value is mid-task
+    recall -- they never match a prompt, so they never earn a success, so
+    they would never validate, so they would never reach the tier that
+    surfaces them.
+
+    A skill that can only ever answer `inconclusive` is excluded here rather
+    than left to the verdict cache: validate.py deliberately does not record
+    an `inconclusive` (ruling R12), so an ineligible candidate would be
+    picked again every session and burn the one slot forever. The refusals
+    are validate.unattemptable's, not a second copy of them -- an anti-skill,
+    a command that is absent or needs a shell, a provenance.repo that is not
+    a local git repo.
+    """
+    out = []
+    for s in trusted:
+        v = verdicts.get(s["name"], {})
+        if v.get("critique") != "pass" or v.get("executable"):
+            continue
+        if validate.unattemptable(s["text"], s):
+            continue
+        out.append(s)
+    # 0.0, not 0 (in _ordered): real entries carry a float saved_ts (sync()
+    # sets it from st_mtime), and int-vs-float compares fine either way --
+    # that was never the hazard. The real one: some callers' entries carry
+    # saved_ts as an ISO date string ("2026-01-01"), filtered out of `out`
+    # before reaching that sort today. If a future filter change ever let one
+    # through, comparing a str against a numeric default would raise straight
+    # into the caller's except -- which contains it, but "contained" means
+    # scheduling silently stops.
+    return _ordered(out, conf, attempts or {}, "executable")
+
+
+def _spawn_validation(name, mode):
+    """Detached, never waited on; its own function so tests replace it.
+
+    Plain os.environ, NOT dict(os.environ, SKILLFORGE_DRAFTING="1") -- same
+    reasoning as save_skill._spawn_validation: validate.py's main() returns 0
+    as its first statement when that flag is set, so forcing it here would
+    make every scheduled run a silent no-op. Inheriting os.environ unchanged
+    still lets the flag through when it is genuinely set (sync running inside
+    a drafting session), which is the one case where going inert is correct.
+    """
+    argv = [sys.executable,
+            str(Path(__file__).resolve().parent / "validate.py"), mode,
+            "--skill", name]
+    subprocess.Popen(argv, cwd=str(Path(__file__).resolve().parent.parent),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True,
+                     env=os.environ)
+
+
 def sync(project_root=None):
-    counts = {"materialized": 0, "evicted": 0, "quarantined": 0}
+    counts = {"materialized": 0, "evicted": 0, "quarantined": 0,
+              "executable_candidates": [], "critique_candidates": []}
     bases = [Path.home()]
     if project_root:
         proj = Path(project_root).resolve()
@@ -185,13 +295,21 @@ def sync(project_root=None):
                     "description": meta["description"],
                     "symptoms": meta["symptoms"],
                     "fingerprints": meta["fingerprints"],
-                    "verification": meta["verification"]})
+                    "verification": meta["verification"],
+                    "provenance": meta["provenance"],
+                    # "most recently saved": the store file's own mtime. Every
+                    # save path writes it, and it needs no ledger row.
+                    "saved_ts": md.stat().st_mtime})
             else:
                 counts["quarantined"] += 1
 
     # Hot ranking (slice C2 design 5): bucket, then successful sessions, then
     # recency, then name -- via chained stable sorts, last sort = primary key.
-    conf = ledger.confidence()
+    #
+    # Tier A is enforced here, not in the view: verdicts are keyed by content
+    # hash, and only this loop knows each skill's current text.
+    hashes = {s["name"]: trust.content_hash(s["text"]) for s in trusted}
+    conf = ledger.confidence(hashes=hashes)
     for s in trusted:
         s["bucket"] = conf.get(s["name"], UNKNOWN)["bucket"]
     trusted.sort(key=lambda s: s["name"])
@@ -236,6 +354,20 @@ def sync(project_root=None):
 
     _write_index(trusted)
     _write_triggers(trusted)
+    # Selected here because only this scope has each skill's text and hash --
+    # but NOT spawned here. sync() also runs after every save (save_skill) and
+    # every delete (library), which would make "one run per session" three
+    # runs in a session with two saves; main() is the SessionStart entry point
+    # and the one that carries the drafting guard, so it does the spawning.
+    try:
+        verdicts = ledger.validations_for(hashes)
+        attempts = ledger.attempts_for(hashes)
+        counts["executable_candidates"] = executable_candidates(
+            trusted, conf, verdicts, attempts)
+        counts["critique_candidates"] = critique_candidates(
+            trusted, conf, verdicts, attempts)
+    except Exception as err:
+        print("skillforge: candidate select failed: %s" % err, file=sys.stderr)
     _cleanup_state()
     try:
         ledger.prune_signals(older_than_hours=SIGNAL_TTL_HOURS)
@@ -258,6 +390,26 @@ def main(argv=None):
         if counts["quarantined"]:
             print("skillforge: %d skill(s) quarantined pending /skillforge:review"
                   % counts["quarantined"])
+        # One of each per session, and this is what makes that true:
+        # SessionStart runs main() once, while sync() itself runs again after
+        # every save and delete. Detached, never waited on -- an executable run
+        # is an agentic run, not a single turn.
+        #
+        # Critique is scheduled here as well as spawned by save_skill, because
+        # save is not the only way a skill arrives: `git pull` plus
+        # /skillforge:review produces a trusted skill that was never saved
+        # locally and so was never critiqued, and executable mode needs a
+        # critique pass first -- so it was capped at `working` permanently. The
+        # same re-offer is the only retry path for a spawn that was lost.
+        for key, mode in (("executable_candidates", "executable"),
+                          ("critique_candidates", "critique")):
+            try:
+                names = counts[key]
+                if names:
+                    _spawn_validation(names[0], mode)
+            except Exception as err:
+                print("skillforge: %s schedule failed: %s" % (mode, err),
+                      file=sys.stderr)
     except Exception as e:
         print("skillforge: sync failed: %s" % e, file=sys.stderr)
     return 0

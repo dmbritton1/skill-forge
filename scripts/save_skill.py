@@ -11,7 +11,9 @@ Usage: save_skill.py DRAFT.md --scope {global,project} [--project-root DIR]
 """
 import argparse
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -24,6 +26,9 @@ import trust
 
 REQUIRED_KEYS = ("name", "kind", "description")
 KINDS = ("skill", "antiskill", "preference")
+# The only frontmatter keys that are maps by contract (spec 4.1). Every other
+# key parses as a scalar, because validate() and its callers treat them as one.
+NESTED_MAP_KEYS = ("provenance", "preconditions")
 NAME_RX = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 ANTISKILL_SECTIONS = ("## Trap", "## Symptom", "## Cause", "## Fix")
 MIN_SYMPTOM_CHARS = 8
@@ -34,8 +39,9 @@ def parse_frontmatter(text):
     """Return (dict, body) from a --- fenced frontmatter block, or (None, text).
 
     ponytail: line-based parse, no YAML dep -- the distiller controls the
-    format. Handles top-level `key: value` and folded scalars (`key: >`);
-    nested maps (e.g. preconditions) are skipped, not needed for validation.
+    format. Handles top-level `key: value`, folded scalars (`key: >`), lists,
+    and ONE level of nested map (`provenance:` / `preconditions:`) whose
+    values stay strings -- deeper nesting and flow maps are not unpacked.
     """
     text = text.replace("\r\n", "\n")
     if not text.startswith("---\n"):
@@ -77,6 +83,30 @@ def parse_frontmatter(text):
                     fm[key] = items
                     i = j
                     continue
+                # One level of nested `key: value`, and ONLY under the two keys
+                # that are maps by contract. Needed, not cosmetic:
+                # validate.executable() reads provenance.repo out of the index
+                # entry sync.py compiles from this dict, and without this
+                # branch `provenance` parsed to "" and executable mode was
+                # inconclusive for every real skill.
+                #
+                # Restricted because every other key is a scalar validate()
+                # then treats as one: a model-written `description:` with an
+                # indented line under it must stay "" and produce a clean
+                # "missing frontmatter key" rejection, not a dict that reaches
+                # desc.lower() (or NAME_RX.match) and raises out of validate().
+                if key in NESTED_MAP_KEYS:
+                    nested = {}
+                    j = i + 1
+                    while j < len(lines) and re.match(
+                            r"^\s+[A-Za-z][\w.-]*:", lines[j]):
+                        k, _, v = lines[j].strip().partition(":")
+                        nested[k.strip()] = v.strip().strip("\"'")
+                        j += 1
+                    if nested:
+                        fm[key] = nested
+                        i = j
+                        continue
             fm[key] = val
         i += 1
     return fm, text[body_start:]
@@ -156,6 +186,29 @@ def _warm_reason(name):
     except Exception:
         pass
     return "hot budget full"
+
+
+def _spawn_validation(name, mode):
+    """Detached, never waited on; its own function so tests replace it.
+
+    Plain os.environ, NOT dict(os.environ, SKILLFORGE_DRAFTING="1"): unlike
+    draft.py, validate.py's own main() self-checks that flag (it is not a
+    registered hook, but Task 4 gave it the same guard anyway) and returns
+    before doing anything if it is set. Forcing it here would make every
+    real save spawn a critique run that no-ops instantly -- critique would
+    never actually run. Inheriting os.environ unchanged still lets the flag
+    through when it is genuinely already set (save_skill running inside a
+    drafting session), which is the one case where going inert is correct;
+    validate.py sets it on its own `claude -p` child itself (validate.py:54,
+    :72), so that nested session's hooks still go inert regardless.
+    """
+    argv = [sys.executable,
+            str(Path(__file__).resolve().parent / "validate.py"), mode,
+            "--skill", name]
+    subprocess.Popen(argv, cwd=str(Path(__file__).resolve().parent.parent),
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                     stderr=subprocess.DEVNULL, start_new_session=True,
+                     env=os.environ)
 
 
 def main(argv=None):
@@ -243,6 +296,14 @@ def main(argv=None):
         print("materialized: %s" % (native / "SKILL.md"))
     else:
         print("indexed: warm tier (%s)" % _warm_reason(fm["name"]))
+
+    # Legibility is checked on every save, detached: critique reads only the
+    # text, so it needs no environment and the user waits on nothing.
+    try:
+        _spawn_validation(fm["name"], "critique")
+    except Exception as err:
+        print("skillforge: validation spawn failed: %s" % err, file=sys.stderr)
+
     return 0
 
 

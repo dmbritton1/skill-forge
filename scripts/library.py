@@ -19,22 +19,36 @@ import retrieve
 import sync
 import trust
 
-UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0, "last_used": ""}
-COLUMNS = ("name", "kind", "scope", "tier", "bucket", "successes", "failures",
-           "last_used", "path")
+UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0,
+           "last_used": ""}
+COLUMNS = ("name", "kind", "scope", "tier", "bucket", "critique", "executable",
+           "successes", "failures", "last_used", "path")
 
 
 def rows():
-    """One dict per indexed skill, index metadata joined to ledger confidence."""
-    conf = ledger.confidence()
+    """One dict per indexed skill: index metadata, confidence, Tier A verdicts."""
+    entries = (retrieve.load_index() or {}).get("entries", [])
+    hashes = {}
+    for e in entries:
+        try:
+            hashes[e["name"]] = trust.content_hash(
+                Path(e["path"]).read_text(encoding="utf-8"))
+        except (OSError, KeyError):
+            continue
+    conf = ledger.confidence(hashes=hashes)
+    verdicts = ledger.validations_for(hashes)
     out = []
-    for e in (retrieve.load_index() or {}).get("entries", []):
-        c = conf.get(e.get("name"), UNKNOWN)
-        out.append({"name": e.get("name", ""), "kind": e.get("kind", ""),
+    for e in entries:
+        name = e.get("name", "")
+        c = conf.get(name, UNKNOWN)
+        v = verdicts.get(name, {})
+        out.append({"name": name, "kind": e.get("kind", ""),
                     "scope": e.get("scope", ""), "tier": e.get("tier", ""),
-                    "bucket": c["bucket"], "successes": c["successes"],
-                    "failures": c["failures"], "last_used": c["last_used"],
-                    "path": e.get("path", "")})
+                    "bucket": c["bucket"],
+                    "critique": v.get("critique", ""),
+                    "executable": v.get("executable", ""),
+                    "successes": c["successes"], "failures": c["failures"],
+                    "last_used": c["last_used"], "path": e.get("path", "")})
     return sorted(out, key=lambda r: r["name"])
 
 
