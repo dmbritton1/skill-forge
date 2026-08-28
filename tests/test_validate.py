@@ -400,8 +400,26 @@ def approve(text, name="widget-flush"):
     return text
 
 
+def repo_entry(home, name="widget-flush", kind="skill"):
+    """An index entry whose provenance.repo resolves to a local git repo.
+
+    executable() only checks that `.git` exists, and make_worktree is stubbed
+    in every test that gets this far, so no git command runs and no worktree
+    is created -- this is a directory, not a repo.
+    """
+    (home / "repo" / ".git").mkdir(parents=True, exist_ok=True)
+    return {"kind": kind, "name": name,
+            "provenance": {"repo": str(home / "repo")}}
+
+
 def with_stubs(fn, verify, model="ok", worktree=True):
-    """verify: a list of exit codes returned in order."""
+    """verify: a list of exit codes returned in order.
+
+    `model` may be a callable, which is installed as run_model itself. That
+    is the only way a caller can observe whether run_model was CALLED: a spy
+    installed by the caller beforehand would be clobbered by the assignment
+    below and could never record anything.
+    """
     calls = []
     real = (validate.run_verification, validate.make_worktree,
             validate.remove_worktree, validate.run_model)
@@ -409,7 +427,7 @@ def with_stubs(fn, verify, model="ok", worktree=True):
                                                  verify[len(calls) - 1])[1]
     validate.make_worktree = lambda *a, **k: worktree
     validate.remove_worktree = lambda *a, **k: None
-    validate.run_model = lambda *a, **k: model
+    validate.run_model = model if callable(model) else (lambda *a, **k: model)
     try:
         return fn(), calls
     finally:
@@ -419,20 +437,26 @@ def with_stubs(fn, verify, model="ok", worktree=True):
 
 def test_a_verification_that_already_passes_is_inconclusive_and_spends_nothing():
     """The vacuity guard: if it passes before any work, it cannot tell a
-    followed skill from an ignored one."""
+    followed skill from an ignored one.
+
+    `spent` is asserted FIRST and the spy goes in through with_stubs, so the
+    no-model-call claim is the assertion that fires when the guard is
+    removed. Installing the spy on validate.run_model before calling
+    with_stubs cannot work -- with_stubs reassigns run_model, so the spy
+    would never be the object called and `spent == []` could never fail.
+    verify carries two codes so a removed guard runs to completion and trips
+    this assertion, rather than dying on an IndexError that would be true of
+    any second verification for any reason.
+    """
     def check(home):
         spent = []
         text = approve(skill_with_command("python3 -m widget selfcheck"))
-        entry = {"kind": "skill", "name": "widget-flush", "provenance": {}}
-        real = validate.run_model
-        validate.run_model = lambda *a, **k: spent.append(1) or "x"
-        try:
-            (v, _), calls = with_stubs(
-                lambda: validate.executable(text, entry), verify=[0])
-        finally:
-            validate.run_model = real
-        assert v == "inconclusive", v
+        (v, detail), calls = with_stubs(
+            lambda: validate.executable(text, repo_entry(home)),
+            verify=[0, 0], model=lambda *a, **k: spent.append(1) or "x")
         assert spent == [], "spent a model call on a vacuous verification"
+        assert v == "inconclusive", v
+        assert "passes untouched" in detail, detail
         assert len(calls) == 1, calls
     in_sandbox(check)
 
@@ -441,8 +465,7 @@ def test_fail_then_pass_is_a_pass():
     def check(home):
         text = approve(skill_with_command("python3 -m widget selfcheck"))
         (v, _), calls = with_stubs(
-            lambda: validate.executable(text, {"kind": "skill", "name": "widget-flush", "provenance": {}}),
-            verify=[1, 0])
+            lambda: validate.executable(text, repo_entry(home)), verify=[1, 0])
         assert v == "pass", v
         assert len(calls) == 2, calls
     in_sandbox(check)
@@ -452,8 +475,7 @@ def test_fail_then_fail_is_a_fail():
     def check(home):
         text = approve(skill_with_command("python3 -m widget selfcheck"))
         (v, _), _ = with_stubs(
-            lambda: validate.executable(text, {"kind": "skill", "name": "widget-flush", "provenance": {}}),
-            verify=[1, 1])
+            lambda: validate.executable(text, repo_entry(home)), verify=[1, 1])
         assert v == "fail", v
     in_sandbox(check)
 
@@ -461,10 +483,10 @@ def test_fail_then_fail_is_a_fail():
 def test_a_command_that_cannot_run_is_inconclusive():
     def check(home):
         text = approve(skill_with_command("python3 -m widget selfcheck"))
-        (v, _), _ = with_stubs(
-            lambda: validate.executable(text, {"kind": "skill", "name": "widget-flush", "provenance": {}}),
-            verify=[None])
+        (v, detail), _ = with_stubs(
+            lambda: validate.executable(text, repo_entry(home)), verify=[None])
         assert v == "inconclusive", v
+        assert "could not be run" in detail, detail
     in_sandbox(check)
 
 
@@ -473,10 +495,11 @@ def test_a_dead_model_call_during_execution_is_inconclusive():
     live in this file, and a duplicate def would silently shadow the first."""
     def check(home):
         text = approve(skill_with_command("python3 -m widget selfcheck"))
-        (v, _), _ = with_stubs(
-            lambda: validate.executable(text, {"kind": "skill", "name": "widget-flush", "provenance": {}}),
+        (v, detail), _ = with_stubs(
+            lambda: validate.executable(text, repo_entry(home)),
             verify=[1, 1], model=None)
         assert v == "inconclusive", v
+        assert "model call failed" in detail, detail
     in_sandbox(check)
 
 
@@ -487,10 +510,9 @@ def test_an_unapproved_skill_is_never_executed():
         text = skill_with_command("python3 -m widget selfcheck")
         # No trust.record() call -- the skill is quarantined.
         (v, detail), calls = with_stubs(
-            lambda: validate.executable(text, {"kind": "skill", "name": "widget-flush",
-                                               "provenance": {}}),
-            verify=[1, 0])
+            lambda: validate.executable(text, repo_entry(home)), verify=[1, 0])
         assert v == "inconclusive", v
+        assert "not approved" in detail, detail
         assert calls == [], "ran a command from an unapproved skill"
     in_sandbox(check)
 
@@ -500,9 +522,7 @@ def test_an_approved_skill_is_executed():
         text = skill_with_command("python3 -m widget selfcheck")
         trust.record("widget-flush", text, "self")
         (v, _), calls = with_stubs(
-            lambda: validate.executable(text, {"kind": "skill", "name": "widget-flush",
-                                               "provenance": {}}),
-            verify=[1, 0])
+            lambda: validate.executable(text, repo_entry(home)), verify=[1, 0])
         assert v == "pass", v
         assert len(calls) == 2, calls
     in_sandbox(check)
@@ -510,13 +530,57 @@ def test_an_approved_skill_is_executed():
 
 def test_an_antiskill_is_never_executable_validated():
     def check(home):
-        (v, _), calls = with_stubs(
-            lambda: validate.executable(approve(ANTISKILL_TEXT, "widget-trap"),
-                                        {"kind": "antiskill", "name": "widget-trap",
-                                         "provenance": {}}),
+        (v, detail), calls = with_stubs(
+            lambda: validate.executable(
+                approve(ANTISKILL_TEXT, "widget-trap"),
+                repo_entry(home, "widget-trap", "antiskill")),
             verify=[])
         assert v == "inconclusive", v
+        # Names the gate: approve() has already ruled out the trust check, and
+        # an anti-skill also has no verification.command, so without this the
+        # test could not tell those two refusals apart.
+        assert "anti-skills" in detail, detail
         assert calls == [], "ran a verification for an anti-skill"
+    in_sandbox(check)
+
+
+def test_a_skill_with_no_provenance_repo_is_inconclusive():
+    """Design §4 makes a resolvable local repo a precondition. There is no
+    safe fallback: cwd is not the skill's repo (this worker runs detached)
+    and a bare temp dir would bill a model call to produce a spurious fail.
+    """
+    def check(home):
+        text = approve(skill_with_command("python3 -m widget selfcheck"))
+        made = []
+        for entry in ({"kind": "skill", "name": "widget-flush"},
+                      {"kind": "skill", "name": "widget-flush", "provenance": {}},
+                      {"kind": "skill", "name": "widget-flush",
+                       "provenance": {"repo": str(home / "not-a-repo")}}):
+            (v, detail), calls = with_stubs(
+                lambda: validate.executable(text, entry), verify=[1, 0],
+                model=lambda *a, **k: made.append("model") or "x")
+            assert v == "inconclusive", (entry, v)
+            assert "provenance.repo" in detail, detail
+            assert calls == [], entry
+        assert made == [], "spent a model call with no repo to run in"
+    in_sandbox(check)
+
+
+def test_no_worktree_is_created_when_there_is_no_provenance_repo():
+    """The refusal must happen BEFORE setup, not be cleaned up after it."""
+    def check(home):
+        text = approve(skill_with_command("python3 -m widget selfcheck"))
+        seen = []
+        real = (validate.make_worktree, validate.remove_worktree)
+        validate.make_worktree = lambda *a, **k: seen.append("make") or True
+        validate.remove_worktree = lambda *a, **k: seen.append("remove")
+        try:
+            v, _ = validate.executable(
+                text, {"kind": "skill", "name": "widget-flush", "provenance": {}})
+        finally:
+            (validate.make_worktree, validate.remove_worktree) = real
+        assert v == "inconclusive", v
+        assert seen == [], seen
     in_sandbox(check)
 
 
@@ -524,6 +588,7 @@ def test_the_worktree_is_removed_even_when_the_run_raises():
     def check(home):
         removed = []
         text = approve(skill_with_command("python3 -m widget selfcheck"))
+        entry = repo_entry(home)          # a real provenance.repo, so setup runs
         real = (validate.make_worktree, validate.remove_worktree,
                 validate.run_verification)
         validate.make_worktree = lambda *a, **k: True
@@ -535,8 +600,7 @@ def test_the_worktree_is_removed_even_when_the_run_raises():
         validate.run_verification = boom
         try:
             try:
-                validate.executable(text, {"kind": "skill", "name": "widget-flush",
-                                           "provenance": {}})
+                validate.executable(text, entry)
             except RuntimeError:
                 pass
         finally:

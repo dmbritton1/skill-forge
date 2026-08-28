@@ -314,17 +314,36 @@ def executable(text, entry):
     if argv is None:
         return "inconclusive", "no runnable verification.command"
 
-    # sync.py writes no `provenance` today, so cwd is the fallback in
-    # practice: the worker is spawned detached from the session whose repo
-    # produced the skill. If that is not a git repo, make_worktree fails and
-    # we say inconclusive -- running a skill's command in a bare scratch
-    # directory would answer a question nobody asked.
+    # A precondition (design §4), not a fallback. There is no safe default
+    # here: cwd is not the skill's repo -- this worker is spawned detached, so
+    # cwd is whatever directory the parent happened to be in, and building a
+    # worktree of an arbitrary repo the user is merely sitting in and running
+    # a skill's command inside it is unpredictable, which is worse than
+    # useless. A bare temp dir is no better: the verification would fail for
+    # want of a repo and we would bill a model call to produce a spurious
+    # `fail`. An environment we cannot construct is "we could not test this".
+    # sync.py carries no `provenance` into index.json yet, so this is the
+    # answer for every real skill until it does.
     repo = (entry.get("provenance") or {}).get("repo") or ""
-    root = Path(repo) if repo else Path.cwd()
+    if not repo or not (Path(repo) / ".git").exists():
+        return "inconclusive", "no provenance.repo resolving to a local git repo"
+
+    root = Path(repo)
     dest = Path(tempfile.mkdtemp(prefix="skillforge-validate-"))
     try:
         if not make_worktree(root, dest):
             return "inconclusive", "could not create a worktree"
+        # ponytail: the envelope around a skill-authored argv is no shell
+        # (verification_argv refuses metacharacters), trusted-only, a
+        # throwaway worktree at HEAD, VERIFY_TIMEOUT_S of wall clock, output
+        # discarded rather than capped (run_verification sends all three
+        # streams to DEVNULL, and `reply` is only tested for None), and
+        # SKILLFORGE_DRAFTING=1 in the child so hooks stay inert. It is NOT a
+        # network sandbox: a trusted skill's command can reach the network,
+        # and the 3.9-stdlib-only constraint leaves no portable namespace to
+        # drop into. Upgrade path when that matters: wrap the argv in
+        # sandbox-exec (macOS) / bwrap (Linux) inside run_verification, which
+        # is the single choke point both calls below go through.
         before = run_verification(argv, dest)
         if before is None:
             return "inconclusive", "verification could not be run"
