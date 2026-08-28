@@ -161,14 +161,26 @@ def _warm_reason(name):
 
 
 def _spawn_validation(name, mode):
-    """Detached, never waited on; its own function so tests replace it."""
+    """Detached, never waited on; its own function so tests replace it.
+
+    Plain os.environ, NOT dict(os.environ, SKILLFORGE_DRAFTING="1"): unlike
+    draft.py, validate.py's own main() self-checks that flag (it is not a
+    registered hook, but Task 4 gave it the same guard anyway) and returns
+    before doing anything if it is set. Forcing it here would make every
+    real save spawn a critique run that no-ops instantly -- critique would
+    never actually run. Inheriting os.environ unchanged still lets the flag
+    through when it is genuinely already set (save_skill running inside a
+    drafting session), which is the one case where going inert is correct;
+    validate.py sets it on its own `claude -p` child itself (validate.py:54,
+    :72), so that nested session's hooks still go inert regardless.
+    """
     argv = [sys.executable,
             str(Path(__file__).resolve().parent / "validate.py"), mode,
             "--skill", name]
     subprocess.Popen(argv, cwd=str(Path(__file__).resolve().parent.parent),
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                      stderr=subprocess.DEVNULL, start_new_session=True,
-                     env=dict(os.environ, SKILLFORGE_DRAFTING="1"))
+                     env=os.environ)
 
 
 def main(argv=None):

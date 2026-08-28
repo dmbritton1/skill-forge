@@ -16,6 +16,11 @@ import trust
 # may spawn a real subprocess, so the seam is stubbed inert here for every
 # test in this file; the two spawn tests below install their own stub over
 # top of this one and restore it (not the real Popen-backed function).
+# The real function is saved first: the env-inspection tests near the
+# bottom of this file call it directly (with subprocess.Popen itself
+# stubbed out) to check what it builds, and would otherwise see this inert
+# lambda instead.
+_REAL_SPAWN_VALIDATION = save_skill._spawn_validation
 save_skill._spawn_validation = lambda name, mode: None
 
 VALID_SKILL = """---
@@ -483,11 +488,63 @@ def test_a_failed_save_spawns_nothing():
         try:
             bad = home / "bad.md"
             bad.write_text("no frontmatter here", encoding="utf-8")
-            save_skill.main([str(bad), "--scope", "global"])
+            rc = save_skill.main([str(bad), "--scope", "global"])
         finally:
             save_skill._spawn_validation = real
+        # rc == 1 as well as seen == []: a change that made the save
+        # succeed while still not spawning would otherwise pass this test.
+        assert rc == 1, rc
         assert seen == [], seen
     in_sandbox(check)
+
+
+def _capture_popen_env(name="widget-flush", mode="critique"):
+    """Call the REAL _spawn_validation with subprocess.Popen stubbed out.
+
+    Never spawns a real process -- Popen itself is replaced -- but still
+    exercises the actual env-construction logic in save_skill.py, which the
+    seam-swap tests above never touch (they replace _spawn_validation
+    wholesale). Returns the `env` kwarg the real function handed to Popen.
+    """
+    calls = []
+    real_popen = save_skill.subprocess.Popen
+
+    class DummyProc:
+        pass
+
+    def fake_popen(argv, **kwargs):
+        calls.append(kwargs.get("env"))
+        return DummyProc()
+
+    save_skill.subprocess.Popen = fake_popen
+    try:
+        _REAL_SPAWN_VALIDATION(name, mode)
+    finally:
+        save_skill.subprocess.Popen = real_popen
+    return calls[0]
+
+
+def test_spawn_does_not_manufacture_the_drafting_flag():
+    old = os.environ.pop("SKILLFORGE_DRAFTING", None)
+    try:
+        env = _capture_popen_env()
+        assert "SKILLFORGE_DRAFTING" not in env, env
+    finally:
+        if old is not None:
+            os.environ["SKILLFORGE_DRAFTING"] = old
+
+
+def test_spawn_inherits_the_drafting_flag_when_already_set():
+    old = os.environ.get("SKILLFORGE_DRAFTING")
+    os.environ["SKILLFORGE_DRAFTING"] = "1"
+    try:
+        env = _capture_popen_env()
+        assert env.get("SKILLFORGE_DRAFTING") == "1", env
+    finally:
+        if old is None:
+            del os.environ["SKILLFORGE_DRAFTING"]
+        else:
+            os.environ["SKILLFORGE_DRAFTING"] = old
 
 
 if __name__ == "__main__":
