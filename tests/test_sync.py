@@ -586,9 +586,9 @@ SKILL_WITH_PROVENANCE = """---
 name: %s
 kind: skill
 description: A thing. Do NOT use otherwise.
-verification.command: "npx stripe trigger payment_intent.succeeded"
+verification.command: "%s"
 provenance:
-  repo: /tmp/acme-storefront
+  repo: %s
   distilled: 2026-08-01
 ---
 ## Procedure
@@ -596,6 +596,32 @@ provenance:
 ## Verification
 Run the command.
 """
+
+RUNNABLE_COMMAND = "npx stripe trigger payment_intent.succeeded"
+
+
+def local_repo(home):
+    """A directory validate.unattemptable accepts as provenance.repo.
+
+    It only tests that `.git` exists; nothing in this suite runs git, and the
+    spawn seam is inert, so no worktree is ever built from it.
+    """
+    (home / "repo" / ".git").mkdir(parents=True, exist_ok=True)
+    return str(home / "repo")
+
+
+def runnable_skill(home, name):
+    """Skill text whose executable preconditions all hold."""
+    return SKILL_WITH_PROVENANCE % (name, RUNNABLE_COMMAND, local_repo(home))
+
+
+def candidate(home, name="a", text=None, kind="skill", repo=None):
+    """One entry shaped the way sync() builds them, attemptable by default."""
+    if repo is None:
+        repo = local_repo(home)
+    return {"name": name, "saved_ts": 1.0, "kind": kind,
+            "provenance": {"repo": repo},
+            "text": text if text is not None else runnable_skill(home, name)}
 
 
 def test_sync_applies_the_tier_a_conjunct_to_tiering():
@@ -665,27 +691,57 @@ def test_a_skill_already_executable_validated_is_not_a_candidate():
             {"a": {"critique": "pass", "executable": verdict}}) == [], verdict
 
 
+# The four refusals validate.unattemptable decides statically. Each test
+# asserts the exclusion AND the positive control -- the same entry with only
+# the named field repaired IS a candidate -- so a filter that excluded
+# everything would fail all four.
+CONF = {"a": {"successes": 5}}
+CRITIQUED = {"a": {"critique": "pass"}}
+
+
 def test_an_antiskill_is_not_an_executable_candidate():
     """Anti-skills carry no verification.command by design, so executable
     mode can only ever answer `inconclusive` -- which is no longer recorded,
     so an anti-skill candidate would burn the one slot every session."""
-    conf = {"a": {"successes": 5}}
-    trusted = [{"name": "a", "saved_ts": 1.0, "kind": "antiskill",
-                "verification_command": "npx stripe trigger x"}]
-    verdicts = {"a": {"critique": "pass"}}
-    assert sync.executable_candidates(trusted, conf, verdicts) == []
-    trusted[0]["kind"] = "skill"        # identical otherwise: `kind` excluded it
-    assert sync.executable_candidates(trusted, conf, verdicts) == ["a"]
+    def check(home):
+        trusted = [candidate(home, kind="antiskill")]
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["kind"] = "skill"        # identical otherwise
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
 
 
 def test_a_skill_without_a_verification_command_is_not_a_candidate():
-    conf = {"a": {"successes": 5}}
-    trusted = [{"name": "a", "saved_ts": 1.0, "kind": "skill",
-                "verification_command": ""}]
-    verdicts = {"a": {"critique": "pass"}}
-    assert sync.executable_candidates(trusted, conf, verdicts) == []
-    trusted[0]["verification_command"] = "npx stripe trigger x"
-    assert sync.executable_candidates(trusted, conf, verdicts) == ["a"]
+    def check(home):
+        trusted = [candidate(home, text=SKILL % "a")]   # no verification.command
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["text"] = runnable_skill(home, "a")
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
+
+
+def test_a_command_needing_a_shell_is_not_a_candidate():
+    """verification_argv refuses metacharacters permanently for this text, so
+    offering it again next session can only produce the same inconclusive."""
+    def check(home):
+        shelly = SKILL_WITH_PROVENANCE % ("a", "npm test && npm run lint",
+                                          local_repo(home))
+        trusted = [candidate(home, text=shelly)]
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["text"] = runnable_skill(home, "a")
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
+
+
+def test_a_provenance_repo_that_is_not_local_is_not_a_candidate():
+    """The common case: the distiller writes `repo: <org/repo or local dir
+    name>`, so most skills name a repo that is not a path on this machine."""
+    def check(home):
+        trusted = [candidate(home, repo="acme/storefront")]
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == []
+        trusted[0]["provenance"] = {"repo": local_repo(home)}
+        assert sync.executable_candidates(trusted, CONF, CRITIQUED) == ["a"]
+    in_sandbox(check)
 
 
 def test_sync_spawns_at_most_one_executable_run():
@@ -695,7 +751,7 @@ def test_sync_spawns_at_most_one_executable_run():
         sync._spawn_validation = lambda name, mode: seen.append((name, mode))
         try:
             for n in ("aaa-skill", "bbb-skill"):
-                p = put_skill(home, n, SKILL_WITH_TRIGGERS % n)
+                p = put_skill(home, n, runnable_skill(home, n))
                 text = pathlib.Path(p).read_text(encoding="utf-8")
                 trust.record(n, text, "self")
                 ledger.record_validation(
@@ -712,7 +768,8 @@ def test_index_entries_carry_provenance():
     """validate.executable() reads entry["provenance"]["repo"] to know which
     repo to reproduce; without this carry it is `inconclusive` every time."""
     def check(home):
-        md = put_skill(home, "stripe-hook", SKILL_WITH_PROVENANCE % "stripe-hook")
+        md = put_skill(home, "stripe-hook", SKILL_WITH_PROVENANCE % (
+            "stripe-hook", RUNNABLE_COMMAND, "/tmp/acme-storefront"))
         trust.record("stripe-hook", md.read_text(encoding="utf-8"), "self")
         sync.sync()
         entry = read_index(home)["entries"][0]
@@ -723,7 +780,8 @@ def test_index_entries_carry_provenance():
 
 def test_a_non_mapping_provenance_does_not_raise():
     def check(home):
-        text = (SKILL_WITH_PROVENANCE % "stripe-hook").replace(
+        text = (SKILL_WITH_PROVENANCE % (
+            "stripe-hook", RUNNABLE_COMMAND, "/tmp/acme-storefront")).replace(
             "provenance:\n  repo: /tmp/acme-storefront\n  distilled: 2026-08-01",
             "provenance: garbage")
         md = put_skill(home, "stripe-hook", text)

@@ -304,6 +304,46 @@ def build_follow_prompt(text, nonce=None):
     ])
 
 
+def unattemptable(text, entry):
+    """Why an executable run cannot produce a verdict, or None if it can.
+
+    The statically decidable half of executable()'s preconditions -- decided
+    from the index entry and the skill text alone, with nothing run and no
+    model spent. Shared with sync.executable_candidates so the scheduler
+    refuses exactly what this worker refuses: an `inconclusive` is never
+    recorded (ruling R12), so a skill the scheduler keeps picking and this
+    function keeps refusing would burn the one-run-per-session slot forever.
+    Two implementations of one precondition set would drift.
+
+    Not included: the trust check (executable()'s own, deliberately not
+    inferred from the index) and the runtime gates -- vacuity, worktree,
+    model -- which are only knowable by running.
+    """
+    if entry.get("kind") == "antiskill":
+        return "anti-skills carry no verification.command"
+    # None here covers both "absent" and "needs a shell": verification_argv
+    # refuses metacharacters outright, and that refusal is permanent for this
+    # text, so the scheduler must not keep offering it.
+    if verification_argv(text) is None:
+        return "no runnable verification.command"
+    # A precondition (design §4), not a fallback. There is no safe default
+    # here: cwd is not the skill's repo -- this worker is spawned detached, so
+    # cwd is whatever directory the parent happened to be in, and building a
+    # worktree of an arbitrary repo the user is merely sitting in and running
+    # a skill's command inside it is unpredictable, which is worse than
+    # useless. A bare temp dir is no better: the verification would fail for
+    # want of a repo and we would bill a model call to produce a spurious
+    # `fail`. An environment we cannot construct is "we could not test this".
+    # isinstance: `provenance` comes from frontmatter, which §11.2 treats as
+    # attacker-controlled -- Path({}) raises, and this runs inside a hook.
+    # `not repo` before the exists(): Path("") is "." and would otherwise test
+    # the CWD's own .git.
+    repo = (entry.get("provenance") or {}).get("repo") or ""
+    if not isinstance(repo, str) or not repo or not (Path(repo) / ".git").exists():
+        return "no provenance.repo resolving to a local git repo"
+    return None
+
+
 def executable(text, entry):
     """(verdict, detail). Validity: does following it make its own check pass?
 
@@ -318,27 +358,14 @@ def executable(text, entry):
     name = trust.skill_name(text, entry.get("name", ""))
     if trust.check_text(name, text) != "trusted":
         return "inconclusive", "not approved for execution"
-    if entry.get("kind") == "antiskill":
-        return "inconclusive", "anti-skills carry no verification.command"
+    # Anti-skill, unrunnable command, unresolvable repo -- same order, same
+    # detail strings as before, decided once for both callers.
+    why = unattemptable(text, entry)
+    if why:
+        return "inconclusive", why
     argv = verification_argv(text)
-    if argv is None:
-        return "inconclusive", "no runnable verification.command"
 
-    # A precondition (design §4), not a fallback. There is no safe default
-    # here: cwd is not the skill's repo -- this worker is spawned detached, so
-    # cwd is whatever directory the parent happened to be in, and building a
-    # worktree of an arbitrary repo the user is merely sitting in and running
-    # a skill's command inside it is unpredictable, which is worse than
-    # useless. A bare temp dir is no better: the verification would fail for
-    # want of a repo and we would bill a model call to produce a spurious
-    # `fail`. An environment we cannot construct is "we could not test this".
-    # sync.py carries `provenance` into index.json (Task 8), so this is the
-    # answer only for a skill whose provenance.repo is not a local git repo.
-    repo = (entry.get("provenance") or {}).get("repo") or ""
-    if not repo or not (Path(repo) / ".git").exists():
-        return "inconclusive", "no provenance.repo resolving to a local git repo"
-
-    root = Path(repo)
+    root = Path(entry["provenance"]["repo"])
     dest = Path(tempfile.mkdtemp(prefix="skillforge-validate-"))
     try:
         if not make_worktree(root, dest):

@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
 import patterns
 import trust
+import validate
 
 
 def native_root(base):
@@ -61,11 +62,6 @@ def _meta(text):
         "symptoms": _token_lists(fm.get("symptoms")),
         "fingerprints": _token_lists(fm.get("fingerprints")),
         "verification": _token_lists([cmd]),
-        # Raw, alongside the tokenized patterns: executable validation needs
-        # to know whether a command EXISTS, and _token_lists drops one-token
-        # commands (`true`, `make`) for pattern-matching reasons that have
-        # nothing to do with whether the skill can be run.
-        "verification_command": cmd if isinstance(cmd, str) else "",
         # validate.executable() reads provenance.repo to know which repo to
         # reproduce in. Frontmatter is untrusted (spec 11.2): anything but a
         # mapping reads as absent rather than raising into the hook.
@@ -189,18 +185,20 @@ def executable_candidates(trusted, conf, verdicts):
     A skill that can only ever answer `inconclusive` is excluded here rather
     than left to the verdict cache: validate.py deliberately does not record
     an `inconclusive` (ruling R12), so an ineligible candidate would be
-    picked again every session and burn the one slot forever.
+    picked again every session and burn the one slot forever. The refusals
+    are validate.unattemptable's, not a second copy of them -- an anti-skill,
+    a command that is absent or needs a shell, a provenance.repo that is not
+    a local git repo.
     """
     out = []
     for s in trusted:
         v = verdicts.get(s["name"], {})
         if v.get("critique") != "pass" or v.get("executable"):
             continue
-        # Anti-skills carry no verification.command by design, and a skill
-        # without one has nothing to run. `.get(..., True)`: entries built by
-        # sync() always carry both keys; the sentinel keeps the bare
-        # {"name", "saved_ts"} entries of the ordering unit tests eligible.
-        if s.get("kind") == "antiskill" or not s.get("verification_command", True):
+        # `"text" in s`: every entry sync() builds carries the skill text, so
+        # the guard runs for real. The ordering unit tests pass bare
+        # {"name", "saved_ts"} entries, which carry no text to decide on.
+        if "text" in s and validate.unattemptable(s["text"], s):
             continue
         out.append(s)
     out.sort(key=lambda s: s.get("saved_ts", 0), reverse=True)
@@ -251,7 +249,6 @@ def sync(project_root=None):
                     "symptoms": meta["symptoms"],
                     "fingerprints": meta["fingerprints"],
                     "verification": meta["verification"],
-                    "verification_command": meta["verification_command"],
                     "provenance": meta["provenance"],
                     # "most recently saved": the store file's own mtime. Every
                     # save path writes it, and it needs no ledger row.
