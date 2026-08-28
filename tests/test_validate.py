@@ -544,6 +544,29 @@ def test_an_antiskill_is_never_executable_validated():
     in_sandbox(check)
 
 
+def test_a_command_that_is_absent_or_needs_a_shell_is_inconclusive():
+    """The gate that refuses to run a command verification_argv rejected.
+
+    Asserts the gate's own detail, not just `inconclusive`: five other gates
+    return that too. approve() rules out the trust gate and repo_entry() the
+    repo gate, so this refusal is the only one left that can fire -- and with
+    the gate removed the stubs would carry the run all the way to a verdict.
+    """
+    def check(home):
+        for text in (SKILL_TEXT,                                # no command
+                     skill_with_command("npm test && npm run lint")):   # shell
+            made = []
+            (v, detail), calls = with_stubs(
+                lambda: validate.executable(approve(text), repo_entry(home)),
+                verify=[1, 0],
+                model=lambda *a, **k: made.append("model") or "x")
+            assert v == "inconclusive", (text, v)
+            assert "no runnable verification.command" in detail, detail
+            assert calls == [], "ran a command that was refused"
+            assert made == [], "spent a model call with nothing to run"
+    in_sandbox(check)
+
+
 def test_a_skill_with_no_provenance_repo_is_inconclusive():
     """Design §4 makes a resolvable local repo a precondition. There is no
     safe fallback: cwd is not the skill's repo (this worker runs detached)
