@@ -87,9 +87,9 @@ skill's confidence is one of three buckets — `unproven`, `working`, or
 `trusted` — counted in distinct sessions rather than raw events, with a
 90-day decay that drops a stale `trusted` back to `working`. Only
 `working`-or-better skills compete for the hot tier; `unproven` skills stay
-warm and are injected with hedged wording. `trusted` here means repeatedly
-verified in real sessions — the parent spec's Tier A conjunct (independent
-validation) arrives in slice D.
+warm and are injected with hedged wording. Real-session verification is one
+half of what `trusted` requires — see "Tier A validation" below for the
+other half, the parent spec's independent-validation conjunct.
 
 ## Automatic capture
 
@@ -118,14 +118,71 @@ process — SkillForge cannot trigger itself — while keeping your
 subscription login. `--bare` would also disable hooks but forces an API
 key, which is why it is not used.
 
+## Tier A validation
+
+v0.2 slice D2 adds independent validation on top of what real sessions show.
+`trusted` no longer means only "it worked twice" — it means a passing
+**critique** (a fresh model turn, given only the skill's text and nothing
+from the session that produced it, judges whether the procedure is
+followable, its preconditions are stated, and its verification is actually
+checkable), plus either two clean real-session uses or a passing
+**executable** run. A `fail` on critique blocks `trusted` outright, by
+either route. Editing a skill's text always voids its prior verdicts,
+critique included — the new text has earned nothing yet, and needs a fresh
+critique before it can count toward `trusted` again.
+
+- **Critique** runs automatically, in the background, every time a skill is
+  saved through `/skillforge:learn` or a draft approval. It costs one model
+  turn and nothing you wait on.
+- **Executable** validation goes further: a throwaway checkout of the
+  skill's own repo, a fresh model instance following the procedure with none
+  of the current session's context, then the skill's own
+  `verification.command` run before and after. A pass here — or two clean
+  real sessions with no failures — is the second half of `trusted`,
+  alongside a passing critique. A `fail` here withholds only the executable
+  route; the skill can still reach `trusted` the organic way, through two
+  clean sessions, once critique has passed. At most one executable run is
+  scheduled per session.
+- **Anti-skills are never executable-validated.** They document a trap, not
+  a runnable procedure, so they carry no `verification.command` — critique
+  is the only Tier A check that ever runs against one.
+
+Approving a skill in `/skillforge:review` does more than trust its text: it
+also permits SkillForge to *run* that skill's `verification.command`
+unattended, in a throwaway git worktree, the next time executable validation
+picks it. Only approve a skill whose command you would be willing to run
+yourself. **This is not a network sandbox** — the run has no shell and
+happens in a scratch checkout, but it inherits your normal network access
+(there is no portable way to change that within this project's
+stdlib-only, Python 3.9 constraint). Treat approval as "I'd run this
+command myself," not "this is isolated."
+
+Executable validation is opportunistic, not universal: it only runs when a
+skill's `provenance.repo` resolves to a real local directory holding that
+skill's git repo. Today's distiller records `provenance.repo` as a name
+(an `org/repo`-style string, not a filesystem path) for every skill it
+captures, so for most real skills executable validation cannot run at all —
+it sits out silently rather than failing. Those skills still reach
+`trusted` the way v0.1 always allowed: a passing critique plus two clean
+real-session uses, no failures, within the last 90 days. Nobody should
+expect executable validation to be running just because a skill looks
+otherwise well-formed.
+
+`/skillforge:library` shows both verdicts (`pass`, `fail`, or blank if never
+run) alongside the bucket they feed into.
+
 ## Reviewing what you have
 
 `/skillforge:library` lists every saved skill with the confidence it has
 earned: `unproven` (no real session has verified it), `working` (at least
-one has), `trusted` (two or more clean sessions, no failures, used within
-90 days). It will show any skill in full, and delete one on request.
-Deleting a skill leaves its ledger history intact, so re-saving the same
-name starts from `unproven` rather than silently inheriting an old bucket.
+one real session has, but `trusted`'s other requirements aren't both met
+yet), `trusted` (a passing critique, plus either two clean real sessions
+or a passing executable run, used within 90 days — see "Tier A validation"
+above). It also shows the two Tier A verdicts (`pass`, `fail`, or blank if
+never run) per skill. It will show any skill in full, and delete one on
+request. Deleting a skill leaves its ledger history intact, so re-saving
+the same name starts from `unproven` rather than silently inheriting an
+old bucket.
 
 ## Tests
 
@@ -134,5 +191,7 @@ name starts from `unproven` rather than silently inheriting an old bucket.
 Plans and designs live in `docs/superpowers/`. Shipped: v0.1, v0.2 slice A
 (ledger, trust, sync), slice B (retrieval, tiering), slice C1 (detection
 substrate: symptom triggers, verification capture, fingerprint snapshots),
-and slice C2 (Stop/SessionEnd reconciler, confidence buckets). Not yet
-built: slice D (Tier A validation, capture suggestions, `/stats`).
+slice C2 (Stop/SessionEnd reconciler, confidence buckets), slice D1
+(automatic capture), and slice D2 (Tier A validation). Not yet built:
+`/stats` — `/skillforge:library` is a library view, not an analytics
+surface.
