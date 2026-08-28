@@ -86,6 +86,32 @@ def make_worktree(repo, dest):
     return True
 
 
+def worktree_dirty(dest):
+    """Did the follow-run actually change anything? A seam, like the rest.
+
+    Ruling R27: run_model builds `claude -p` with no --permission-mode, and
+    print mode has no interactive approver, so a tool call needing permission
+    is DENIED rather than prompted. On an install where that holds, the fresh
+    instance cannot touch the worktree at all -- and grading the untouched
+    tree records `fail`, which the design defines as "we tested it and a fresh
+    instance could not follow it" and which library.py shows the user as
+    exactly that claim. That is a transport problem wearing a verdict.
+
+    True when we cannot tell: an error from git is not evidence that the
+    instance did nothing, so it leaves the pre-existing behaviour alone. Only
+    a confirmed-clean tree turns the re-run into `inconclusive`.
+    """
+    try:
+        proc = subprocess.run(["git", "-C", str(dest), "status", "--porcelain"],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                              timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return True
+    if proc.returncode != 0:
+        return True
+    return bool(proc.stdout.strip())
+
+
 def remove_worktree(repo, dest):
     try:
         subprocess.run(["git", "worktree", "remove", "--force", str(dest)],
@@ -195,7 +221,14 @@ def verdict_from(findings, text):
     produce a verbatim span, so a criterion cannot pass on assertion alone.
     """
     for f in findings:
-        if not f.get("ok"):
+        # `is not True`, not `not ...`: the reply is model-written JSON, and
+        # "false"/"False"/"no"/"0" are all routine malformations that are
+        # TRUTHY in Python. Every other decision in this module fails closed;
+        # this one used to fail OPEN, and open here means promoting a skill a
+        # fresh instance judged unfollowable into every prompt. The evidence
+        # gate below cannot catch it -- a genuinely failing finding still
+        # quotes a real span.
+        if f.get("ok") is not True:
             return "fail"
         ev = (f.get("evidence") or "").strip()
         if len(ev) < MIN_EVIDENCE_CHARS or ev not in text:
@@ -254,18 +287,34 @@ def critique(text, entry, plugin_root):
 
 
 def verification_argv(text):
-    """argv for `verification.command`, or None if absent or unsafe.
+    """argv for the FRONTMATTER `verification.command`, or None.
 
     Refused rather than escaped: the string comes from a skill file, which
     §11.2 treats as an attacker-controlled payload. A command needing a shell
     is exactly what critique mode is the fallback for.
+
+    Read from the frontmatter dict, not by scanning the raw text. Scanning
+    matched the key anywhere in the file, so the first BODY line that looked
+    like it -- an indented line inside a fenced example, say -- became the
+    command this project executes, for a skill whose frontmatter declares
+    none at all. The trust gate still applied, but /skillforge:review asks
+    the human to consent to running "its `verification.command`", and no
+    reader of that sentence means a line in a code block.
+
+    ponytail: lazy import, same save_skill<->sync<->validate cycle sync._meta
+    dodges the same way; parse_frontmatter is the one parser and this is the
+    same key sync._meta already compiles the index from.
     """
-    cmd = None
-    for line in text.splitlines():
-        s = line.strip()
-        if s.startswith("verification.command:"):
-            cmd = s.split(":", 1)[1].strip().strip("`\"'")
-            break
+    from save_skill import parse_frontmatter
+    fm, _ = parse_frontmatter(text)
+    value = (fm or {}).get("verification.command")
+    # Anything but a scalar reads as absent: frontmatter is untrusted, and a
+    # list or map here is not a command. The strip is the pre-existing
+    # allowance for a command written as `cmd` or "cmd" in the frontmatter --
+    # backticks and quotes are themselves refused metacharacters below.
+    if not isinstance(value, str):
+        return None
+    cmd = value.strip().strip("`\"'")
     if not cmd:
         return None
     if SHELL_METACHARACTERS & set(cmd):
@@ -410,6 +459,15 @@ def executable(text, entry):
         # rest on the internals of a seam every test swaps out.
         if not (reply or "").strip():
             return "inconclusive", "model call failed"
+        # Ruling R27. A turn that produced text but touched nothing is the
+        # permission-denied shape: no interactive approver exists in print
+        # mode, so every edit the fresh instance tried was refused. Re-running
+        # against the untouched worktree would record `fail` -- the same
+        # transport-problem-becomes-a-verdict conflation the empty-reply gate
+        # above exists to prevent, one step later. A model that changed
+        # nothing tells us nothing about followability.
+        if not worktree_dirty(dest):
+            return "inconclusive", "fresh instance made no changes"
         after = run_verification(argv, dest)
         if after is None:
             return "inconclusive", "verification could not be re-run"
@@ -472,6 +530,17 @@ def main(argv=None):
             if verdict != "inconclusive":
                 ledger.record_validation(args.skill, h, args.mode, verdict,
                                          detail=detail)
+            else:
+                # Not a verdict -- a separate table `validations_for` and the
+                # early return above cannot see, so the retry above still gets
+                # through. It records only that this exact text was ATTEMPTED,
+                # which is what the scheduler needs: some runtime gates are
+                # permanent for a given text (the vacuity gate is deterministic
+                # for a text and a repo HEAD), and with nothing recorded such a
+                # skill sorts first every session forever and starves every
+                # other candidate. sync deprioritizes on this, never excludes,
+                # so a transient failure keeps its retry.
+                ledger.record_attempt(args.skill, h, args.mode)
     except Exception as err:
         print("skillforge: validate failed: %s" % err, file=sys.stderr)
     return 0
