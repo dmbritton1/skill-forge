@@ -656,22 +656,29 @@ def test_sync_applies_the_tier_a_conjunct_to_tiering():
 
 
 def test_executable_candidates_are_ordered_by_evidence_then_recency():
-    conf = {"a": {"successes": 0}, "b": {"successes": 3}, "c": {"successes": 1}}
-    trusted = [{"name": n, "saved_ts": t} for n, t in
-               (("a", "2026-01-03"), ("b", "2026-01-01"), ("c", "2026-01-02"))]
-    verdicts = {n: {"critique": "pass"} for n in "abc"}
-    got = sync.executable_candidates(trusted, conf, verdicts)
-    assert got == ["b", "c", "a"], got
+    def check(home):
+        conf = {"a": {"successes": 0}, "b": {"successes": 3}, "c": {"successes": 1}}
+        # Real entries, and float saved_ts: the filter runs unattemptable on
+        # every entry, and st_mtime is what sync() puts in saved_ts.
+        trusted = [dict(candidate(home, name=n), saved_ts=t) for n, t in
+                   (("a", 3.0), ("b", 1.0), ("c", 2.0))]
+        verdicts = {n: {"critique": "pass"} for n in "abc"}
+        got = sync.executable_candidates(trusted, conf, verdicts)
+        assert got == ["b", "c", "a"], got
+    in_sandbox(check)
 
 
 def test_executable_candidates_break_ties_by_recency():
     """Equal evidence: only the saved_ts comparator can order these, and it
     must reverse the input order to prove it ran at all."""
-    conf = {"a": {"successes": 2}, "b": {"successes": 2}}
-    trusted = [{"name": "a", "saved_ts": 100.0}, {"name": "b", "saved_ts": 200.0}]
-    verdicts = {n: {"critique": "pass"} for n in "ab"}
-    got = sync.executable_candidates(trusted, conf, verdicts)
-    assert got == ["b", "a"], got
+    def check(home):
+        conf = {"a": {"successes": 2}, "b": {"successes": 2}}
+        trusted = [dict(candidate(home, name="a"), saved_ts=100.0),
+                   dict(candidate(home, name="b"), saved_ts=200.0)]
+        verdicts = {n: {"critique": "pass"} for n in "ab"}
+        got = sync.executable_candidates(trusted, conf, verdicts)
+        assert got == ["b", "a"], got
+    in_sandbox(check)
 
 
 def test_a_skill_without_critique_is_not_an_executable_candidate():
@@ -756,11 +763,43 @@ def test_sync_spawns_at_most_one_executable_run():
                 trust.record(n, text, "self")
                 ledger.record_validation(
                     n, trust.content_hash(text), "critique", "pass")
-            sync.sync()
+            sync.main([])
         finally:
             sync._spawn_validation = real
         assert len(seen) == 1, seen
         assert seen[0][1] == "executable", seen
+    in_sandbox(check)
+
+
+def test_only_the_session_start_entry_point_schedules_a_run():
+    """sync() selects; main() spawns.
+
+    sync() also runs after every save (save_skill) and every delete
+    (library), and neither goes through main()'s drafting guard -- with the
+    spawn inside sync(), a session with two saves would start up to three
+    executable runs, each a detached `claude -p` plus a worktree of the
+    user's repo plus the skill's own command.
+    """
+    def check(home):
+        seen = []
+        real = sync._spawn_validation
+        sync._spawn_validation = lambda name, mode: seen.append((name, mode))
+        try:
+            n = "aaa-skill"
+            p = put_skill(home, n, runnable_skill(home, n))
+            text = pathlib.Path(p).read_text(encoding="utf-8")
+            trust.record(n, text, "self")
+            ledger.record_validation(
+                n, trust.content_hash(text), "critique", "pass")
+            counts = sync.sync()
+            assert seen == [], "sync() itself scheduled a run"
+            # Selection still happened -- otherwise this would pass with the
+            # feature removed entirely rather than merely relocated.
+            assert counts["executable_candidates"] == [n], counts
+            assert sync.main([]) == 0
+            assert seen == [(n, "executable")], seen
+        finally:
+            sync._spawn_validation = real
     in_sandbox(check)
 
 

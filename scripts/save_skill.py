@@ -26,6 +26,9 @@ import trust
 
 REQUIRED_KEYS = ("name", "kind", "description")
 KINDS = ("skill", "antiskill", "preference")
+# The only frontmatter keys that are maps by contract (spec 4.1). Every other
+# key parses as a scalar, because validate() and its callers treat them as one.
+NESTED_MAP_KEYS = ("provenance", "preconditions")
 NAME_RX = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 ANTISKILL_SECTIONS = ("## Trap", "## Symptom", "## Cause", "## Fix")
 MIN_SYMPTOM_CHARS = 8
@@ -80,21 +83,30 @@ def parse_frontmatter(text):
                     fm[key] = items
                     i = j
                     continue
-                # One level of nested `key: value` (provenance, preconditions).
-                # Needed, not cosmetic: validate.executable() reads
-                # provenance.repo out of the index entry sync.py compiles from
-                # this dict, and without this branch `provenance` parsed to ""
-                # and executable mode was inconclusive for every real skill.
-                nested = {}
-                j = i + 1
-                while j < len(lines) and re.match(r"^\s+[A-Za-z][\w.-]*:", lines[j]):
-                    k, _, v = lines[j].strip().partition(":")
-                    nested[k.strip()] = v.strip().strip("\"'")
-                    j += 1
-                if nested:
-                    fm[key] = nested
-                    i = j
-                    continue
+                # One level of nested `key: value`, and ONLY under the two keys
+                # that are maps by contract. Needed, not cosmetic:
+                # validate.executable() reads provenance.repo out of the index
+                # entry sync.py compiles from this dict, and without this
+                # branch `provenance` parsed to "" and executable mode was
+                # inconclusive for every real skill.
+                #
+                # Restricted because every other key is a scalar validate()
+                # then treats as one: a model-written `description:` with an
+                # indented line under it must stay "" and produce a clean
+                # "missing frontmatter key" rejection, not a dict that reaches
+                # desc.lower() (or NAME_RX.match) and raises out of validate().
+                if key in NESTED_MAP_KEYS:
+                    nested = {}
+                    j = i + 1
+                    while j < len(lines) and re.match(
+                            r"^\s+[A-Za-z][\w.-]*:", lines[j]):
+                        k, _, v = lines[j].strip().partition(":")
+                        nested[k.strip()] = v.strip().strip("\"'")
+                        j += 1
+                    if nested:
+                        fm[key] = nested
+                        i = j
+                        continue
             fm[key] = val
         i += 1
     return fm, text[body_start:]

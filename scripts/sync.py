@@ -195,13 +195,13 @@ def executable_candidates(trusted, conf, verdicts):
         v = verdicts.get(s["name"], {})
         if v.get("critique") != "pass" or v.get("executable"):
             continue
-        # `"text" in s`: every entry sync() builds carries the skill text, so
-        # the guard runs for real. The ordering unit tests pass bare
-        # {"name", "saved_ts"} entries, which carry no text to decide on.
-        if "text" in s and validate.unattemptable(s["text"], s):
+        if validate.unattemptable(s["text"], s):
             continue
         out.append(s)
-    out.sort(key=lambda s: s.get("saved_ts", 0), reverse=True)
+    # 0.0, not 0: sync() sets saved_ts from st_mtime, and a list mixing an int
+    # default with floats would raise straight into the caller's except --
+    # which contains it, but "contained" means scheduling silently stops.
+    out.sort(key=lambda s: s.get("saved_ts", 0.0), reverse=True)
     out.sort(key=lambda s: conf.get(s["name"], UNKNOWN).get("successes", 0),
              reverse=True)
     return [s["name"] for s in out]
@@ -227,7 +227,8 @@ def _spawn_validation(name, mode):
 
 
 def sync(project_root=None):
-    counts = {"materialized": 0, "evicted": 0, "quarantined": 0}
+    counts = {"materialized": 0, "evicted": 0, "quarantined": 0,
+              "executable_candidates": []}
     bases = [Path.home()]
     if project_root:
         proj = Path(project_root).resolve()
@@ -307,14 +308,16 @@ def sync(project_root=None):
 
     _write_index(trusted)
     _write_triggers(trusted)
-    # One per session: executable mode is an agentic run, not a single turn.
+    # Selected here because only this scope has each skill's text and hash --
+    # but NOT spawned here. sync() also runs after every save (save_skill) and
+    # every delete (library), which would make "one run per session" three
+    # runs in a session with two saves; main() is the SessionStart entry point
+    # and the one that carries the drafting guard, so it does the spawning.
     try:
-        names = executable_candidates(
+        counts["executable_candidates"] = executable_candidates(
             trusted, conf, ledger.validations_for(hashes))
-        if names:
-            _spawn_validation(names[0], "executable")
     except Exception as err:
-        print("skillforge: executable schedule failed: %s" % err, file=sys.stderr)
+        print("skillforge: executable select failed: %s" % err, file=sys.stderr)
     _cleanup_state()
     try:
         ledger.prune_signals(older_than_hours=SIGNAL_TTL_HOURS)
@@ -337,6 +340,17 @@ def main(argv=None):
         if counts["quarantined"]:
             print("skillforge: %d skill(s) quarantined pending /skillforge:review"
                   % counts["quarantined"])
+        # One per session, and this is what makes that true: SessionStart runs
+        # main() once, while sync() itself runs again after every save and
+        # delete. Detached, never waited on -- an executable run is an agentic
+        # run, not a single turn.
+        try:
+            names = counts["executable_candidates"]
+            if names:
+                _spawn_validation(names[0], "executable")
+        except Exception as err:
+            print("skillforge: executable schedule failed: %s" % err,
+                  file=sys.stderr)
     except Exception as e:
         print("skillforge: sync failed: %s" % e, file=sys.stderr)
     return 0

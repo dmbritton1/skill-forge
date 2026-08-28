@@ -319,6 +319,41 @@ def test_antiskill_without_verification_command_ok():
     in_sandbox(check)
 
 
+NESTED_UNDER_A_SCALAR_KEY = """---
+name: test-skill
+kind: skill
+description:
+  note: a model indented this by mistake
+verification.command: "true"
+---
+## Procedure
+1. Do the thing.
+
+## Verification
+- `true` exits 0.
+"""
+
+
+def test_a_nested_map_under_a_scalar_key_is_a_rejection_not_a_traceback():
+    """Only `provenance`/`preconditions` are maps by contract.
+
+    A model-written nested `description:` (or `name:`) must still parse to ""
+    and come back through validate() as a REASON. Parsed as a dict it would
+    survive `if not fm.get(key)` and reach desc.lower() -- validate() would
+    raise instead of returning, which draft.py turns into a generic "failed"
+    (losing the retry-with-errors path) and a manual save turns into a
+    traceback instead of `REJECTED:`.
+    """
+    fm, _ = save_skill.parse_frontmatter(NESTED_UNDER_A_SCALAR_KEY)
+    assert fm["description"] == "", fm
+    errors = save_skill.validate(NESTED_UNDER_A_SCALAR_KEY)
+    assert any("description" in e for e in errors), errors
+    # The contract keys still parse as maps -- validate.executable() reads
+    # provenance.repo out of the index sync.py compiles from this dict.
+    assert save_skill.parse_frontmatter(VALID_SKILL)[0]["provenance"] == {
+        "repo": "local/skill-forge", "distilled": "2026-07-09"}
+
+
 def test_parse_dotted_key_and_list():
     fm, _ = save_skill.parse_frontmatter(VALID_SKILL)
     assert fm["verification.command"] == '"true"' or fm["verification.command"] == "true"
