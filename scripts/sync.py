@@ -198,9 +198,14 @@ def executable_candidates(trusted, conf, verdicts):
         if validate.unattemptable(s["text"], s):
             continue
         out.append(s)
-    # 0.0, not 0: sync() sets saved_ts from st_mtime, and a list mixing an int
-    # default with floats would raise straight into the caller's except --
-    # which contains it, but "contained" means scheduling silently stops.
+    # 0.0, not 0: real entries carry a float saved_ts (sync() sets it from
+    # st_mtime), and int-vs-float compares fine either way -- that was never
+    # the hazard. The real one: some callers' entries carry saved_ts as an
+    # ISO date string ("2026-01-01"), filtered out of `out` before reaching
+    # this sort today. If a future filter change ever let one through,
+    # comparing a str against a numeric default would raise straight into
+    # the caller's except -- which contains it, but "contained" means
+    # scheduling silently stops.
     out.sort(key=lambda s: s.get("saved_ts", 0.0), reverse=True)
     out.sort(key=lambda s: conf.get(s["name"], UNKNOWN).get("successes", 0),
              reverse=True)

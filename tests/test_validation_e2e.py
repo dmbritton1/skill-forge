@@ -17,7 +17,14 @@ import sync
 import trust
 import validate
 
-PLUGIN_ROOT = pathlib.Path(__file__).resolve().parent.parent
+# sync.sync() never spawns today -- scheduling lives in sync.main(), the
+# SessionStart entry point, precisely so a save (which calls sync.sync())
+# doesn't burn the one-executable-run-per-session slot. But that guard is a
+# property of sync.py, not of this suite: if the scheduler ever moved back
+# into sync(), every test here would start launching a real
+# `validate.py executable` -- a real model turn and a real git worktree.
+# Stubbed inert at module scope, same defence-in-depth as tests/test_sync.py.
+sync._spawn_validation = lambda name, mode: None
 
 SKILL = """---
 name: widget-flush
@@ -104,6 +111,12 @@ def test_two_successes_without_critique_do_not_reach_trusted():
                              session="s%d" % i)
         sync.sync()
         row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
+        # Pinned, not just "working": ledger.confidence also yields "working"
+        # from a single organic success (organic_bucket == "working"), which
+        # is a different, weaker claim than this test's name. Without this,
+        # a regression that dropped one of the two log_event calls above
+        # would leave both assertions green.
+        assert row["successes"] == 2, row
         assert row["bucket"] == "working", row
         assert row["critique"] == "", row
     in_sandbox(check)
@@ -166,6 +179,9 @@ def test_a_critique_that_finds_a_problem_blocks_promotion():
                              session="s%d" % i)
         sync.sync()
         row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
+        # Same discrimination as the first test: "working" alone doesn't
+        # prove the two organic successes actually landed.
+        assert row["successes"] == 2, row
         assert row["critique"] == "fail", row
         assert row["bucket"] == "working", row
     in_sandbox(check)
