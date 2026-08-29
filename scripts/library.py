@@ -2,6 +2,7 @@
 """Human view of the knowledge store (slice D1 design 8).
 
 `list`   -- every trusted skill with the confidence slice C2 earned it.
+`show`   -- one skill's Tier A verdicts and the findings behind them.
 `delete` -- remove one skill from the store, the native tier, and the trust
             registry, then rebuild the derived indexes.
 
@@ -9,6 +10,7 @@ Deletion removes the skill, not its history: `events` rows survive, so a
 name deleted and later re-saved does not silently inherit an old bucket.
 """
 import argparse
+import json
 import shutil
 import sys
 from pathlib import Path
@@ -63,6 +65,64 @@ def cmd_list():
     return 0
 
 
+def _print_findings(mode, verdict, detail):
+    """One mode's verdict and the per-criterion findings behind it."""
+    print("\n%s: %s" % (mode, verdict))
+    try:
+        findings = json.loads(detail) if detail else None
+    except ValueError:
+        findings = None
+    if not isinstance(findings, list):
+        # Executable mode records no findings, and a verdict written by an
+        # older build may have none either. Say so rather than implying the
+        # reasons were empty.
+        print("  (no per-criterion findings recorded)")
+        return
+    for f in findings:
+        if not isinstance(f, dict):
+            continue
+        mark = "ok  " if f.get("ok") is True else "FAIL"
+        print("  [%s] %s" % (mark, f.get("criterion", "?")))
+        ev = (f.get("evidence") or "").strip()
+        if ev:
+            print("        quoted: %s" % ev.replace("\n", " ")[:200])
+        note = (f.get("note") or "").strip()
+        if note:
+            print("        %s" % note[:400])
+
+
+def cmd_show(name):
+    """Why a skill has the verdict it has -- the half `list` cannot fit.
+
+    `list` answers pass/fail in a column. The reasons live in the ledger's
+    `detail` and reached nobody, so a critique `fail` read as an unexplained
+    permanent cap: it holds a skill at `working` until its text changes, and
+    the author had no way to learn what to change.
+    """
+    entry = next((e for e in (retrieve.load_index() or {}).get("entries", [])
+                  if e.get("name") == name), None)
+    if entry is None:
+        print("no such skill in the index: %r" % name)
+        return 1
+    try:
+        text = Path(entry.get("path", "")).read_text(encoding="utf-8")
+    except OSError as err:
+        print("cannot read %s: %s" % (entry.get("path", ""), err))
+        return 1
+
+    print("%s (%s, %s) tier=%s" % (name, entry.get("kind", ""),
+                                   entry.get("scope", ""), entry.get("tier", "")))
+    found = ledger.findings_for(name, trust.content_hash(text))
+    for mode in ("critique", "executable"):
+        if mode in found:
+            _print_findings(mode, *found[mode])
+        else:
+            # Deliberately not silent: a missing verdict and a passing one
+            # are opposite facts, and blank space reads as the second.
+            print("\n%s: no %s verdict for the current text" % (mode, mode))
+    return 0
+
+
 def cmd_delete(name):
     entry = next((e for e in (retrieve.load_index() or {}).get("entries", [])
                   if e.get("name") == name), None)
@@ -104,11 +164,15 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     sub.add_parser("list")
+    s = sub.add_parser("show")
+    s.add_argument("name")
     d = sub.add_parser("delete")
     d.add_argument("name")
     args = ap.parse_args(argv)
     if args.cmd == "list":
         return cmd_list()
+    if args.cmd == "show":
+        return cmd_show(args.name)
     return cmd_delete(args.name)
 
 

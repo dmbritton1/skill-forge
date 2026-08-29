@@ -2,6 +2,7 @@
 Run: python3 tests/test_library.py
 """
 import io
+import json
 import os
 import pathlib
 import sys
@@ -226,6 +227,69 @@ def test_delete_of_a_project_skill_does_not_strip_the_shared_index():
             "a sibling project skill must survive deleting another one"
     in_sandbox(check)
 
+
+
+FINDINGS = json.dumps([{
+    "criterion": "followable",
+    "ok": False,
+    "evidence": "1. Do it.",
+    "note": "A fresh instance cannot tell what the step refers to.",
+}])
+
+
+def _hash_of(home, name):
+    md = home / ".claude" / "skillforge" / "skills" / name / "SKILL.md"
+    return trust.content_hash(md.read_text(encoding="utf-8"))
+
+
+def test_show_prints_the_criterion_and_its_quoted_evidence():
+    """A verdict says a skill failed; only the findings say what to fix."""
+    def check(home):
+        put_skill(home, "alpha")
+        ledger.record_validation("alpha", _hash_of(home, "alpha"), "critique",
+                                 "fail", detail=FINDINGS)
+        rc, out = capture(["show", "alpha"])
+        assert rc == 0, rc
+        assert "followable" in out, out
+        assert "1. Do it." in out, out
+        assert "A fresh instance cannot" in out, out
+    in_sandbox(check)
+
+
+def test_show_says_a_skill_is_unvalidated_rather_than_printing_nothing():
+    """Silence reads as 'passed'; the whole defect this fixes is invisibility."""
+    def check(home):
+        put_skill(home, "alpha")
+        rc, out = capture(["show", "alpha"])
+        assert rc == 0, rc
+        assert out.strip(), "printed nothing at all"
+        assert "no critique" in out.lower() or "not validated" in out.lower(), out
+    in_sandbox(check)
+
+
+def test_show_hides_findings_written_against_older_text():
+    """Findings quote spans; against edited text they would quote a dead file."""
+    def check(home):
+        put_skill(home, "alpha")
+        ledger.record_validation("alpha", _hash_of(home, "alpha"), "critique",
+                                 "fail", detail=FINDINGS)
+        md = home / ".claude" / "skillforge" / "skills" / "alpha" / "SKILL.md"
+        edited = md.read_text(encoding="utf-8") + "\n## Gotchas\n- None.\n"
+        md.write_text(edited, encoding="utf-8")
+        trust.record("alpha", edited, "self")
+        sync.sync()
+        rc, out = capture(["show", "alpha"])
+        assert rc == 0, rc
+        assert "followable" not in out, "stale findings leaked: %s" % out
+    in_sandbox(check)
+
+
+def test_show_rejects_a_name_that_is_not_in_the_index():
+    def check(home):
+        put_skill(home, "alpha")
+        rc, out = capture(["show", "nope"])
+        assert rc == 1, rc
+    in_sandbox(check)
 
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
