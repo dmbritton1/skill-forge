@@ -11,6 +11,7 @@ from contextlib import redirect_stderr, redirect_stdout
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import detect
 import ledger
+import retrieve
 import trust
 
 ANTISKILL = """---
@@ -238,7 +239,7 @@ def test_project_symptom_scoped_to_its_root():
 def test_verification_hit_logs_outcome():
     def check(home):
         write_triggers(home, verifications=[
-            {"skill": "stripe-hook", "root": str(home),
+            {"skill": "stripe-hook", "root": str(home), "tier": "hot",
              "tokens": ["npx", "stripe", "trigger"]}])
         rc, out = run_capture(tool_data(
             home, "ok", command="npx stripe --api-key x trigger payment_intent.succeeded",
@@ -252,7 +253,7 @@ def test_verification_hit_logs_outcome():
 def test_verification_failure_outcome():
     def check(home):
         write_triggers(home, verifications=[
-            {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]}])
+            {"skill": "stripe-hook", "root": str(home), "tier": "hot", "tokens": ["npx", "stripe", "trigger"]}])
         run_capture(tool_data(home, "boom", command="npx stripe trigger", is_error=True))
         assert ("detection", "stripe-hook", "verification", None, "failure") in rows(
             "skill='stripe-hook'")
@@ -262,7 +263,7 @@ def test_verification_failure_outcome():
 def test_verification_outcome_unknown_without_flag():
     def check(home):
         write_triggers(home, verifications=[
-            {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]}])
+            {"skill": "stripe-hook", "root": str(home), "tier": "hot", "tokens": ["npx", "stripe", "trigger"]}])
         run_capture(tool_data(home, "output only", command="npx stripe trigger"))
         assert ("detection", "stripe-hook", "verification", None, None) in rows(
             "skill='stripe-hook'")
@@ -272,8 +273,8 @@ def test_verification_outcome_unknown_without_flag():
 def test_verification_duplicate_skill_entry_detected_once():
     def check(home):
         write_triggers(home, verifications=[
-            {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]},
-            {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]},
+            {"skill": "stripe-hook", "root": str(home), "tier": "hot", "tokens": ["npx", "stripe", "trigger"]},
+            {"skill": "stripe-hook", "root": str(home), "tier": "hot", "tokens": ["npx", "stripe", "trigger"]},
         ])
         run_capture(tool_data(
             home, "ok", command="npx stripe trigger", is_error=False))
@@ -284,7 +285,7 @@ def test_verification_duplicate_skill_entry_detected_once():
 def test_verification_ignores_non_bash_tools():
     def check(home):
         write_triggers(home, verifications=[
-            {"skill": "stripe-hook", "root": str(home), "tokens": ["npx", "stripe", "trigger"]}])
+            {"skill": "stripe-hook", "root": str(home), "tier": "hot", "tokens": ["npx", "stripe", "trigger"]}])
         # command WOULD match if the Bash gate were removed -- proves the gate is load-bearing
         run_capture(tool_data(home, "npx stripe trigger", tool="Read",
                                command="npx stripe trigger"))
@@ -548,6 +549,69 @@ def test_a_missing_triggers_file_is_silent():
         assert err.getvalue() == "", repr(err.getvalue())
     in_sandbox(check)
 
+
+
+def verif(home, name="stripe-hook", tier="warm"):
+    return {"skill": name, "root": str(home), "tier": tier,
+            "tokens": ["npx", "stripe", "trigger"]}
+
+
+def ran_it(home, session="sess1", is_error=False):
+    return tool_data(home, "ok", session=session, is_error=is_error,
+                     command="npx stripe --api-key x trigger payment_intent.succeeded")
+
+
+def test_a_warm_skill_not_injected_this_session_earns_nothing():
+    """The command matched, but nothing put this skill in front of the model.
+
+    Credit here is what let `fix-the-flaky-check` -- written to be unusable
+    and never read -- collect a detection off a command run for unrelated
+    reasons.
+    """
+    def check(home):
+        write_triggers(home, verifications=[verif(home)])
+        rc, _ = run_capture(ran_it(home))
+        assert rc == 0
+        assert rows("skill='stripe-hook'") == [], rows("skill='stripe-hook'")
+    in_sandbox(check)
+
+
+def test_a_warm_skill_injected_this_session_earns_its_outcome():
+    def check(home):
+        write_triggers(home, verifications=[verif(home)])
+        retrieve.save_state("sess1", {"stripe-hook"})
+        rc, _ = run_capture(ran_it(home))
+        assert rc == 0
+        assert ("detection", "stripe-hook", "verification", None, "success") in rows(
+            "skill='stripe-hook'")
+    in_sandbox(check)
+
+
+def test_a_hot_skill_earns_without_an_injection_event():
+    """The exemption, asserted rather than inherited.
+
+    The harness injects hot skills from the native directory and SkillForge
+    never sees it, so requiring an injection would freeze last_used, decay
+    them out of hot, and oscillate. If a refactor drops this branch the loop
+    returns silently, which is why it gets its own test.
+    """
+    def check(home):
+        write_triggers(home, verifications=[verif(home, tier="hot")])
+        rc, _ = run_capture(ran_it(home))
+        assert rc == 0
+        assert ("detection", "stripe-hook", "verification", None, "success") in rows(
+            "skill='stripe-hook'")
+    in_sandbox(check)
+
+
+def test_an_injection_in_another_session_does_not_credit_this_one():
+    def check(home):
+        write_triggers(home, verifications=[verif(home)])
+        retrieve.save_state("other-session", {"stripe-hook"})
+        rc, _ = run_capture(ran_it(home, session="sess1"))
+        assert rc == 0
+        assert rows("skill='stripe-hook'") == []
+    in_sandbox(check)
 
 if __name__ == "__main__":
     failures = 0

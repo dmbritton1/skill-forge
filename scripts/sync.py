@@ -153,7 +153,13 @@ def _write_triggers(items):
     syms = [{"skill": s["name"], "path": str(s["path"]), "root": str(s["base"]),
              "tokens": toks, "fingerprints": s["fingerprints"]}
             for s in items if s["kind"] == "antiskill" for toks in s["symptoms"]]
-    vers = [{"skill": s["name"], "root": str(s["base"]), "tokens": toks}
+    # `tier` rides along so detect.py can tell a hot skill from a warm one
+    # without opening index.json on every tool call. It decides whether a
+    # verification match is credited: warm skills must have been injected
+    # this session, hot ones are exempt because the harness injects them
+    # from the native directory and we never see it happen.
+    vers = [{"skill": s["name"], "root": str(s["base"]), "tier": s["tier"],
+             "tokens": toks}
             for s in items for toks in s["verification"]]
     _write_json(p, {
         "compiled_ts": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),

@@ -138,6 +138,32 @@ def response_text(resp):
         return str(resp)[:MAX_OUTPUT_CHARS]
 
 
+def credited(entry, name, injected):
+    """May a verification match count as evidence about this skill?
+
+    Only if the skill's text actually reached the model. The command match
+    is a proxy for "the skill was used", and an unguarded proxy credits a
+    skill for a command the user would have run anyway: the ledger holds a
+    detection for a skill written to be unusable and never read, because it
+    declared a command that was run repeatedly for unrelated reasons. That
+    outcome is the sole input to success_sessions, which is the sole input
+    to the organic half of the Tier A conjunct.
+
+    Hot skills are exempt, deliberately. The harness injects them from the
+    native directory and we never observe it, so requiring an injection
+    would freeze last_used, decay them out of hot, drop them to warm where
+    they ARE visibly injected, and oscillate. Retention on the weaker signal
+    is the smaller cost; earning trust on it is not, and earning happens at
+    warm.
+
+    A missing `tier` means a triggers.json written before this field
+    existed. Gate it: sync rewrites the file at every SessionStart, so the
+    window is one session, and not-crediting is the direction that cannot
+    manufacture evidence.
+    """
+    return entry.get("tier") == "hot" or name in injected
+
+
 def run(data):
     session = retrieve.sanitize_session(data.get("session_id"))
     resp = data.get("tool_response")
@@ -162,6 +188,12 @@ def run(data):
         return 0
     cwd = data.get("cwd") or os.getcwd()
 
+    # Read once, above the verification loop as well as the symptom loop
+    # below: it is the set of skills whose text actually reached the model
+    # this session, and that is exactly the population entitled to claim
+    # credit for what happened next.
+    seen = retrieve.load_state(session)
+
     if is_bash:
         cmd_tokens = patterns.tokenize(command)
         verified = set()
@@ -171,11 +203,12 @@ def run(data):
                 continue
             if patterns.matches(v.get("tokens") or [], cmd_tokens):
                 verified.add(name)
+                if not credited(v, name, seen):
+                    continue
                 _log("detection", name, detection="verification",
                      outcome=outcome, session=session)
 
     hay = patterns.tokenize(response_text(resp))
-    seen = retrieve.load_state(session)
     detected = set()
     picked = []
     budget = INJECT_BUDGET_TOKENS
