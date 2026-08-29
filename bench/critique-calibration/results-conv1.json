@@ -1,0 +1,33 @@
+{
+  "09-gitignore-entry-v2": {
+    "expect": "pass",
+    "got": "fail",
+    "role": "control (convergence attempt)",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Open `.gitignore` at the repository root and add `build/` on its own line",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The procedure never addresses the case where .gitignore does not yet exist, leaving a fresh instance to guess whether to create the file versus edit an existing one."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "The working directory is the repository root. `.gitignore` and the ignored path are both interpreted relative to it, so run `git rev-parse --show-toplevel` and `cd` there first if you are not sure.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The stated assumptions (repo root, git on PATH, path untracked) cover what the procedure actually relies on."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "`git check-ignore -q build/` exits 0.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Verification only checks that some ignore rule matches the path, not that the directory is untracked, so running the skill on an already-tracked directory (which the description says has no effect) would still report success even though git status keeps listing the files."
+      }
+    ]
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "08-gitignore-entry": {
+    "expect": "pass",
+    "got": "fail",
+    "role": "control",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "1. Append the directory's path to `.gitignore` at the repository root, with\n   a trailing slash so it matches a directory rather than a file:",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "A fresh instance with no session memory can execute the append and substitution steps exactly as written."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "The working directory is the repository root, so `.gitignore` and the\n  path being ignored are both relative to it.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "This is asserted as an assumption but the Procedure contains no step to confirm or cd to the repo root, so a fresh instance invoked from any subdirectory will silently append to or create the wrong .gitignore file with no error raised."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Run before step 1 it exits 1; run after step 1 it exits 0, on the same\n  working tree.",
+        "basis": "empirical",
+        "severity": "minor",
+        "note": "This states a universal pre/post behavior, but check-ignore can already return 0 before step 1 if a parent .gitignore, core.excludesFile, or an existing broader pattern already matches the path, making the claimed differential unreliable in some repos even though the post-step-1 check itself remains valid."
+      }
+    ]
+  }
+}

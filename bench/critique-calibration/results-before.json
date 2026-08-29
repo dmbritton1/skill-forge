@@ -1,0 +1,177 @@
+{
+  "01-fix-the-flaky-check": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "floor",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Apply the same fix we used last time \u2014 the one from the earlier session\n   where the timestamps were off.",
+        "note": "References an earlier session's fix by memory alone, which a fresh instance with no session history cannot retrieve."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "Update the affected file the way we discussed, being careful to keep the\n   existing behaviour intact.",
+        "note": "Assumes knowledge of 'the affected file' and a prior discussion that are never named or provided in the text."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Confirm the check is no longer flaky.",
+        "note": "This is a vague subjective judgment, not a runnable, reproducible check that would fail if the procedure were skipped."
+      }
+    ]
+  },
+  "02-verify-skillforge-suites": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "Repeat for every file matching `tests/test_*.py`. Each is standalone and exits 0 when it passes, 1 when any test fails.",
+        "note": "The steps are concrete shell commands a fresh instance can execute without any session-specific knowledge."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "Python 3.9 or later on PATH as `python3`. No third-party packages are\n  needed or installed.",
+        "note": "States the interpreter, its version floor, the lack of dependencies, and the required working directory, covering what the procedure relies on."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "`python3 tests/test_ledger.py` exits 0 and prints no `FAIL` lines.",
+        "note": "The Verification only re-checks test_ledger.py, so skipping step 2's requirement to run every other tests/test_*.py file would still pass verification, meaning it doesn't genuinely fail if the full procedure is skipped."
+      }
+    ]
+  },
+  "03-ledger-schema-change": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Adding a TABLE needs no migration.",
+        "note": "This is ambiguous between 'adding a brand-new table' (safe under CREATE TABLE IF NOT EXISTS) and 'adding a column to an existing table' (unsafe, since IF NOT EXISTS skips tables that already exist), so a fresh instance could misread it and silently skip a needed migration when a column is added to an existing table."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "Add an entry to `MIGRATIONS` for that new version whose statements",
+        "note": "The text never states the actual structure of the MIGRATIONS variable (dict vs list, how it's keyed, what a valid entry looks like), so a fresh instance must guess the format needed to complete step 4."
+      },
+      {
+        "criterion": "checkable",
+        "ok": true,
+        "evidence": "`python3 tests/test_ledger.py` exits 0.",
+        "note": "The command is concrete and runnable given the stated preconditions, and the described build-old-schema-then-connect check is a plausible, genuine test of whether SCHEMA_VERSION/MIGRATIONS were updated."
+      }
+    ]
+  },
+  "04-hook-drafting-guard": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "if os.environ.get(\"SKILLFORGE_DRAFTING\"):",
+        "note": "The procedure never says to ensure `os` is imported in the target script, so a fresh instance can insert this line into a script that doesn't already `import os` and get a NameError at runtime."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "copying the body of the existing `test_detect_is_inert` and substituting your module",
+        "note": "The Preconditions section never states that tests/test_guard.py already contains a function named test_detect_is_inert to copy from, so a fresh instance has no stated guarantee that source exists."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "The suite names each hook explicitly; it will not discover a new one on its own.",
+        "note": "If a fresh instance skips step 4 (or the whole procedure) for the new hook, `python3 tests/test_guard.py` still exits 0 because the suite never exercises the new hook, so the verification does not genuinely fail when the guard is missing from a new, untested hook."
+      }
+    ]
+  },
+  "05-hook-inert-guard-v3": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "Make this the first statement of `main()`, above argument parsing and\nabove anything that touches stdin:",
+        "note": "The procedure gives exact code, exact placement rule, and exact file locations, so a fresh instance with repo access could execute it without session memory."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "copying the body of `test_detect_is_inert` and substituting your module",
+        "note": "The procedure assumes a reference test (test_detect_is_inert) already exists to copy from, but never states this as a precondition or explains what to do if the reference test is missing or has since diverged from the pattern."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Do this even for an existing hook that has no test yet: the suite checks\n   only the hooks it names.",
+        "note": "If step 5 (adding the per-hook test) is skipped, `python3 tests/test_guard.py` still exits 0 because the suite only exercises hooks it has named tests for, so the verification can pass even when the guard was never added to the new hook."
+      }
+    ]
+  },
+  "06-commit-trailer-unquoted": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "must-catch",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>",
+        "note": "The trailer hardcodes 'Claude Opus 5' regardless of which model is actually committing, so a fresh instance running as a different model (e.g. Sonnet 5) is told to attribute the commit to an entity it isn't, with no instruction to substitute the real model name."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "Use when: writing a commit message, or amending one, in skill-forge.",
+        "note": "The description states the skill applies to amending a commit, but the Procedure's only worked example is `git commit -F -` for a new commit; it never shows or mentions `git commit --amend -F -`, leaving the amend case unspecified."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "grep -q Co-Authored-By: Claude Opus 5 <noreply@anthropic.com> .git/COMMIT_EDITMSG",
+        "note": "Run verbatim in a shell, the unquoted `<noreply@anthropic.com>` is parsed as input redirection (not a grep argument) and errors with 'no such file or directory: noreply@anthropic.com' instead of ever checking COMMIT_EDITMSG, so the command as written can't verify anything."
+      }
+    ]
+  },
+  "07-commit-trailer-fixed": {
+    "expect": "pass",
+    "got": "fail",
+    "role": "control",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "git commit -F - <<'EOF'\n       subject line\n\n       body\n\n       Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n       EOF",
+        "note": "The compose-then-pipe-via-heredoc procedure is concrete, unambiguous, and requires no session memory or special repo access to execute."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "The working directory is the root of the skill-forge repository and there\n  are staged changes to commit.\n- `git` and `grep` are on PATH.",
+        "note": "The stated preconditions (repo root, staged changes, git/grep on PATH) cover everything the procedure actually depends on."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Run on the same repository before step 1 it exits 1, because the previous message has no such line; run\n  after step 2 it exits 0.",
+        "note": "The check only inspects the leftover .git/COMMIT_EDITMSG file rather than confirming a new commit was made, so if an earlier commit already left that trailer in place, the check would pass even if step 2 were skipped entirely."
+      }
+    ]
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "01-fix-the-flaky-check": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "floor",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Apply the same fix we used last time \u2014 the one from the earlier session\n   where the timestamps were off.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "A fresh instance has no access to 'the earlier session' or any record of what the fix was, so this step cannot be executed."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "Update the affected file the way we discussed, being careful to keep the\n   existing behaviour intact.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The 'affected file' is never named anywhere in the skill, and 'the way we discussed' refers to a conversation not captured in the text."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Confirm the check is no longer flaky.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Flakiness is nondeterministic, so a single run of verification.command (python3 tests/test_ledger.py) passing once does not genuinely confirm the flake is fixed, and no repeat-run or pass-count criterion is given."
+      }
+    ]
+  },
+  "06-commit-trailer-unquoted": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "must-catch",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "git commit -F - <<'EOF'\n       subject line\n\n       body\n\n       Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n       EOF",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The write/blank-line/heredoc steps are self-contained and a fresh instance can execute them without any session memory or repo access."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "Write the commit subject and body as normal.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The only unstated assumption is the ordinary one that you're already inside the target git repo with something staged, which is standard for any commit-writing skill and not worth spelling out."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "grep -q Co-Authored-By: Claude Opus 5 <noreply@anthropic.com> .git/COMMIT_EDITMSG",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The unquoted pattern contains an unescaped '<' and '>', which the shell parses as input/output redirection (redirecting stdin from a nonexistent file 'noreply@anthropic.com' and stdout into '.git/COMMIT_EDITMSG', truncating it) instead of as literal grep-pattern characters, so the command as written does not perform the described content check and can instead clobber the very file it's supposed to read."
+      }
+    ]
+  },
+  "07-commit-trailer-fixed": {
+    "expect": "pass",
+    "got": "pass",
+    "role": "control",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "git commit -F - <<'EOF'\n       subject line\n\n       body\n\n       Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n       EOF",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The two steps give a concrete, self-contained command a fresh instance can copy verbatim without needing repo context."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "because the previous message has no such line",
+        "basis": "empirical",
+        "severity": "minor",
+        "note": "The Verification's walkthrough silently assumes the repo's prior commit message lacked this trailer, but that assumption is never listed under Preconditions and isn't guaranteed in a repo where earlier commits already used this same skill."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "so this reads back your own commit",
+        "basis": "empirical",
+        "severity": "blocking",
+        "note": "COMMIT_EDITMSG is not cleared between commits, so if an earlier commit in this repo already carried the same trailer, grep would exit 0 even if the procedure were skipped for the current commit, making the check a false positive rather than a genuine verification."
+      }
+    ]
+  }
+}

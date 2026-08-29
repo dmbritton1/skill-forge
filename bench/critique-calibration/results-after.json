@@ -1,0 +1,219 @@
+{
+  "01-fix-the-flaky-check": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "floor",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Apply the same fix we used last time \u2014 the one from the earlier session\n   where the timestamps were off.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "A fresh instance with no memory of 'last time' or 'the earlier session' has no way to know what fix to apply."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "Update the affected file the way we discussed, being careful to keep the\n   existing behaviour intact.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Neither 'the affected file' nor the content of 'what we discussed' is ever named or defined anywhere in the skill text."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Confirm the check is no longer flaky.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The Verification gives no concrete command, run count, or threshold to distinguish 'fixed' from 'got lucky once', and never ties back to the frontmatter's verification.command."
+      }
+    ]
+  },
+  "02-verify-skillforge-suites": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "From the repository root, run each suite directly. There is no test\n   runner and pytest is not installed:\n\n       python3 tests/test_ledger.py",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The procedure is self-contained and gives exact commands, so a fresh instance with the repo checked out could follow it."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "Python 3.9 or later on PATH as `python3`. No third-party packages are\n  needed or installed.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "Stated preconditions (python3 on PATH, run from repo root) match what the procedure actually requires."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "`python3 tests/test_ledger.py` exits 0 and prints no `FAIL` lines.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Verification only checks the single named suite while the Procedure requires running every file matching `tests/test_*.py`, so a fresh instance could report the skill as verified while other suites (e.g. tests/test_validate.py, which git status shows as modified) still fail."
+      }
+    ]
+  },
+  "03-ledger-schema-change": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "5. Adding a TABLE needs no migration.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Steps 3 and 4 are written as flat sequential steps after step 2's VIEW-only branch, so an instance making a table-only change can't tell whether to still increment SCHEMA_VERSION (step 3) before reaching step 5's 'no migration' rule, and step 4's 'DROP VIEW IF EXISTS <name>' has no name to fill in when no view was touched."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "Run from the repository root, so `tests/` and `scripts/` both resolve.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The stated Python-version and working-directory preconditions are exactly what the edit and the verification command require; file-level details like the MIGRATIONS format are discoverable by reading scripts/ledger.py in step 1 rather than being an external prerequisite."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "asserts the renamed column is present after `connect()`",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The verification is described as testing one fixed historical scenario (a renamed column) rather than whatever schema edit was just made, so for a generic VIEW or TABLE change under this skill the described assertion would not actually exercise the change and thus would not genuinely fail if steps 3-4 were skipped."
+      }
+    ]
+  },
+  "04-hook-drafting-guard": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "if os.environ.get(\"SKILLFORGE_DRAFTING\"):",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The snippet uses os.environ but the procedure never instructs the agent to ensure `import os` is present in the target script, so mechanically inserting only these two lines can raise NameError if the script doesn't already import os."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "copying the body of the existing test_detect_is_inert and substituting",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Step 4 depends on a specific existing test named test_detect_is_inert already living in tests/test_guard.py in a copyable form, but the Preconditions section never asserts this test exists, so the step is unperformable as written if it doesn't."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "it returns 0, it writes nothing to stdout, and it never reads stdin.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The Procedure requires the guard to precede 'any argument parsing' (step 2/3), but the described test only asserts return value, stdout silence, and stdin-read count, so a guard placed after argument parsing (but still before the stdin read) would violate the Procedure yet still pass Verification."
+      }
+    ]
+  },
+  "05-hook-inert-guard-v3": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "real defect",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "adding a hook to hooks/hooks.json",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The description names registering a new hook in hooks/hooks.json as a trigger scenario, but the five-step Procedure never explains how to add or format that entry \u2014 it only covers guarding main() and adding a test."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "copying the body of `test_detect_is_inert`",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "Step 5 assumes a function named test_detect_is_inert already exists in tests/test_guard.py to copy from, but the text never states this precondition or shows its contents."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "only the hooks it names.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Verification only exercises hooks that have an explicit test_<script>_is_inert function, so if step 5 is skipped after steps 1-4, `python3 tests/test_guard.py` still exits 0 and falsely signals success even though the new/edited hook's guard was never checked."
+      }
+    ]
+  },
+  "06-commit-trailer-unquoted": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "must-catch",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "or amending one, in skill-forge",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The description brings amending a commit into scope, but the Procedure only demonstrates a fresh `git commit -F -` and never shows `--amend`, nor warns that re-running the procedure on an already-trailered commit would duplicate the trailer line."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": ".git/COMMIT_EDITMSG",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "Both the Procedure and Verification rely on this relative path resolving to the repo's .git directory, but the skill never states that commands must be run from the repository root for that to work."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "grep -q Co-Authored-By: Claude Opus 5 <noreply@anthropic.com> .git/COMMIT_EDITMSG",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The pattern and email are unquoted, so the shell parses `Claude`, `Opus`, `5` as extra filename arguments and `<noreply@anthropic.com>` as an input redirection from a nonexistent file, making the command error out rather than genuinely check the commit message."
+      }
+    ]
+  },
+  "07-commit-trailer-fixed": {
+    "expect": "pass",
+    "got": "pass",
+    "role": "control",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "git commit -F - <<'EOF'\n       subject line\n\n       body\n\n       Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n       EOF",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The compose-then-pipe steps are concrete and self-contained, though the claim that '-m' would collapse blank lines while '-F' does not is dubious since both go through the same message-cleanup path and doesn't affect whether the steps themselves are executable."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "The working directory is the root of the skill-forge repository and there\n  are staged changes to commit.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "Stated preconditions (repo root, staged changes, git/grep on PATH) match what the procedure and the relative-path verification actually require."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Git writes the message of the commit it just made to `.git/COMMIT_EDITMSG`,\n  so this reads back your own commit.",
+        "basis": "empirical",
+        "severity": "blocking",
+        "note": "COMMIT_EDITMSG is written before commit-msg/pre-commit hooks run and is not reverted if the commit is rejected (or if there's nothing to commit), so grep can exit 0 even though step 2's git commit never actually created a commit."
+      }
+    ]
+  }
+}

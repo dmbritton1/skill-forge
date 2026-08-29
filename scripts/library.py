@@ -20,6 +20,10 @@ import ledger
 import retrieve
 import sync
 import trust
+# The blocking rule itself, not a copy of it: two implementations of
+# "does this finding gate" would drift, and the display would start
+# lying about why a skill is held back.
+import validate
 
 UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0,
            "last_used": ""}
@@ -81,8 +85,17 @@ def _print_findings(mode, verdict, detail):
     for f in findings:
         if not isinstance(f, dict):
             continue
-        mark = "ok  " if f.get("ok") is True else "FAIL"
-        print("  [%s] %s" % (mark, f.get("criterion", "?")))
+        if f.get("ok") is True:
+            print("  [ok  ] %s" % f.get("criterion", "?"))
+        else:
+            # Which objections actually held the skill back, and which were
+            # only reported. Without this the author cannot tell a blocking
+            # defect from a note, and the two look identical in the text.
+            grade = "%s/%s" % (f.get("basis", "textual"),
+                               f.get("severity", "blocking"))
+            gates = ("blocks" if validate.blocks(f) else "reported only")
+            print("  [FAIL] %s  (%s -- %s)"
+                  % (f.get("criterion", "?"), grade, gates))
         ev = (f.get("evidence") or "").strip()
         if ev:
             print("        quoted: %s" % ev.replace("\n", " ")[:200])

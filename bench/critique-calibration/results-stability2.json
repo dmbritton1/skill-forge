@@ -1,0 +1,95 @@
+{
+  "01-fix-the-flaky-check": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "floor",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Apply the same fix we used last time \u2014 the one from the earlier session where the timestamps were off.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "A fresh instance with no memory of the prior session has no way to know what that fix was."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "Update the affected file the way we discussed",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The text never names the affected file, nor was any discussion captured in the skill itself."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Confirm the check is no longer flaky.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "No concrete command or repeated-run procedure is given to determine flakiness, despite verification.command listing a script whose relation to 'flaky' is unstated."
+      }
+    ]
+  },
+  "06-commit-trailer-unquoted": {
+    "expect": "fail",
+    "got": "fail",
+    "role": "must-catch",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "git commit -F - <<'EOF'\n       subject line\n\n       body\n\n       Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n       EOF",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "Steps 1-3 are self-contained instructions a fresh instance can follow without needing prior session context."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "Do NOT use when: committing in any other repository, or writing a tag\n  annotation or a pull request body, none of which carry this trailer.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "Scope (this repo, commit messages only) is stated; the procedure otherwise assumes only ordinary git-commit context, which is reasonable to leave implicit."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "grep -q Co-Authored-By: Claude Opus 5 <noreply@anthropic.com> .git/COMMIT_EDITMSG",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The command is unquoted so the shell treats ':' -delimited words as extra grep file arguments and parses '<...>' as stdin/stdout redirection, meaning it will error out and can even truncate .git/COMMIT_EDITMSG via the '>' redirect instead of verifying the trailer."
+      }
+    ]
+  },
+  "07-commit-trailer-fixed": {
+    "expect": "pass",
+    "got": "fail",
+    "role": "control",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "git commit -F - <<'EOF'\n       subject line\n\n       body\n\n       Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>\n       EOF",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The steps are self-contained and a fresh instance with no session memory could execute them exactly as written."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "The working directory is the root of the skill-forge repository and there are staged changes to commit.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "Everything the Procedure needs (cwd, staged changes, git/grep on PATH) is stated in the Preconditions section."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "Run on the same repository before step 1 it exits 1, because the previous message has no such line; run after step 2 it exits 0.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "The skill's own provenance says it was distilled from this same repo's commit history (repo: dmbritton1/skill-forge, commit 99b0023) where this trailer convention is already in use, so .git/COMMIT_EDITMSG from the prior commit likely already contains 'Co-Authored-By: Claude Opus 5' before step 1 ever runs, making grep exit 0 regardless of whether the procedure is followed this time \u2014 the check reads stale state, not 'your own commit' as claimed."
+      }
+    ]
+  }
+}

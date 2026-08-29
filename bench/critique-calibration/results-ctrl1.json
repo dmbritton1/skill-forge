@@ -1,0 +1,33 @@
+{
+  "08-gitignore-entry": {
+    "expect": "pass",
+    "got": "fail",
+    "role": "control",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": true,
+        "evidence": "Append the directory's path to `.gitignore` at the repository root, with\na trailing slash so it matches a directory rather than a file:",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The two-step procedure (append line, substitute directory name) is concrete and self-contained enough for a fresh instance to execute without prior context."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": false,
+        "evidence": "echo 'build/' >> .gitignore",
+        "basis": "empirical",
+        "severity": "blocking",
+        "note": "The Preconditions section never states that .gitignore must already end in a newline (or be empty/nonexistent); appending with `>>` to a file lacking a trailing newline silently merges the new pattern onto the last existing line, corrupting both entries."
+      },
+      {
+        "criterion": "checkable",
+        "ok": false,
+        "evidence": "verification.command: \"git check-ignore -q build/\"",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Step 2 says to substitute the real directory 'in both that line and the verification command below', but 'below' refers to the prose ## Verification bullet, not the frontmatter verification.command field above it, so any automated check running the frontmatter field verbatim will test 'build/' regardless of what directory was actually ignored."
+      }
+    ]
+  }
+}

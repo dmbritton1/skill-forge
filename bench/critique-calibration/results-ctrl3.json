@@ -1,0 +1,33 @@
+{
+  "08-gitignore-entry": {
+    "expect": "pass",
+    "got": "fail",
+    "role": "control",
+    "findings": [
+      {
+        "criterion": "followable",
+        "ok": false,
+        "evidence": "Substitute your own directory for `build/` in both that line and the verification command below.",
+        "basis": "textual",
+        "severity": "blocking",
+        "note": "Step 1 is written as a concrete command to execute (`echo 'build/' >> .gitignore`) and only afterward, in step 2, does the text say to substitute the real directory name, so a literal executor may append the placeholder 'build/' before realizing it needed to swap it out first."
+      },
+      {
+        "criterion": "preconditions",
+        "ok": true,
+        "evidence": "The working directory is the repository root, so `.gitignore` and the path being ignored are both relative to it.",
+        "basis": "textual",
+        "severity": "minor",
+        "note": "The stated preconditions (repo-root cwd, git on PATH, directory untracked) cover everything the procedure and verification actually rely on."
+      },
+      {
+        "criterion": "checkable",
+        "ok": true,
+        "evidence": "Run before step 1 it exits 1; run after step 1 it exits 0, on the same working tree.",
+        "basis": "empirical",
+        "severity": "minor",
+        "note": "git check-ignore -q genuinely flips from exit 1 to exit 0 once the pattern is added, so the verification would correctly fail if the procedure were skipped."
+      }
+    ]
+  }
+}

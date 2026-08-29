@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "Ground truth for the critique calibration corpus. Each case was written",
+    "by hand, critiqued for real, and its findings checked against the code",
+    "or against git's actual behaviour before being labelled here.",
+    "",
+    "The corpus is deliberately unbalanced: seven must-fail and one must-pass.",
+    "Failures alone cannot detect over-loosening -- a rubric that passed",
+    "everything would look identical to one that passed nothing if the corpus",
+    "had no positive case. Case 08 is that control. Case 01 is the floor: it is",
+    "session-dependent and unverifiable, so any change that lets it pass has",
+    "broken the gate regardless of what else improves.",
+    "",
+    "Case 07 was labelled the control and later relabelled must-fail, because",
+    "the model found a real defect in it that I had missed. Recording that here",
+    "rather than quietly editing it: the corpus is only worth anything if its",
+    "ground truth is honest about having been wrong once. It is also the reason",
+    "case 08 exists and why every claim in 08 was measured before it was written."
+  ],
+  "cases": {
+    "01-fix-the-flaky-check": {
+      "expect": "fail",
+      "role": "floor",
+      "why": "Steps reference 'the same fix we used last time' and 'the way we discussed'. A fresh instance has neither. Verification is 'confirm the check is no longer flaky' -- nondeterministic, no command, no threshold."
+    },
+    "02-verify-skillforge-suites": {
+      "expect": "fail",
+      "role": "real defect",
+      "why": "Step 2 says repeat for every tests/test_*.py, but the verification re-runs only test_ledger.py, so skipping step 2 still passes. The verification is weaker than the procedure it checks."
+    },
+    "03-ledger-schema-change": {
+      "expect": "fail",
+      "role": "real defect",
+      "why": "The Verification claims the suite asserts a 'renamed column', but the procedure is about views and tables generally, not renaming. It also never says whether a brand-new view needs a migration."
+    },
+    "04-hook-drafting-guard": {
+      "expect": "fail",
+      "role": "real defect",
+      "why": "Warns the suite will not discover a new test but never says how to add one, leaving the reader to guess. The verification is therefore uncoupled for the new-hook case the description claims."
+    },
+    "05-hook-inert-guard-v3": {
+      "expect": "fail",
+      "role": "real defect",
+      "why": "Instructs adding the test, so it is closer -- but the description still claims the new-hook case, where skipping the whole procedure leaves the suite passing. Genuine coupling gap."
+    },
+    "06-commit-trailer-unquoted": {
+      "expect": "fail",
+      "role": "must-catch",
+      "why": "verification.command is unquoted, so the shell reads <noreply@anthropic.com> as a stdin redirect and > as a stdout redirect, TRUNCATING .git/COMMIT_EDITMSG -- the very file it claims to check. A rubric that misses this is not worth running."
+    },
+    "07-commit-trailer-fixed": {
+      "expect": "fail",
+      "role": "real defect (ground truth CORRECTED)",
+      "why": "Originally labelled the control. That was my error. Its Verification asserts 'run before step 1 it exits 1, because the previous message has no such line' -- false in a repository that already follows the convention, where .git/COMMIT_EDITMSG holds a prior message that already contains the trailer, so grep exits 0 before the procedure runs. A later run found exactly that and graded it textual/blocking, correctly. The earlier failure I disproved was a DIFFERENT, false claim about the file surviving the next commit; both objections targeted the same sentence, one wrongly and one rightly."
+    },
+    "08-gitignore-entry": {
+      "expect": "pass",
+      "role": "control",
+      "why": "Every factual claim was measured before writing it: in a scratch repo, `git check-ignore -q build/` exits 1 before the .gitignore line is added and 0 after. Narrow scope, stated preconditions, and a verification genuinely coupled to the one step the procedure performs. This is the positive control case 07 was supposed to be."
+    },
+    "09-gitignore-entry-v2": {
+      "expect": "pass",
+      "role": "control (convergence attempt)",
+      "why": "Case 08 with exactly the three defects the model found fixed: the >> newline hazard, the over-general claim that check-ignore exits 1 beforehand (now established by step 1 rather than asserted universally), and the substitute-after-the-command ordering. If this still fails on new valid objections, convergence in a bounded number of rounds is not achievable and critique should not be the automatic promotion criterion."
+    }
+  }
+}

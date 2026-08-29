@@ -856,6 +856,62 @@ def test_an_inconclusive_run_records_an_attempt_row_instead():
     in_sandbox(check)
 
 
+
+def _graded(**over):
+    """Three criteria, all ok, with the first overridden by `over`."""
+    out = []
+    for i, n in enumerate(validate.SKILL_CRITERIA):
+        f = {"criterion": n, "ok": True, "evidence": SPAN, "note": "n"}
+        if i == 0:
+            f.update(over)
+        out.append(f)
+    return out
+
+
+def test_a_blocking_textual_objection_still_fails():
+    """The grading must not become a way to wave real defects through."""
+    fs = _graded(ok=False, severity="blocking", basis="textual")
+    assert validate.verdict_from(fs, SKILL_TEXT) == "fail"
+
+
+def test_a_minor_objection_is_reported_but_does_not_gate():
+    """An unmentioned import and a destructive command used to weigh the same."""
+    fs = _graded(ok=False, severity="minor", basis="textual")
+    assert validate.verdict_from(fs, SKILL_TEXT) == "pass"
+
+
+def test_an_empirical_objection_does_not_gate():
+    """critique has no environment, so a claim about runtime behaviour is a
+    guess in the same voice as an observation -- it is surfaced, not enforced."""
+    fs = _graded(ok=False, severity="blocking", basis="empirical")
+    assert validate.verdict_from(fs, SKILL_TEXT) == "pass"
+
+
+def test_a_finding_missing_the_new_fields_still_gates():
+    """Unknown gates. A reply that ignores the fields, or a verdict recorded
+    by an older build, must behave exactly as it did before."""
+    fs = _graded(ok=False)
+    assert "severity" not in fs[0] and "basis" not in fs[0]
+    assert validate.verdict_from(fs, SKILL_TEXT) == "fail"
+
+
+def test_grading_cannot_rescue_an_unquotable_pass():
+    """severity/basis describe an OBJECTION; a claimed pass is not objecting,
+    so the anti-sycophancy gate ignores them entirely."""
+    for over in ({"severity": "minor"}, {"basis": "empirical"},
+                 {"severity": "minor", "basis": "empirical"}):
+        fs = _graded(evidence="", **over)
+        assert validate.verdict_from(fs, SKILL_TEXT) == "fail", over
+        fs = _graded(evidence="not in the skill text at all", **over)
+        assert validate.verdict_from(fs, SKILL_TEXT) == "fail", over
+
+
+def test_the_prompt_asks_for_both_grades_and_defines_them():
+    p = validate.build_critique_prompt(SKILL_TEXT, "skill", nonce="n")
+    for token in ("basis", "empirical", "textual", "severity", "blocking",
+                  "minor"):
+        assert token in p, token
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
