@@ -1,11 +1,13 @@
 """Tests for the SQLite event ledger (spec 9.2). Run: python3 tests/test_ledger.py"""
 import datetime
+import io
 import os
 import pathlib
 import sqlite3
 import sys
 import tempfile
 import threading
+from contextlib import redirect_stderr
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import ledger
@@ -629,6 +631,38 @@ def test_an_attempt_is_not_a_verdict():
         assert ledger.confidence(hashes={"w": "h"})["w"]["bucket"] == "trusted"
     in_sandbox(check)
 
+
+
+def test_findings_carry_the_detail_for_their_own_hash():
+    """The verdict says what; only the detail says why -- and it is hash-scoped."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "l.db"
+        detail = '[{"criterion": "followable", "ok": false}]'
+        ledger.record_validation("s", "h1", "critique", "fail",
+                                 detail=detail, path=db)
+        got = ledger.findings_for("s", "h1", path=db)
+        assert got == {"critique": ("fail", detail)}, got
+        assert ledger.findings_for("s", "h2", path=db) == {}, "stale hash leaked"
+
+
+def test_findings_survive_a_verdict_with_no_detail():
+    """record_validation's detail is optional; reading must not assume it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "l.db"
+        ledger.record_validation("s", "h1", "executable", "pass", path=db)
+        assert ledger.findings_for("s", "h1", path=db) == {
+            "executable": ("pass", None)}, ledger.findings_for("s", "h1", path=db)
+
+
+def test_findings_are_empty_when_the_ledger_cannot_be_read():
+    """Best-effort like every other read: a broken ledger shows nothing, not a crash."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = pathlib.Path(tmp) / "l.db"
+        bad.write_text("not a database", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            assert ledger.findings_for("s", "h1", path=bad) == {}
+        assert "skillforge:" in err.getvalue(), err.getvalue()
 
 if __name__ == "__main__":
     failures = 0

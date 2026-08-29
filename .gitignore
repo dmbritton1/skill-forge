@@ -3,3 +3,12 @@ __pycache__/
 .DS_Store
 .superpowers/
 .claude/skills/skillforge-hot/
+
+# Project-scoped knowledge store. Skills are approved per-machine against a
+# content hash in trust.json, which is not committed -- so a skill arriving
+# through git would land unapproved on every teammate's checkout and sit in
+# quarantine anyway. Sharing project skills is a real feature; it needs a
+# deliberate export/approve path, not an accident of `git add`.
+.claude/skillforge/
+# Worktrees created by EnterWorktree; local scratch, never part of a commit.
+.claude/worktrees/

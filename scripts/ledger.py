@@ -330,6 +330,37 @@ def validations_for(skills_hashes, *, path=None):
     return out
 
 
+def findings_for(skill, content_hash, *, path=None):
+    """{mode: (verdict, detail)} for ONE skill at the EXACT hash; {} on failure.
+
+    `validations_for` answers "what was the verdict"; this answers "why", and
+    the why is the half worth reading. Critique computes a verdict from
+    per-criterion findings and stores them as `detail`, but the verdict alone
+    reaches the author -- so a `fail` reads as an unexplained permanent cap on
+    a skill, when the ledger already holds the specific, quoted reason it
+    failed and what would fix it.
+
+    Hash-scoped for the same reason `validations_for` is: findings quote spans
+    from the text they were written against, so showing them beside edited
+    text would be quoting a file that no longer exists.
+    """
+    out = {}
+    try:
+        con = connect(path)
+        try:
+            for mode, verdict, detail in con.execute(
+                    "SELECT mode, verdict, detail FROM validations"
+                    " WHERE skill = ? AND content_hash = ?",
+                    (skill, content_hash)):
+                out[mode] = (verdict, detail)
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: findings read failed: %s" % err, file=sys.stderr)
+        return {}
+    return out
+
+
 def record_attempt(skill, content_hash, mode, *, ts=None, path=None):
     """Record that this mode ran against this exact text and got no verdict.
 
