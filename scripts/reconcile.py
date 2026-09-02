@@ -44,6 +44,12 @@ RECONCILE_WINDOW_S = 900
 GIT_TIMEOUT_S = 1.0
 MAX_DIFF_BYTES = 512 * 1024
 
+# The marker scratch file is model-written and reaches no model: a script
+# reads it and turns it into rows. Both caps are anti-wedge, not security --
+# a runaway loop appending markers must not turn every Stop into a large read.
+MAX_MARKER_BYTES = 64 * 1024
+MAX_MARKER_NAME = 128
+
 # Two failures on one command, then a success. One failure then a success is
 # not a struggle -- that is the case where the model already knew the answer,
 # and a skill restating it would fail the novelty gate anyway.
@@ -249,6 +255,46 @@ def changed_tokens(cwd):
         except OSError:
             continue
     return patterns.tokenize("\n".join(parts))
+
+
+def marker_path(cwd):
+    return Path(cwd) / ".claude" / "skillforge" / "session-usage.jsonl"
+
+
+def read_markers(cwd):
+    """Skill names the model claimed to apply; the file is consumed on read.
+
+    Consumed, not accumulated: the model has no session id to write, so the
+    file is not session-scoped, and a line surviving from an earlier session
+    would credit this one the next time that skill is injected. The unlink
+    therefore happens even when nothing parses -- a file of junk that stays
+    on disk is a file re-read at every Stop forever.
+
+    Untrusted input. Bad lines are skipped rather than raising, and a name
+    is only a candidate here: `_credit_markers` still checks it against the
+    index, the scope, and the injection gate before it becomes a row.
+    """
+    p = marker_path(cwd)
+    try:
+        text = p.read_text(encoding="utf-8", errors="replace")[:MAX_MARKER_BYTES]
+    except OSError:
+        return set()
+    try:
+        p.unlink()
+    except OSError:
+        pass          # read succeeded; a stale file is better than losing the names
+    out = set()
+    for line in text.splitlines():
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue   # blank lines, prose, and the tail the size cap bisected
+        if not isinstance(obj, dict):
+            continue
+        name = obj.get("skill")
+        if isinstance(name, str) and name.strip():
+            out.add(name.strip()[:MAX_MARKER_NAME])
+    return out
 
 
 def _reconcile_c2(session, cwd, rows, now, final):

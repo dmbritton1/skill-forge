@@ -859,6 +859,86 @@ def test_session_end_keeps_the_draft_row():
     in_sandbox(check)
 
 
+def write_markers(root, lines):
+    p = reconcile.marker_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
+
+
+def test_read_markers_collects_skill_names():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        write_markers(root, ['{"skill": "alpha"}', '{"skill": "beta"}'])
+        assert reconcile.read_markers(root) == {"alpha", "beta"}
+
+
+def test_read_markers_consumes_the_file():
+    """Not tidiness: a surviving line would credit the next session."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        p = write_markers(root, ['{"skill": "alpha"}'])
+        assert reconcile.read_markers(root) == {"alpha"}
+        assert not p.exists()
+        assert reconcile.read_markers(root) == set()
+
+
+def test_read_markers_skips_junk_without_losing_good_lines():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        write_markers(root, [
+            "",
+            "not json at all",
+            '["alpha"]',                 # valid JSON, not an object
+            '{"skill": 7}',              # not a string
+            '{"skill": ""}',             # empty after strip
+            '{"action": "did a thing"}', # no skill key
+            '{"skill": "  alpha  "}',    # stripped
+        ])
+        assert reconcile.read_markers(root) == {"alpha"}
+
+
+def test_read_markers_still_consumes_a_file_of_pure_junk():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        p = write_markers(root, ["garbage", "more garbage"])
+        assert reconcile.read_markers(root) == set()
+        assert not p.exists()
+
+
+def test_read_markers_caps_the_read_and_the_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        long_name = "n" * 400
+        write_markers(root, ['{"skill": "%s"}' % long_name])
+        got = reconcile.read_markers(root)
+        assert got == {"n" * reconcile.MAX_MARKER_NAME}, got
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        filler = ['{"skill": "pad%d"}' % i
+                  for i in range(reconcile.MAX_MARKER_BYTES // 20 + 200)]
+        write_markers(root, filler + ['{"skill": "last"}'])
+        got = reconcile.read_markers(root)
+        assert "last" not in got, "read past the size cap"
+        assert got, "cap discarded everything"
+
+
+def test_read_markers_on_a_missing_file_is_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert reconcile.read_markers(pathlib.Path(tmp)) == set()
+
+
+def test_read_markers_survives_binary_content():
+    """errors='replace', not a crash: the file is model-written, not trusted."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        p = reconcile.marker_path(root)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b'\xff\xfe\x00\x00\n{"skill": "alpha"}\n')
+        assert reconcile.read_markers(root) == {"alpha"}
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
