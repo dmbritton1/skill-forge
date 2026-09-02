@@ -330,7 +330,22 @@ def test_show_still_works_when_only_a_marker_exists():
         ledger.log_event("detection", "alpha", session="s1", detection="marker")
         rc, out = capture(["show", "alpha"])
         assert rc == 0, rc
-        assert "uncorroborated" in out.lower(), out
+        assert "no independent signal" in out.lower(), out
+    in_sandbox(check)
+
+
+def test_show_reaches_no_usage_data_past_a_real_save_row():
+    """save_skill.py logs a sessionless 'save' row on the real production path
+    (see scripts/save_skill.py) -- unlike put_skill's fixture, which writes
+    the file directly and logs nothing. That row must not count as a session
+    or the "no usage data yet" branch is unreachable in production."""
+    def check(home):
+        put_skill(home, "alpha")
+        sync.sync()
+        ledger.log_event("save", "alpha", outcome="saved")
+        rc, out = capture(["show", "alpha"])
+        assert rc == 0, rc
+        assert "no usage" in out.lower(), out
     in_sandbox(check)
 
 if __name__ == "__main__":

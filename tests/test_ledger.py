@@ -761,6 +761,26 @@ def test_marker_index_does_not_block_a_different_session():
         u = ledger.usage_for("alpha", path=db)
         assert u["sessions"] == 2, u
 
+
+def test_usage_for_ignores_sessionless_lifecycle_rows():
+    """save/review/delete are logged with session=None; they are not sessions."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("save", "alpha", outcome="saved", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 0, u
+        assert u["neither"] == 0, u
+
+
+def test_usage_for_ignores_symptom_only_sessions():
+    """A symptom detection with nothing injected is not a session that used it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "alpha", session="s1", detection="symptom", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 0, u
+        assert u["neither"] == 0, u
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

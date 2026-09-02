@@ -139,10 +139,10 @@ def cmd_show(name):
         # as a measured zero, and "never measured" is the opposite fact.
         print("\nusage: no usage data yet")
         return 0
-    print("\nusage: %d session(s), %d injection(s)" % (u["sessions"], u["injections"]))
+    print("\nusage: %d session(s), injected in %d of them" % (u["sessions"], u["injections"]))
     for label, value in (("marker + corroboration", u["both"]),
                          ("corroboration only (compliance miss)", u["corroborated_only"]),
-                         ("marker only (uncorroborated)", u["marker_only"]),
+                         ("marker only (no independent signal)", u["marker_only"]),
                          ("injected, no usage signal", u["neither"])):
         print("  %-38s%d" % (label + ":", value))
     return 0

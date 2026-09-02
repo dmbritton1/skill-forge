@@ -365,12 +365,16 @@ def findings_for(skill, content_hash, *, path=None):
 
 
 USAGE_SQL = (
-    "SELECT COALESCE(session, ''),"
+    "SELECT session,"
     "       MAX(event_type = 'injection'),"
     "       MAX(event_type = 'detection' AND detection = 'marker'),"
     "       MAX(event_type = 'detection'"
     "           AND detection IN ('fingerprint', 'verification'))"
-    " FROM events WHERE skill = ? GROUP BY COALESCE(session, '')")
+    " FROM events WHERE skill = ? AND session IS NOT NULL"
+    "   AND (event_type = 'injection'"
+    "        OR (event_type = 'detection'"
+    "            AND detection IN ('marker', 'fingerprint', 'verification')))"
+    " GROUP BY session")
 
 USAGE_ZERO = {"sessions": 0, "injections": 0, "both": 0,
               "corroborated_only": 0, "marker_only": 0, "neither": 0}
