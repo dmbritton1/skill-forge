@@ -276,7 +276,8 @@ def read_markers(cwd):
     """
     p = marker_path(cwd)
     try:
-        text = p.read_text(encoding="utf-8", errors="replace")[:MAX_MARKER_BYTES]
+        with open(str(p), "rb") as fh:
+            text = fh.read(MAX_MARKER_BYTES).decode("utf-8", "replace")
     except OSError:
         return set()
     try:
