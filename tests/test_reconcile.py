@@ -893,6 +893,8 @@ def test_read_markers_skips_junk_without_losing_good_lines():
             '{"skill": 7}',              # not a string
             '{"skill": ""}',             # empty after strip
             '{"action": "did a thing"}', # no skill key
+            "[" * 20000,                 # json.loads raises RecursionError,
+                                          # not ValueError -- must not escape
             '{"skill": "  alpha  "}',    # stripped
         ])
         assert reconcile.read_markers(root) == {"alpha"}

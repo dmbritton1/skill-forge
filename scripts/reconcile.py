@@ -288,8 +288,11 @@ def read_markers(cwd):
     for line in text.splitlines():
         try:
             obj = json.loads(line)
-        except ValueError:
-            continue   # blank lines, prose, and the tail the size cap bisected
+        except Exception:
+            continue   # blank lines, prose, the tail the size cap bisected,
+                       # and pathological input like RecursionError on a
+                       # deeply nested line -- this is untrusted, model-
+                       # written input and must never propagate
         if not isinstance(obj, dict):
             continue
         name = obj.get("skill")
