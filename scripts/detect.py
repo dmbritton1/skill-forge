@@ -242,6 +242,7 @@ def run(data):
         return 0
     parts = ["--- SkillForge anti-skill '%s' (symptom matched in tool output): ---\n%s"
              % (name, body) for name, body, _ in picked]
+    parts.append(retrieve.MARKER_NOTE)
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PostToolUse",
         "additionalContext": "\n\n".join(parts)}}))
