@@ -37,9 +37,9 @@ SNAPSHOT_MAX_PROBES = 12
 # skill: a native skill's body is progressively disclosed, so a protocol
 # living there is in context only once the model has decided to go read the
 # protocol -- which is the behaviour the protocol exists to prompt.
-MARKER_NOTE = ('--- SkillForge: if you apply any skill above, append one line to'
-               ' .claude/skillforge/session-usage.jsonl (create it if absent):'
-               ' {"skill": "<skill-name>"} ---')
+MARKER_NOTE = ('--- SkillForge: when you apply a skill above, append one line'
+               ' PER APPLIED SKILL to .claude/skillforge/session-usage.jsonl'
+               ' (create it if absent): {"skill": "<skill-name>"} ---')
 
 TOKEN_RX = re.compile(r"[a-z0-9]+")
 

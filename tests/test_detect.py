@@ -620,6 +620,7 @@ def test_antiskill_payload_carries_the_marker_note():
         write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
         rc, out = run_capture(tool_data(
             home, "WidgetFlushedError: the widget was already flushed"))
+        assert rc == 0
         ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
         assert "session-usage.jsonl" in ctx, ctx
     in_sandbox(check)
@@ -630,8 +631,10 @@ def test_no_antiskill_match_means_no_marker_note():
         path = put_antiskill(home, "widget-trap")
         write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
         rc, out = run_capture(tool_data(home, "everything is fine"))
+        assert rc == 0
         assert "session-usage.jsonl" not in out, out
     in_sandbox(check)
+
 
 if __name__ == "__main__":
     failures = 0
