@@ -140,10 +140,11 @@ def cmd_show(name):
         print("\nusage: no usage data yet")
         return 0
     print("\nusage: %d session(s), %d injection(s)" % (u["sessions"], u["injections"]))
-    print("  marker + corroboration:            %d" % u["both"])
-    print("  corroboration only (compliance miss): %d" % u["corroborated_only"])
-    print("  marker only (uncorroborated):      %d" % u["marker_only"])
-    print("  injected, no usage signal:         %d" % u["neither"])
+    for label, value in (("marker + corroboration", u["both"]),
+                         ("corroboration only (compliance miss)", u["corroborated_only"]),
+                         ("marker only (uncorroborated)", u["marker_only"]),
+                         ("injected, no usage signal", u["neither"])):
+        print("  %-38s%d" % (label + ":", value))
     return 0
 
 
