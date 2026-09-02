@@ -90,16 +90,39 @@ Roughly 35 tokens, charged only in sessions that inject something, and zero in
 sessions that inject nothing. `detect.py` already imports `retrieve`, so the
 wording exists once.
 
-Delivery rides the injection payload rather than a `skillforge-usage` engine
-skill (§9.1's mechanism) for a specific reason: a native skill under
-`.claude/skills/` is progressively disclosed. Its description sits in standing
-context; its *body* loads only when the model reaches for it. `sync` says so in
-its own budgeting — hot tier is charged `est_tokens(s["description"])`, not the
-body. A protocol living in an engine skill's body is therefore in context only
-when the model has already decided to go read the protocol, which is the
-behaviour the protocol is meant to prompt. The preamble is guaranteed present
-because it is in the same `additionalContext` string as the skill body it
-governs.
+That covers warm skills, which SkillForge injects itself. Hot skills it does
+not: the harness injects those from the native directory and SkillForge never
+observes it. They get the same note by a second route.
+
+**Hot skills — appended to the materialized body.** `sync.materialize_one_text`
+is the single point where a hot skill's text lands in
+`.claude/skills/skillforge-hot/<name>/SKILL.md`; `save_skill.native_dir` uses
+that path only for collision checks and never materializes. Appending
+`MARKER_NOTE` to the text `sync` writes there puts the instruction in the
+skill's own body, naming that skill.
+
+This is deliberately not §9.1's `skillforge-usage` engine skill, and the reason
+is the same fact that would have broken the engine skill. A native skill under
+`.claude/skills/` is progressively disclosed: its description sits in standing
+context, its *body* loads only when the model reaches for it. `sync` says as
+much in its own budgeting — hot tier is charged
+`est_tokens(s["description"])`, not the body. A protocol living in a *separate*
+engine skill's body is therefore in context only once the model has already
+decided to go read that protocol, which is the behaviour the protocol exists to
+prompt. Appending to each hot skill's own body inverts that: the body loads
+exactly when the model intends to apply the skill, which is the moment the
+instruction is needed.
+
+The two routes cost differently and both are cheap. The preamble is charged
+per injecting session and zero otherwise; the appended note is charged only
+when a hot skill's body is actually opened, and nothing in standing context,
+because hot budget is charged on the description.
+
+Neither route disturbs the trust registry. `hashes` and `trust.check_text` both
+run on `s["text"]`, the source store file; the materialized copy is never
+re-hashed or re-checked, and nothing else reads it.
+`materialize_one_text`'s idempotence survives because it compares the target
+against the text it is handed, which now includes the note.
 
 **Fields dropped from §9.1's `{skill, action, ts}`.** The ledger timestamps its
 own row, so `ts` is redundant. `events` has no free-text column to hold
@@ -179,13 +202,15 @@ library-wide view rather than a per-skill one.
 - `scripts/retrieve.py` — `MARKER_NOTE`; append it to the injected payload in
   `run_hook`.
 - `scripts/detect.py` — append `retrieve.MARKER_NOTE` to the anti-skill payload.
+- `scripts/sync.py` — append `retrieve.MARKER_NOTE` to the text passed to
+  `materialize_one_text`.
 - `scripts/reconcile.py` — `marker_path`, `read_markers`; marker ingestion and
   crediting at the top of `_reconcile_c2`; relax its early return.
 - `scripts/ledger.py` — `usage_for`; the partial unique index on
   `(session, skill)` for `detection = 'marker'`.
 - `scripts/library.py` — print usage counts and the two rates in `cmd_show`.
 - `tests/test_reconcile.py`, `tests/test_ledger.py`, `tests/test_retrieve.py`,
-  `tests/test_detect.py` — per the Testing section.
+  `tests/test_detect.py`, `tests/test_sync.py` — per the Testing section.
 
 No schema version bump: `events` already has every column this needs, and the
 new index is added to the loop that runs against existing databases.
@@ -208,20 +233,23 @@ the same session yields no duplicate.
 **Truth table** — a session with a fingerprint and no marker and a session with
 both produce different `usage_for` counts.
 
+**Delivery** — the injected payload carries `MARKER_NOTE` exactly once when
+several skills are injected together; a materialized hot skill's `SKILL.md`
+carries it; materializing the same skill twice does not append it twice.
+
 **Mutation** — removing the injection gate must fail the never-injected test;
 removing the hot clause must fail the hot test; removing the unlink must fail a
 test that a marker consumed in one session does not credit the next.
 
 ## What this does not build
 
-**The `skillforge-usage` engine skill.** §9.1's delivery mechanism is deferred,
-not rejected. The preamble covers every skill SkillForge injects itself, which
-today is all of them: nothing has reached `working` or `trusted`, no
-`skillforge-hot` directory exists, and the hot tier is empty. The gap is real —
-a hot skill applied in a session where nothing warm was injected sees no
-preamble and produces no marker — and the trigger to close it is concrete:
-**the first skill to reach hot tier.** The crediting rule already carries the
-hot exemption, so only delivery is missing.
+**The `skillforge-usage` engine skill.** §9.1's delivery mechanism is not
+deferred but replaced. Its job was to reach hot skills, and appending
+`MARKER_NOTE` to the materialized body does that at the moment of use, without
+a permanent standing-context charge, and without a second artifact to keep in
+sync with the protocol wording. Nothing in this design wants a separate engine
+skill; if a future signal needs standing context of its own, that is the
+argument to revisit, not this one.
 
 **The drift reminder.** §9.1 fires a compliance reminder on detected drift
 (injections N turns old with zero scratch writes). It is a corrective for a
@@ -254,6 +282,19 @@ relative path; the reconciler resolves it against the hook payload's `cwd`. A
 model writing from a subdirectory writes a file the reconciler will not find.
 Markers are lost, never misattributed, so the failure is silent undercounting
 in the direction of no evidence rather than wrong evidence.
+
+**A hot skill applied from its description alone produces no marker.** The
+appended note lives in the body, so it arrives only when the body is opened.
+This is a thin slice of "used" — a model acting on a one-line description has
+not really applied the procedure — but it is not empty, and it is the residue
+of choosing the body over standing context.
+
+**Hot skills still have no fingerprint detection.** `needs_fingerprint` returns
+False when `injected_ts is None`, and a hot skill never has an injection event,
+so the Stop-time diff grep skips it. The marker becomes its *second* signal
+alongside Bash command matching, not its second-and-third. Closing this needs
+the injection-event problem solved, which is the same ceiling the outcome
+attribution design records.
 
 **A read-then-unlink race exists** between the reconciler reading the file and
 the model appending to it. Stop fires between turns, when the model is not
