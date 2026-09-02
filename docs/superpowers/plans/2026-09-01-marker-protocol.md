@@ -1131,7 +1131,7 @@ def test_show_still_works_when_only_a_marker_exists():
         ledger.log_event("detection", "alpha", session="s1", detection="marker")
         rc, out = capture(["show", "alpha"])
         assert rc == 0, rc
-        assert "uncorroborated" in out.lower(), out
+        assert "no independent signal" in out.lower(), out
     in_sandbox(check)
 ```
 
@@ -1159,7 +1159,7 @@ In `scripts/library.py`, add just before `return 0` at the end of `cmd_show`:
     # per line leaves the numbers ragged the moment a label outgrows it.
     for label, value in (("marker + corroboration", u["both"]),
                          ("corroboration only (compliance miss)", u["corroborated_only"]),
-                         ("marker only (uncorroborated)", u["marker_only"]),
+                         ("marker only (no independent signal)", u["marker_only"]),
                          ("injected, no usage signal", u["neither"])):
         print("  %-38s%d" % (label + ":", value))
     return 0
