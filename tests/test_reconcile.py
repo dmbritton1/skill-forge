@@ -939,6 +939,144 @@ def test_read_markers_survives_binary_content():
         assert reconcile.read_markers(root) == {"alpha"}
 
 
+def marker_rows():
+    return [r for r in events("detection") if r[1] == "marker"]
+
+
+def stop_in(root, session="s1", final=False):
+    reconcile.run({"session_id": session, "cwd": str(root),
+                   "hook_event_name": "SessionEnd" if final else "Stop"})
+
+
+def test_marker_credits_a_warm_skill_injected_this_session():
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert [r[0] for r in marker_rows()] == ["alpha"], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_for_a_skill_never_injected_is_dropped():
+    """The gate that stops a claim crediting a skill the model never saw."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_credits_a_hot_skill_with_no_injection_event():
+    """The harness injects hot skills and we never see it; without this
+    exemption the marker is useless for the one tier that has no other signal."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "hot",
+                            "fingerprints": []}])
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert [r[0] for r in marker_rows()] == ["alpha"], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_for_an_out_of_scope_project_skill_is_dropped():
+    def check(home):
+        other = home / "other-project"
+        other.mkdir()
+        here = home / "here"
+        here.mkdir()
+        write_index(home, [{"name": "alpha", "root": str(other), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(here, ['{"skill": "alpha"}'])
+        stop_in(here)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_for_an_unknown_name_is_dropped():
+    def check(home):
+        write_index(home, [])
+        write_markers(home, ['{"skill": "ghost"}'])
+        stop_in(home)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
+def test_second_stop_does_not_duplicate_a_marker_row():
+    """Stop fires every turn; the row must be written exactly once."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert len(marker_rows()) == 1, marker_rows()
+    in_sandbox(check)
+
+
+def test_a_marker_does_not_carry_an_outcome():
+    """A null outcome is what keeps a performative marker from promoting a skill."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert marker_rows()[0][3] is None, marker_rows()
+    in_sandbox(check)
+
+
+def test_a_marker_only_session_still_reconciles():
+    """A hot skill's marker arrives in a session with no other ledger rows,
+    so ingestion cannot sit behind the `no events` early return."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "hot",
+                            "fingerprints": []}])
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home, session="fresh")
+        assert [r[0] for r in marker_rows()] == ["alpha"], marker_rows()
+    in_sandbox(check)
+
+
+def test_a_consumed_marker_does_not_credit_the_next_session():
+    """The spec's reason for consuming the file, asserted end to end: the
+    model writes no session id, so a surviving line would credit whichever
+    session next injects that skill."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home, session="s1")
+        ledger.log_event("injection", "alpha", session="s2", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        stop_in(home, session="s2")          # no new marker file written
+        assert len(marker_rows()) == 1, marker_rows()
+    in_sandbox(check)
+
+
+def test_a_stop_with_no_marker_file_writes_no_marker_row():
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        stop_in(home)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

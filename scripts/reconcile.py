@@ -298,6 +298,31 @@ def read_markers(cwd):
     return out
 
 
+def _credit_markers(session, cwd, state, entries, markers):
+    """One detection='marker' row per claimed skill that is entitled to it.
+
+    This is detect.credited()'s rule restated, deliberately: a marker is a
+    claim of use, a claim is a proxy, and an ungated proxy credits a skill
+    whose text never reached the model. Hot is exempt for the same reason it
+    is there -- the harness injects hot skills from the native directory and
+    we never observe it, so demanding an injection event would make the
+    marker useless for the one tier with no other signal.
+
+    The row carries no outcome. That is what bounds a performative marker:
+    skill_confidence derives buckets from outcome counts, so a marker can
+    move `uses` and `last_used` and can never promote anything.
+    """
+    for name in sorted(markers):
+        entry = entries.get(name)
+        if not entry or not retrieve.in_scope(entry.get("root", ""), cwd):
+            continue
+        s = state.get(name)
+        if s and "marker" in s["detections"]:
+            continue        # Stop fires every turn; one row per session
+        if entry.get("tier") == "hot" or (s and s["injected_ts"] is not None):
+            _log("detection", name, detection="marker", session=session)
+
+
 def _reconcile_c2(session, cwd, rows, now, final):
     """Slice C2's work, lifted out of run() verbatim.
 
@@ -307,9 +332,14 @@ def _reconcile_c2(session, cwd, rows, now, final):
     that produce first drafts.
     """
     state = session_state(rows)
-    if not state:
+    # Read above the `no events` guard: a hot skill's marker arrives in a
+    # session with no injection row of its own, so gating ingestion on other
+    # events existing would drop exactly the tier the marker exists to reach.
+    markers = read_markers(cwd)
+    if not state and not markers:
         return
     entries = load_entries()
+    _credit_markers(session, cwd, state, entries, markers)
     pending = [(name, s, entries[name]) for name, s in sorted(state.items())
                if name in entries]
 
