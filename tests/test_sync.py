@@ -107,7 +107,8 @@ def test_trusted_skill_materialized():
         earn_success("alpha")   # hot-eligible: this test measures materialization, not the gate
         counts = sync.sync()
         assert counts["materialized"] == 1 and counts["quarantined"] == 0
-        assert native_md(home, "alpha").read_text(encoding="utf-8") == SKILL % "alpha"
+        assert native_md(home, "alpha").read_text(
+            encoding="utf-8").startswith(SKILL % "alpha")
     in_sandbox(check)
 
 
@@ -994,6 +995,65 @@ def test_spawn_inherits_the_drafting_flag_when_already_set():
             del os.environ["SKILLFORGE_DRAFTING"]
         else:
             os.environ["SKILLFORGE_DRAFTING"] = old
+
+
+def make_hot(home, name):
+    """Trusted plus one success = `working` = hot-eligible. Returns the store file."""
+    md = put_skill(home, name)
+    trust.record(name, md.read_text(encoding="utf-8"), "self")
+    earn_success(name)
+    return md
+
+
+def test_materialized_hot_body_carries_the_marker_note():
+    """The harness injects hot skills; this body is the only text we control.
+
+    The note must name THIS skill, not carry the literal placeholder --
+    a model that dutifully copies "<skill-name>" writes a line
+    _credit_markers correctly drops, which silently undercounts the one
+    tier that has no fingerprint detection at all.
+    """
+    def check(home):
+        make_hot(home, "alpha")
+        sync.sync()
+        body = native_md(home, "alpha").read_text(encoding="utf-8")
+        assert "session-usage.jsonl" in body, body
+        assert '{"skill": "alpha"}' in body, body
+        assert "<skill-name>" not in body, body
+        assert body.startswith(SKILL % "alpha"), "the skill's own text was lost"
+    in_sandbox(check)
+
+
+def test_rematerializing_does_not_append_the_note_twice():
+    """materialize_one_text compares the target against the text it is handed."""
+    def check(home):
+        make_hot(home, "alpha")
+        sync.sync()
+        sync.sync()
+        body = native_md(home, "alpha").read_text(encoding="utf-8")
+        assert body.count("session-usage.jsonl") == 1, body
+    in_sandbox(check)
+
+
+def test_the_note_does_not_reach_the_source_store_file():
+    """Trust hashes the store file; appending there would quarantine the skill."""
+    def check(home):
+        md = make_hot(home, "alpha")
+        sync.sync()
+        assert "session-usage.jsonl" not in md.read_text(encoding="utf-8")
+    in_sandbox(check)
+
+
+def test_a_hot_skill_stays_trusted_after_materialization():
+    """If the derived copy were re-hashed, sync would quarantine every hot
+    skill on the run after it materialized one."""
+    def check(home):
+        make_hot(home, "alpha")
+        sync.sync()
+        counts = sync.sync()
+        assert counts["quarantined"] == 0, counts
+        assert counts["materialized"] == 1, counts
+    in_sandbox(check)
 
 
 if __name__ == "__main__":

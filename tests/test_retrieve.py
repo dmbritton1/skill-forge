@@ -519,6 +519,42 @@ def test_working_skill_reaches_context_unhedged():
     in_sandbox(check)
 
 
+def test_injection_payload_carries_the_marker_note():
+    def check(home):
+        write_index(home, [entry(home, "stripe-webhook",
+                                 "stripe webhook signature verification")])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert rc == 0
+        ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        assert "session-usage.jsonl" in ctx, ctx
+    in_sandbox(check)
+
+
+def test_marker_note_appears_once_for_several_skills():
+    """One instruction per payload; three copies is three times the tokens."""
+    def check(home):
+        write_index(home, [
+            entry(home, "stripe-webhook", "stripe webhook signature verification"),
+            entry(home, "stripe-refund", "stripe webhook refund reconciliation")])
+        rc, out = run_hook_capture(hook_data(home, "add a stripe webhook endpoint"))
+        assert rc == 0
+        assert len(injected_names(out)) == 2, injected_names(out)
+        ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
+        assert ctx.count("session-usage.jsonl") == 1, ctx
+    in_sandbox(check)
+
+
+def test_no_injection_means_no_marker_note():
+    """The note is charged to sessions that inject, and to no others."""
+    def check(home):
+        write_index(home, [entry(home, "stripe-webhook",
+                                 "stripe webhook signature verification")])
+        rc, out = run_hook_capture(hook_data(home, "quantum chromodynamics lecture"))
+        assert rc == 0
+        assert "session-usage.jsonl" not in out, out
+    in_sandbox(check)
+
+
 def test_a_corrupt_index_is_reported_and_a_missing_one_is_not():
     """Same distinction as detect.load_triggers, on the other compiled index.
 

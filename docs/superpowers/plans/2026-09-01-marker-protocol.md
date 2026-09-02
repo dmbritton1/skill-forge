@@ -117,12 +117,23 @@ def test_usage_for_ignores_other_skills():
 
 
 def test_usage_for_returns_zeros_on_a_broken_db():
-    """Read helpers never raise into a caller; a bad path reads as no data."""
+    """Read helpers never raise into a caller; a bad path reads as no data.
+
+    Corrupt bytes, NOT a missing parent directory: `connect()` runs
+    `p.parent.mkdir(parents=True, exist_ok=True)`, so a nonexistent path
+    yields a fresh empty database and never enters the `except` branch --
+    a test written that way passes identically with the try/except deleted.
+    The stderr assertion is what proves the handler actually ran.
+    """
     with tempfile.TemporaryDirectory() as tmp:
-        bad = pathlib.Path(tmp) / "nope" / "ledger.db"
-        u = ledger.usage_for("alpha", path=bad)
+        bad = pathlib.Path(tmp) / "l.db"
+        bad.write_text("not a database", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            u = ledger.usage_for("alpha", path=bad)
         assert u["sessions"] == 0, u
         assert u["both"] == 0, u
+        assert "skillforge:" in err.getvalue(), err.getvalue()
 
 
 def test_one_marker_row_per_skill_per_session():
@@ -396,7 +407,11 @@ def read_markers(cwd):
     """
     p = marker_path(cwd)
     try:
-        text = p.read_text(encoding="utf-8", errors="replace")[:MAX_MARKER_BYTES]
+        # Binary and bounded: read_text(...)[:CAP] decodes the whole file
+        # first and only then slices, which is precisely the large read the
+        # cap exists to prevent.
+        with open(str(p), "rb") as fh:
+            text = fh.read(MAX_MARKER_BYTES).decode("utf-8", "replace")
     except OSError:
         return set()
     try:
@@ -780,8 +795,9 @@ def test_antiskill_payload_carries_the_marker_note():
     def check(home):
         path = put_antiskill(home, "widget-trap")
         write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
-        out = run_capture(tool_data(
+        rc, out = run_capture(tool_data(
             home, "WidgetFlushedError: the widget was already flushed"))
+        assert rc == 0
         ctx = json.loads(out)["hookSpecificOutput"]["additionalContext"]
         assert "session-usage.jsonl" in ctx, ctx
     in_sandbox(check)
@@ -791,7 +807,8 @@ def test_no_antiskill_match_means_no_marker_note():
     def check(home):
         path = put_antiskill(home, "widget-trap")
         write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
-        out = run_capture(tool_data(home, "everything is fine"))
+        rc, out = run_capture(tool_data(home, "everything is fine"))
+        assert rc == 0
         assert "session-usage.jsonl" not in out, out
     in_sandbox(check)
 ```
@@ -813,9 +830,9 @@ Add beside the other module constants in `scripts/retrieve.py`:
 # skill: a native skill's body is progressively disclosed, so a protocol
 # living there is in context only once the model has decided to go read the
 # protocol -- which is the behaviour the protocol exists to prompt.
-MARKER_NOTE = ('--- SkillForge: if you apply any skill above, append one line to'
-               ' .claude/skillforge/session-usage.jsonl (create it if absent):'
-               ' {"skill": "<skill-name>"} ---')
+MARKER_NOTE = ('--- SkillForge: when you apply a skill above, append one line'
+               ' PER APPLIED SKILL to .claude/skillforge/session-usage.jsonl'
+               ' (create it if absent): {"skill": "<skill-name>"} ---')
 ```
 
 In `run_hook`, after `parts` is built and before the `print(json.dumps(...))`:
@@ -1114,7 +1131,7 @@ def test_show_still_works_when_only_a_marker_exists():
         ledger.log_event("detection", "alpha", session="s1", detection="marker")
         rc, out = capture(["show", "alpha"])
         assert rc == 0, rc
-        assert "uncorroborated" in out.lower(), out
+        assert "no independent signal" in out.lower(), out
     in_sandbox(check)
 ```
 
@@ -1138,10 +1155,13 @@ In `scripts/library.py`, add just before `return 0` at the end of `cmd_show`:
         print("\nusage: no usage data yet")
         return 0
     print("\nusage: %d session(s), %d injection(s)" % (u["sessions"], u["injections"]))
-    print("  marker + corroboration:            %d" % u["both"])
-    print("  corroboration only (compliance miss): %d" % u["corroborated_only"])
-    print("  marker only (uncorroborated):      %d" % u["marker_only"])
-    print("  injected, no usage signal:         %d" % u["neither"])
+    # One padding for every label, sized to the longest -- a hardcoded width
+    # per line leaves the numbers ragged the moment a label outgrows it.
+    for label, value in (("marker + corroboration", u["both"]),
+                         ("corroboration only (compliance miss)", u["corroborated_only"]),
+                         ("marker only (no independent signal)", u["marker_only"]),
+                         ("injected, no usage signal", u["neither"])):
+        print("  %-38s%d" % (label + ":", value))
     return 0
 ```
 

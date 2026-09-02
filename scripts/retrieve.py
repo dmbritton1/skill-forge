@@ -33,6 +33,14 @@ SNAPSHOT_MAX_FILES = 20
 SNAPSHOT_MAX_BYTES = 200 * 1024
 SNAPSHOT_MAX_PROBES = 12
 
+# Delivered with the skills it governs rather than from a standing engine
+# skill: a native skill's body is progressively disclosed, so a protocol
+# living there is in context only once the model has decided to go read the
+# protocol -- which is the behaviour the protocol exists to prompt.
+MARKER_NOTE = ('--- SkillForge: when you apply a skill above, append one line'
+               ' PER APPLIED SKILL to .claude/skillforge/session-usage.jsonl'
+               ' (create it if absent): {"skill": "<skill-name>"} ---')
+
 TOKEN_RX = re.compile(r"[a-z0-9]+")
 
 
@@ -300,6 +308,7 @@ def run_hook(data):
         return 0
     parts = ["%s\n%s" % (preamble(name, bucket), body)
              for name, body, _, bucket in picked]
+    parts.append(MARKER_NOTE)
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit",
         "additionalContext": "\n\n".join(parts)}}))

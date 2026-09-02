@@ -44,6 +44,12 @@ RECONCILE_WINDOW_S = 900
 GIT_TIMEOUT_S = 1.0
 MAX_DIFF_BYTES = 512 * 1024
 
+# The marker scratch file is model-written and reaches no model: a script
+# reads it and turns it into rows. Both caps are anti-wedge, not security --
+# a runaway loop appending markers must not turn every Stop into a large read.
+MAX_MARKER_BYTES = 64 * 1024
+MAX_MARKER_NAME = 128
+
 # Two failures on one command, then a success. One failure then a success is
 # not a struggle -- that is the case where the model already knew the answer,
 # and a skill restating it would fail the novelty gate anyway.
@@ -251,6 +257,75 @@ def changed_tokens(cwd):
     return patterns.tokenize("\n".join(parts))
 
 
+def marker_path(cwd):
+    return Path(cwd) / ".claude" / "skillforge" / "session-usage.jsonl"
+
+
+def read_markers(cwd):
+    """Skill names the model claimed to apply; the file is consumed on read.
+
+    Consumed, not accumulated: the model has no session id to write, so the
+    file is not session-scoped, and a line surviving from an earlier session
+    would credit this one the next time that skill is injected. The unlink
+    therefore happens even when nothing parses -- a file of junk that stays
+    on disk is a file re-read at every Stop forever.
+
+    Untrusted input. Bad lines are skipped rather than raising, and a name
+    is only a candidate here: `_credit_markers` still checks it against the
+    index, the scope, and the injection gate before it becomes a row.
+    """
+    p = marker_path(cwd)
+    try:
+        with open(str(p), "rb") as fh:
+            text = fh.read(MAX_MARKER_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return set()
+    try:
+        p.unlink()
+    except OSError:
+        pass          # read succeeded; a stale file is better than losing the names
+    out = set()
+    for line in text.splitlines():
+        try:
+            obj = json.loads(line)
+        except Exception:
+            continue   # blank lines, prose, the tail the size cap bisected,
+                       # and pathological input like RecursionError on a
+                       # deeply nested line -- this is untrusted, model-
+                       # written input and must never propagate
+        if not isinstance(obj, dict):
+            continue
+        name = obj.get("skill")
+        if isinstance(name, str) and name.strip():
+            out.add(name.strip()[:MAX_MARKER_NAME])
+    return out
+
+
+def _credit_markers(session, cwd, state, entries, markers):
+    """One detection='marker' row per claimed skill that is entitled to it.
+
+    This is detect.credited()'s rule restated, deliberately: a marker is a
+    claim of use, a claim is a proxy, and an ungated proxy credits a skill
+    whose text never reached the model. Hot is exempt for the same reason it
+    is there -- the harness injects hot skills from the native directory and
+    we never observe it, so demanding an injection event would make the
+    marker useless for the one tier with no other signal.
+
+    The row carries no outcome. That is what bounds a performative marker:
+    skill_confidence derives buckets from outcome counts, so a marker can
+    move `uses` and `last_used` and can never promote anything.
+    """
+    for name in sorted(markers):
+        entry = entries.get(name)
+        if not entry or not retrieve.in_scope(entry.get("root", ""), cwd):
+            continue
+        s = state.get(name)
+        if s and "marker" in s["detections"]:
+            continue        # Stop fires every turn; one row per session
+        if entry.get("tier") == "hot" or (s and s["injected_ts"] is not None):
+            _log("detection", name, detection="marker", session=session)
+
+
 def _reconcile_c2(session, cwd, rows, now, final):
     """Slice C2's work, lifted out of run() verbatim.
 
@@ -260,9 +335,14 @@ def _reconcile_c2(session, cwd, rows, now, final):
     that produce first drafts.
     """
     state = session_state(rows)
-    if not state:
+    # Read above the `no events` guard: a hot skill's marker arrives in a
+    # session with no injection row of its own, so gating ingestion on other
+    # events existing would drop exactly the tier the marker exists to reach.
+    markers = read_markers(cwd)
+    if not state and not markers:
         return
     entries = load_entries()
+    _credit_markers(session, cwd, state, entries, markers)
     pending = [(name, s, entries[name]) for name, s in sorted(state.items())
                if name in entries]
 

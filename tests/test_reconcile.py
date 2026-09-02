@@ -859,6 +859,259 @@ def test_session_end_keeps_the_draft_row():
     in_sandbox(check)
 
 
+def write_markers(root, lines):
+    p = reconcile.marker_path(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return p
+
+
+def test_read_markers_collects_skill_names():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        write_markers(root, ['{"skill": "alpha"}', '{"skill": "beta"}'])
+        assert reconcile.read_markers(root) == {"alpha", "beta"}
+
+
+def test_read_markers_consumes_the_file():
+    """Not tidiness: a surviving line would credit the next session."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        p = write_markers(root, ['{"skill": "alpha"}'])
+        assert reconcile.read_markers(root) == {"alpha"}
+        assert not p.exists()
+        assert reconcile.read_markers(root) == set()
+
+
+def test_read_markers_skips_junk_without_losing_good_lines():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        write_markers(root, [
+            "",
+            "not json at all",
+            '["alpha"]',                 # valid JSON, not an object
+            '{"skill": 7}',              # not a string
+            '{"skill": ""}',             # empty after strip
+            '{"action": "did a thing"}', # no skill key
+            "[" * 20000,                 # json.loads raises RecursionError,
+                                          # not ValueError -- must not escape
+            '{"skill": "  alpha  "}',    # stripped
+        ])
+        assert reconcile.read_markers(root) == {"alpha"}
+
+
+def test_read_markers_still_consumes_a_file_of_pure_junk():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        p = write_markers(root, ["garbage", "more garbage"])
+        assert reconcile.read_markers(root) == set()
+        assert not p.exists()
+
+
+def test_read_markers_caps_the_read_and_the_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        long_name = "n" * 400
+        write_markers(root, ['{"skill": "%s"}' % long_name])
+        got = reconcile.read_markers(root)
+        assert got == {"n" * reconcile.MAX_MARKER_NAME}, got
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        filler = ['{"skill": "pad%d"}' % i
+                  for i in range(reconcile.MAX_MARKER_BYTES // 20 + 200)]
+        write_markers(root, filler + ['{"skill": "last"}'])
+        got = reconcile.read_markers(root)
+        assert "last" not in got, "read past the size cap"
+        assert got, "cap discarded everything"
+
+
+def test_read_markers_on_a_missing_file_is_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert reconcile.read_markers(pathlib.Path(tmp)) == set()
+
+
+def test_read_markers_survives_binary_content():
+    """errors='replace', not a crash: the file is model-written, not trusted."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        p = reconcile.marker_path(root)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(b'\xff\xfe\x00\x00\n{"skill": "alpha"}\n')
+        assert reconcile.read_markers(root) == {"alpha"}
+
+
+def marker_rows():
+    return [r for r in events("detection") if r[1] == "marker"]
+
+
+def stop_in(root, session="s1", final=False):
+    reconcile.run({"session_id": session, "cwd": str(root),
+                   "hook_event_name": "SessionEnd" if final else "Stop"})
+
+
+def test_marker_credits_a_warm_skill_injected_this_session():
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert [r[0] for r in marker_rows()] == ["alpha"], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_for_a_skill_never_injected_is_dropped():
+    """The gate that stops a claim crediting a skill the model never saw."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_credits_a_hot_skill_with_no_injection_event():
+    """The harness injects hot skills and we never see it; without this
+    exemption the marker is useless for the one tier that has no other signal."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "hot",
+                            "fingerprints": []}])
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert [r[0] for r in marker_rows()] == ["alpha"], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_for_an_out_of_scope_project_skill_is_dropped():
+    def check(home):
+        other = home / "other-project"
+        other.mkdir()
+        here = home / "here"
+        here.mkdir()
+        write_index(home, [{"name": "alpha", "root": str(other), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(here, ['{"skill": "alpha"}'])
+        stop_in(here)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
+def test_marker_for_an_unknown_name_is_dropped():
+    def check(home):
+        write_index(home, [])
+        write_markers(home, ['{"skill": "ghost"}'])
+        stop_in(home)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
+def test_second_stop_does_not_duplicate_a_marker_row():
+    """Stop fires every turn; the row must be written exactly once."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert len(marker_rows()) == 1, marker_rows()
+    in_sandbox(check)
+
+
+def test_a_marker_does_not_carry_an_outcome():
+    """A null outcome is what keeps a performative marker from promoting a skill."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home)
+        assert marker_rows()[0][3] is None, marker_rows()
+    in_sandbox(check)
+
+
+def test_a_marker_only_session_still_reconciles():
+    """A hot skill's marker arrives in a session with no other ledger rows,
+    so ingestion cannot sit behind the `no events` early return."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "hot",
+                            "fingerprints": []}])
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home, session="fresh")
+        assert [r[0] for r in marker_rows()] == ["alpha"], marker_rows()
+    in_sandbox(check)
+
+
+def test_a_consumed_marker_does_not_credit_the_next_session():
+    """The spec's reason for consuming the file, asserted end to end: the
+    model writes no session id, so a surviving line would credit whichever
+    session next injects that skill."""
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(home, ['{"skill": "alpha"}'])
+        stop_in(home, session="s1")
+        ledger.log_event("injection", "alpha", session="s2", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        stop_in(home, session="s2")          # no new marker file written
+        assert len(marker_rows()) == 1, marker_rows()
+    in_sandbox(check)
+
+
+def test_a_stop_with_no_marker_file_writes_no_marker_row():
+    def check(home):
+        write_index(home, [{"name": "alpha", "root": str(home), "tier": "warm",
+                            "fingerprints": []}])
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        stop_in(home)
+        assert marker_rows() == [], marker_rows()
+    in_sandbox(check)
+
+
+def test_a_marker_and_a_fingerprint_both_land_for_one_session():
+    """The `both` cell of the truth table, produced through the real
+    pipeline rather than by logging rows directly (as test_ledger.py does).
+
+    Also pins that a marker does not resolve needs_fingerprint: crediting
+    the marker must not suppress the independent fingerprint credit --
+    if it did, this cell would silently and permanently empty.
+
+    Two Stop calls, deliberately: within a single call, session_state is
+    built from rows fetched BEFORE that call's own _credit_markers writes
+    the marker row, so a marker credited this turn can never appear in
+    this turn's own `detections` set -- a one-call test cannot observe
+    needs_fingerprint reacting to it at all. The second call re-reads the
+    ledger fresh and so sees the first call's marker in `state`, which is
+    exactly the scenario needs_fingerprint's exclusion set governs.
+    """
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [{"name": "fixer", "root": str(home), "tier": "warm",
+                            "fingerprints": [["json", "dumps", "sort_keys"]]}])
+        ledger.log_event("injection", "fixer", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(repo, ['{"skill": "fixer"}'])
+        stop_in(repo, session="s1")             # credits the marker
+        (repo / "seed.py").write_text(
+            "seed = 1\nout = json.dumps(payload, sort_keys=True)\n", encoding="utf-8")
+        stop_in(repo, session="s1")             # should independently credit the fingerprint
+        detections = events("detection")
+        assert ("fixer", "marker", None, None) in detections, detections
+        assert ("fixer", "fingerprint", None, None) in detections, detections
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

@@ -664,6 +664,123 @@ def test_findings_are_empty_when_the_ledger_cannot_be_read():
             assert ledger.findings_for("s", "h1", path=bad) == {}
         assert "skillforge:" in err.getvalue(), err.getvalue()
 
+
+def test_usage_for_partitions_sessions_into_truth_table_cells():
+    """The cell is derived from which rows exist, never stored."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        # s1: marker and fingerprint agree
+        ledger.log_event("injection", "alpha", session="s1", path=db)
+        ledger.log_event("detection", "alpha", session="s1", detection="marker", path=db)
+        ledger.log_event("detection", "alpha", session="s1", detection="fingerprint", path=db)
+        # s2: fingerprint with no marker -- a compliance miss
+        ledger.log_event("injection", "alpha", session="s2", path=db)
+        ledger.log_event("detection", "alpha", session="s2", detection="fingerprint", path=db)
+        # s3: marker with nothing corroborating it
+        ledger.log_event("injection", "alpha", session="s3", path=db)
+        ledger.log_event("detection", "alpha", session="s3", detection="marker", path=db)
+        # s4: injected and never used
+        ledger.log_event("injection", "alpha", session="s4", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 4, u
+        assert u["injections"] == 4, u
+        assert u["both"] == 1, u
+        assert u["corroborated_only"] == 1, u
+        assert u["marker_only"] == 1, u
+        assert u["neither"] == 1, u
+        assert u["both"] + u["corroborated_only"] + u["marker_only"] + u["neither"] \
+            == u["sessions"], u
+
+
+def test_usage_for_counts_verification_as_corroboration():
+    """Verification is a stronger corroborator than fingerprint, not a weaker one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("injection", "alpha", session="s1", path=db)
+        ledger.log_event("detection", "alpha", session="s1", detection="marker", path=db)
+        ledger.log_event("detection", "alpha", session="s1", detection="verification",
+                         outcome="success", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["both"] == 1, u
+        assert u["marker_only"] == 0, u
+
+
+def test_usage_for_counts_a_hot_marker_with_no_injection():
+    """Hot skills have no injection event; their markers still land in a cell."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "alpha", session="s1", detection="marker", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 1, u
+        assert u["injections"] == 0, u
+        assert u["marker_only"] == 1, u
+
+
+def test_usage_for_ignores_other_skills():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "beta", session="s1", detection="marker", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 0, u
+
+
+def test_usage_for_returns_zeros_on_a_broken_db():
+    """Read helpers never raise into a caller; a bad path reads as no data."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = pathlib.Path(tmp) / "l.db"
+        bad.write_text("not a database", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            u = ledger.usage_for("alpha", path=bad)
+        assert u["sessions"] == 0, u
+        assert u["both"] == 0, u
+        assert "skillforge:" in err.getvalue(), err.getvalue()
+
+
+def test_one_marker_row_per_skill_per_session():
+    """The index is the backstop for reconcile's own dedupe check."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "alpha", session="s1", detection="marker", path=db)
+        try:
+            ledger.log_event("detection", "alpha", session="s1", detection="marker",
+                             path=db)
+        except sqlite3.IntegrityError:
+            pass
+        else:
+            raise AssertionError("second marker row for the same session was accepted")
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 1, u
+
+
+def test_marker_index_does_not_block_a_different_session():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "alpha", session="s1", detection="marker", path=db)
+        ledger.log_event("detection", "alpha", session="s2", detection="marker", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 2, u
+
+
+def test_usage_for_ignores_sessionless_lifecycle_rows():
+    """save/review/delete are logged with session=None; they are not sessions."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("save", "alpha", outcome="saved", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 0, u
+        assert u["neither"] == 0, u
+
+
+def test_usage_for_ignores_symptom_only_sessions():
+    """A symptom detection with nothing injected is not a session that used it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "alpha", session="s1", detection="symptom", path=db)
+        u = ledger.usage_for("alpha", path=db)
+        assert u["sessions"] == 0, u
+        assert u["neither"] == 0, u
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
 import patterns
+import retrieve
 import trust
 import validate
 
@@ -346,7 +347,21 @@ def sync(project_root=None):
 
     for s in trusted:
         if s["tier"] == "hot":
-            materialize_one_text(s["text"], native_root(s["base"]) / s["name"])
+            # The harness injects hot skills from the native directory and we
+            # never see it, so the retrieval preamble cannot reach them. The
+            # body is the one text we control, and it loads exactly when the
+            # model intends to apply the skill. Appended to the derived copy
+            # only -- the store file is what trust hashes.
+            #
+            # MARKER_NOTE's wording ("a skill above") assumes the warm-tier
+            # preamble, where several candidates are listed above the note.
+            # A materialized hot body IS the skill, standalone, with nothing
+            # "above" it -- so both substitutions happen here, on a copy, and
+            # the shared constant that the warm path still uses is untouched.
+            hot_note = (retrieve.MARKER_NOTE.replace("a skill above", "this skill")
+                                            .replace("<skill-name>", s["name"]))
+            materialize_one_text(s["text"] + "\n\n" + hot_note + "\n",
+                                 native_root(s["base"]) / s["name"])
             counts["materialized"] += 1
 
     for base in bases:

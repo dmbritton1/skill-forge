@@ -133,6 +133,18 @@ def cmd_show(name):
             # Deliberately not silent: a missing verdict and a passing one
             # are opposite facts, and blank space reads as the second.
             print("\n%s: no %s verdict for the current text" % (mode, mode))
+    u = ledger.usage_for(name)
+    if not u["sessions"]:
+        # Same standard as the missing-verdict branch above: silence reads
+        # as a measured zero, and "never measured" is the opposite fact.
+        print("\nusage: no usage data yet")
+        return 0
+    print("\nusage: %d session(s), injected in %d of them" % (u["sessions"], u["injections"]))
+    for label, value in (("marker + corroboration", u["both"]),
+                         ("corroboration only (compliance miss)", u["corroborated_only"]),
+                         ("marker only (no independent signal)", u["marker_only"]),
+                         ("injected, no usage signal", u["neither"])):
+        print("  %-38s%d" % (label + ":", value))
     return 0
 
 

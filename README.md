@@ -91,6 +91,19 @@ warm and are injected with hedged wording. Real-session verification is one
 half of what `trusted` requires — see "Tier A validation" below for the
 other half, the parent spec's independent-validation conjunct.
 
+The marker protocol: every detector above is passive, inferring use from
+residue in the diff or the tool stream. Nothing asks the model what it
+actually did — which misses a skill whose correct application leaves no
+distinctive fragment behind, a naming rule or an ordering constraint above
+all. Injected payloads and materialized hot skill bodies now carry an
+instruction to append `{"skill": "<name>"}` to
+`.claude/skillforge/session-usage.jsonl` for each skill applied; the Stop
+reconciler reads and deletes that file each turn, crediting entitled claims
+as `detection='marker'` ledger rows. A marker never carries an outcome, so
+it can move a skill's `uses` count but never promote its confidence bucket
+on its own — `library show` cross-checks it against the fingerprint and
+verification signals in a per-skill usage breakdown (below).
+
 ## Automatic capture
 
 You do not have to remember `/skillforge:learn`. When a command fails twice
@@ -183,6 +196,14 @@ never run) per skill. It will show any skill in full, and delete one on
 request. Deleting a skill leaves its ledger history intact, so re-saving
 the same name starts from `unproven` rather than silently inheriting an
 old bucket.
+
+`/skillforge:library show <name>` breaks usage down by session into the
+marker protocol's truth table: sessions where a marker and a fingerprint or
+verification agree, sessions with corroboration but no marker (a compliance
+miss), sessions with a marker and nothing corroborating it, and sessions
+injected but with no usage signal at all. Counts, not rates — at the
+handful of sessions a skill typically has, a percentage invites reading a
+trend into two or three data points.
 
 ## Tests
 

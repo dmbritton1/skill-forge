@@ -81,9 +81,9 @@ One shared constant in `retrieve.py`, appended once per injection payload —
 not once per skill — in both `retrieve.run_hook` and `detect.run`:
 
 ```python
-MARKER_NOTE = ('--- SkillForge: if you apply any skill above, append one line to'
-               ' .claude/skillforge/session-usage.jsonl (create it if absent):'
-               ' {"skill": "<skill-name>"} ---')
+MARKER_NOTE = ('--- SkillForge: when you apply a skill above, append one line'
+               ' PER APPLIED SKILL to .claude/skillforge/session-usage.jsonl'
+               ' (create it if absent): {"skill": "<skill-name>"} ---')
 ```
 
 Roughly 35 tokens, charged only in sessions that inject something, and zero in
@@ -99,7 +99,13 @@ is the single point where a hot skill's text lands in
 `.claude/skills/skillforge-hot/<name>/SKILL.md`; `save_skill.native_dir` uses
 that path only for collision checks and never materializes. Appending
 `MARKER_NOTE` to the text `sync` writes there puts the instruction in the
-skill's own body, naming that skill.
+skill's own body, naming that skill. The constant's own wording ("a skill
+above") assumes the warm-tier preamble, where the note sits below a list of
+candidates; a materialized hot body is standalone, so `sync` derives its copy
+from `MARKER_NOTE` with "a skill above" swapped for "this skill" and the
+`<skill-name>` placeholder swapped for the skill's actual name. The shared
+constant itself, and the warm-tier preamble that still uses it unmodified,
+are untouched.
 
 This is deliberately not §9.1's `skillforge-usage` engine skill, and the reason
 is the same fact that would have broken the engine skill. A native skill under
@@ -190,9 +196,12 @@ existing databases without a version bump or a migration.
 ## Read surface
 
 `ledger.usage_for(skill)` returns injection and per-detection-type counts.
-`library show` prints them with the two derived rates: fingerprint-without-
-marker is the compliance-miss rate, marker-without-corroboration is the
-performative rate.
+`library show` prints the four raw session counts (both, corroboration-only,
+marker-only, neither) rather than the two rates this design originally
+specified. A rate is the more useful abstraction eventually, but at the
+single-digit session counts a skill typically has when someone runs `show`,
+a percentage invites over-reading two or three sessions as a trend; the raw
+counts are the honest read of what little data exists.
 
 `/stats` is not built here. It is its own v0.2 line item and wants a
 library-wide view rather than a per-skill one.
