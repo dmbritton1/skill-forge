@@ -727,10 +727,14 @@ def test_usage_for_ignores_other_skills():
 def test_usage_for_returns_zeros_on_a_broken_db():
     """Read helpers never raise into a caller; a bad path reads as no data."""
     with tempfile.TemporaryDirectory() as tmp:
-        bad = pathlib.Path(tmp) / "nope" / "ledger.db"
-        u = ledger.usage_for("alpha", path=bad)
+        bad = pathlib.Path(tmp) / "l.db"
+        bad.write_text("not a database", encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            u = ledger.usage_for("alpha", path=bad)
         assert u["sessions"] == 0, u
         assert u["both"] == 0, u
+        assert "skillforge:" in err.getvalue(), err.getvalue()
 
 
 def test_one_marker_row_per_skill_per_session():
