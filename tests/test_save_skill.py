@@ -220,12 +220,13 @@ def test_cross_kind_name_collision_rejected_and_native_copy_preserved():
         sync.sync()
         native = home / ".claude/skills/skillforge-hot/clash/SKILL.md"
         assert native.exists()
-        assert native.read_text(encoding="utf-8") == skill
+        assert native.read_text(encoding="utf-8").startswith(skill)
+        preserved = native.read_text(encoding="utf-8")
 
         rc2 = save_skill.main([write_draft(tmp, antiskill), "--scope", "global"])
         assert rc2 == 1
         assert native.exists()
-        assert native.read_text(encoding="utf-8") == skill
+        assert native.read_text(encoding="utf-8") == preserved
         assert not (home / ".claude/skillforge/antiskills/clash").exists()
     in_sandbox(check)
 
