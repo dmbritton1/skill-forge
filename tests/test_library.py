@@ -291,6 +291,48 @@ def test_show_rejects_a_name_that_is_not_in_the_index():
         assert rc == 1, rc
     in_sandbox(check)
 
+
+def test_show_prints_the_usage_truth_table():
+    """The measurement is worthless if it lands in a table nobody reads."""
+    def check(home):
+        put_skill(home, "alpha")
+        sync.sync()
+        ledger.log_event("injection", "alpha", session="s1", tier="warm",
+                         trigger="prompt")
+        ledger.log_event("detection", "alpha", session="s1", detection="marker")
+        ledger.log_event("detection", "alpha", session="s1", detection="fingerprint")
+        ledger.log_event("injection", "alpha", session="s2", tier="warm",
+                         trigger="prompt")
+        ledger.log_event("detection", "alpha", session="s2", detection="fingerprint")
+        rc, out = capture(["show", "alpha"])
+        assert rc == 0, rc
+        assert "usage" in out.lower(), out
+        assert "compliance miss" in out.lower(), out
+    in_sandbox(check)
+
+
+def test_show_says_a_skill_has_no_usage_data_rather_than_printing_zeros():
+    """A missing measurement and a measured zero are opposite facts."""
+    def check(home):
+        put_skill(home, "alpha")
+        sync.sync()
+        rc, out = capture(["show", "alpha"])
+        assert rc == 0, rc
+        assert "no usage" in out.lower(), out
+    in_sandbox(check)
+
+
+def test_show_still_works_when_only_a_marker_exists():
+    """A hot skill's first signal arrives with no injection row beside it."""
+    def check(home):
+        put_skill(home, "alpha")
+        sync.sync()
+        ledger.log_event("detection", "alpha", session="s1", detection="marker")
+        rc, out = capture(["show", "alpha"])
+        assert rc == 0, rc
+        assert "uncorroborated" in out.lower(), out
+    in_sandbox(check)
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
