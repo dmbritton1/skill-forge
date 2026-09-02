@@ -164,6 +164,9 @@ def connect(path=None):
         " AND detection = 'fingerprint'",
         "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_one_verdict"
         " ON events(session, skill) WHERE event_type = 'reconcile'",
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_events_one_marker"
+        " ON events(session, skill) WHERE event_type = 'detection'"
+        " AND detection = 'marker'",
     ):
         try:
             con.execute(stmt)
@@ -358,6 +361,56 @@ def findings_for(skill, content_hash, *, path=None):
     except Exception as err:
         print("skillforge: findings read failed: %s" % err, file=sys.stderr)
         return {}
+    return out
+
+
+USAGE_SQL = (
+    "SELECT COALESCE(session, ''),"
+    "       MAX(event_type = 'injection'),"
+    "       MAX(event_type = 'detection' AND detection = 'marker'),"
+    "       MAX(event_type = 'detection'"
+    "           AND detection IN ('fingerprint', 'verification'))"
+    " FROM events WHERE skill = ? GROUP BY COALESCE(session, '')")
+
+USAGE_ZERO = {"sessions": 0, "injections": 0, "both": 0,
+              "corroborated_only": 0, "marker_only": 0, "neither": 0}
+
+
+def usage_for(skill, *, path=None):
+    """The §9.1 truth table for one skill, counted in sessions.
+
+    The cell a session falls in is which rows exist for it, so this is a
+    query rather than a stored judgment -- which is what lets a marker at
+    turn 3 and a fingerprint at turn 7 need no adjudication step between
+    them. `corroborated_only` is the compliance-miss rate's numerator (the
+    skill was used, the usage protocol drifted); `marker_only` is the
+    performative rate's (claimed, nothing independent agrees) -- though it
+    also collects skills whose correct application leaves no fingerprint,
+    which is why it is reported rather than penalized.
+
+    Zeros on any failure: this feeds a display, and a read helper that
+    raises into `library show` would trade a missing number for no output.
+    """
+    out = dict(USAGE_ZERO)
+    try:
+        con = connect(path)
+        try:
+            for _session, inj, marker, corroborated in con.execute(USAGE_SQL, (skill,)):
+                out["sessions"] += 1
+                out["injections"] += 1 if inj else 0
+                if marker and corroborated:
+                    out["both"] += 1
+                elif corroborated:
+                    out["corroborated_only"] += 1
+                elif marker:
+                    out["marker_only"] += 1
+                else:
+                    out["neither"] += 1
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: usage read failed: %s" % err, file=sys.stderr)
+        return dict(USAGE_ZERO)
     return out
 
 
