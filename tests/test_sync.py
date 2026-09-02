@@ -1006,12 +1006,20 @@ def make_hot(home, name):
 
 
 def test_materialized_hot_body_carries_the_marker_note():
-    """The harness injects hot skills; this body is the only text we control."""
+    """The harness injects hot skills; this body is the only text we control.
+
+    The note must name THIS skill, not carry the literal placeholder --
+    a model that dutifully copies "<skill-name>" writes a line
+    _credit_markers correctly drops, which silently undercounts the one
+    tier that has no fingerprint detection at all.
+    """
     def check(home):
         make_hot(home, "alpha")
         sync.sync()
         body = native_md(home, "alpha").read_text(encoding="utf-8")
         assert "session-usage.jsonl" in body, body
+        assert '{"skill": "alpha"}' in body, body
+        assert "<skill-name>" not in body, body
         assert body.startswith(SKILL % "alpha"), "the skill's own text was lost"
     in_sandbox(check)
 

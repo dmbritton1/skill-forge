@@ -352,7 +352,15 @@ def sync(project_root=None):
             # body is the one text we control, and it loads exactly when the
             # model intends to apply the skill. Appended to the derived copy
             # only -- the store file is what trust hashes.
-            materialize_one_text(s["text"] + "\n\n" + retrieve.MARKER_NOTE + "\n",
+            #
+            # MARKER_NOTE's wording ("a skill above") assumes the warm-tier
+            # preamble, where several candidates are listed above the note.
+            # A materialized hot body IS the skill, standalone, with nothing
+            # "above" it -- so both substitutions happen here, on a copy, and
+            # the shared constant that the warm path still uses is untouched.
+            hot_note = (retrieve.MARKER_NOTE.replace("a skill above", "this skill")
+                                            .replace("<skill-name>", s["name"]))
+            materialize_one_text(s["text"] + "\n\n" + hot_note + "\n",
                                  native_root(s["base"]) / s["name"])
             counts["materialized"] += 1
 
