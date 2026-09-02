@@ -1079,6 +1079,39 @@ def test_a_stop_with_no_marker_file_writes_no_marker_row():
     in_sandbox(check)
 
 
+def test_a_marker_and_a_fingerprint_both_land_for_one_session():
+    """The `both` cell of the truth table, produced through the real
+    pipeline rather than by logging rows directly (as test_ledger.py does).
+
+    Also pins that a marker does not resolve needs_fingerprint: crediting
+    the marker must not suppress the independent fingerprint credit --
+    if it did, this cell would silently and permanently empty.
+
+    Two Stop calls, deliberately: within a single call, session_state is
+    built from rows fetched BEFORE that call's own _credit_markers writes
+    the marker row, so a marker credited this turn can never appear in
+    this turn's own `detections` set -- a one-call test cannot observe
+    needs_fingerprint reacting to it at all. The second call re-reads the
+    ledger fresh and so sees the first call's marker in `state`, which is
+    exactly the scenario needs_fingerprint's exclusion set governs.
+    """
+    def check(home):
+        repo = git_repo(home / "repo")
+        write_index(home, [{"name": "fixer", "root": str(home), "tier": "warm",
+                            "fingerprints": [["json", "dumps", "sort_keys"]]}])
+        ledger.log_event("injection", "fixer", session="s1", tier="warm",
+                         trigger="prompt", preexisting_fingerprint=0)
+        write_markers(repo, ['{"skill": "fixer"}'])
+        stop_in(repo, session="s1")             # credits the marker
+        (repo / "seed.py").write_text(
+            "seed = 1\nout = json.dumps(payload, sort_keys=True)\n", encoding="utf-8")
+        stop_in(repo, session="s1")             # should independently credit the fingerprint
+        detections = events("detection")
+        assert ("fixer", "marker", None, None) in detections, detections
+        assert ("fixer", "fingerprint", None, None) in detections, detections
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
