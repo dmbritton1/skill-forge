@@ -102,6 +102,20 @@ UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0,
 # a closed terminal. A day is long enough that no live session is swept.
 SIGNAL_TTL_HOURS = 24
 
+# SessionStart is one of the few events whose stdout becomes visible context,
+# and it fires again with source="compact" after every compaction -- so this
+# instruction repairs itself once the old copy has been summarised away.
+# Not delivered with injected skills: that payload is silent when nothing
+# matched and when no index exists, and a fresh install with no skills is
+# exactly where capture matters most.
+CORRECTION_NOTE = (
+    "--- SkillForge: when the user corrects or redirects you, append one line"
+    ' to .claude/skillforge/session-usage.jsonl (create it if absent):'
+    ' {"event": "correction", "what": "<one line: what you had wrong>"}.'
+    " Do NOT log: a one-off typo, the user changing their mind about what they"
+    " want, a preference already recorded, or anything you would have got right"
+    " with more care rather than more knowledge. ---")
+
 
 def _write_json(p, obj):
     """Atomic: a reader must never see a half-written index.
@@ -411,6 +425,7 @@ def main(argv=None):
         if counts["quarantined"]:
             print("skillforge: %d skill(s) quarantined pending /skillforge:review"
                   % counts["quarantined"])
+        print(CORRECTION_NOTE)
         # One of each per session, and this is what makes that true:
         # SessionStart runs main() once, while sync() itself runs again after
         # every save and delete. Detached, never waited on -- an executable run

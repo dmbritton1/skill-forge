@@ -1,10 +1,12 @@
 """Tests for trust-gated native sync. Run: python3 tests/test_sync.py"""
 import datetime
+import io
 import json
 import os
 import pathlib
 import sys
 import tempfile
+from contextlib import redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import ledger
@@ -1054,6 +1056,32 @@ def test_a_hot_skill_stays_trusted_after_materialization():
         assert counts["quarantined"] == 0, counts
         assert counts["materialized"] == 1, counts
     in_sandbox(check)
+
+
+def test_session_start_prints_the_correction_note():
+    def check(home):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        assert "session-usage.jsonl" in out.getvalue(), out.getvalue()
+        assert "correction" in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
+def test_the_note_names_the_exact_path_the_reconciler_reads():
+    """A mismatch means corrections are written where nothing reads them."""
+    assert ".claude/skillforge/session-usage.jsonl" in sync.CORRECTION_NOTE
+
+
+def test_the_note_carries_a_do_not_log_list():
+    low = sync.CORRECTION_NOTE.lower()
+    assert "do not" in low or "don't" in low, sync.CORRECTION_NOTE
+    assert "typo" in low, sync.CORRECTION_NOTE
+
+
+def test_the_note_stays_within_budget():
+    """~150 tokens; it is charged at every SessionStart and every compaction."""
+    assert len(sync.CORRECTION_NOTE) <= 800, len(sync.CORRECTION_NOTE)
 
 
 if __name__ == "__main__":
