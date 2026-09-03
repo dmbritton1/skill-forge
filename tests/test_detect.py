@@ -636,6 +636,76 @@ def test_no_antiskill_match_means_no_marker_note():
     in_sandbox(check)
 
 
+def edit_rows():
+    con = ledger.connect()
+    try:
+        return con.execute(
+            "SELECT session, prompt_id, path FROM edits ORDER BY id").fetchall()
+    finally:
+        con.close()
+
+
+def edit_data(home, tool, inp, session="sess1", prompt_id="p1"):
+    return {"session_id": session, "prompt_id": prompt_id, "tool_name": tool,
+            "tool_input": inp, "tool_response": {"stdout": "", "stderr": ""},
+            "cwd": str(home)}
+
+
+def test_edit_tool_records_an_edit_row():
+    def check(home):
+        run_capture(edit_data(home, "Edit", {"file_path": "scripts/a.py"}))
+        assert edit_rows() == [("sess1", "p1", "scripts/a.py")], edit_rows()
+    in_sandbox(check)
+
+
+def test_write_tool_records_an_edit_row():
+    def check(home):
+        run_capture(edit_data(home, "Write", {"file_path": "scripts/b.py"}))
+        assert edit_rows() == [("sess1", "p1", "scripts/b.py")], edit_rows()
+    in_sandbox(check)
+
+
+def test_notebook_edit_uses_its_own_path_key():
+    def check(home):
+        run_capture(edit_data(home, "NotebookEdit", {"notebook_path": "nb.ipynb"}))
+        assert edit_rows() == [("sess1", "p1", "nb.ipynb")], edit_rows()
+    in_sandbox(check)
+
+
+def test_a_bash_call_records_no_edit_row():
+    """Only file-editing tools count; a command is not an edit."""
+    def check(home):
+        run_capture(tool_data(home, "some output"))
+        assert edit_rows() == [], edit_rows()
+    in_sandbox(check)
+
+
+def test_edit_without_a_prompt_id_still_records():
+    def check(home):
+        d = edit_data(home, "Edit", {"file_path": "scripts/a.py"})
+        del d["prompt_id"]
+        run_capture(d)
+        assert edit_rows() == [("sess1", None, "scripts/a.py")], edit_rows()
+    in_sandbox(check)
+
+
+def test_edit_with_no_path_records_nothing():
+    """A malformed payload is skipped, never a row with an empty path."""
+    def check(home):
+        run_capture(edit_data(home, "Edit", {}))
+        assert edit_rows() == [], edit_rows()
+    in_sandbox(check)
+
+
+def test_edit_recording_never_writes_to_stdout():
+    """detect.py is a hook: stdout is the harness's control channel."""
+    def check(home):
+        rc, out = run_capture(edit_data(home, "Edit", {"file_path": "a.py"}))
+        assert rc == 0
+        assert out == "", out
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

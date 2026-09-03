@@ -28,6 +28,9 @@ MAX_OUTPUT_CHARS = 64 * 1024
 MAX_ANTISKILLS = 2
 INJECT_BUDGET_TOKENS = 1200
 TARGET_MAX_TOKENS = 24
+# Edit/Write name their target `file_path`; NotebookEdit uses notebook_path.
+EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path",
+              "NotebookEdit": "notebook_path"}
 
 
 def triggers_path():
@@ -90,6 +93,14 @@ def _log_signal(*args, **kwargs):
         ledger.log_signal(*args, **kwargs)
     except Exception as err:
         print("skillforge: signal write failed: %s" % err, file=sys.stderr)
+
+
+def _log_edit(*args, **kwargs):
+    """Breadcrumbs are best-effort like every other ledger write."""
+    try:
+        ledger.log_edit(*args, **kwargs)
+    except Exception as err:
+        print("skillforge: edit write failed: %s" % err, file=sys.stderr)
 
 
 def _log(*args, **kwargs):
@@ -166,6 +177,13 @@ def credited(entry, name, injected):
 
 def run(data):
     session = retrieve.sanitize_session(data.get("session_id"))
+    key = EDIT_TOOLS.get(data.get("tool_name"))
+    if key:
+        tool_input = data.get("tool_input")
+        edited = tool_input.get(key, "") if isinstance(tool_input, dict) else ""
+        if edited:
+            _log_edit(session, str(edited), data.get("prompt_id"))
+
     resp = data.get("tool_response")
     is_bash = data.get("tool_name") == "Bash"
     command = ""
