@@ -113,18 +113,32 @@ correction is followed by **rework**: files touched again.
 
 | marked | rework | reading |
 |---|---|---|
-| yes | yes | corroborated — highest confidence, nominate |
+| yes | yes | corroborated — the signal working as intended |
 | no | yes | silent redirect — user steered without saying so |
-| yes | no | likely a feature request misread as a correction |
+| yes | no | possibly a feature request misread as a correction |
 | no | no | ordinary turn |
 
-Row two is a category a pure self-report cannot detect at all. This slice
-records it and nominates only row one; acting on row two is deferred (see
-Non-goals).
+**Corroboration is recorded, not enforced.** Every marked correction nominates
+(subject to the settle clock and the cost floor); whether rework corroborated it
+is stored alongside and reported, never used to reject.
 
-As with the marker layer, this design measures its own validity: if marks
-rarely corroborate, that is the data saying to drop the self-report and go
-structural, rather than discovering it much later.
+That is a deliberate choice against precision. A too-strict gate producing zero
+nominations is the exact failure this whole design exists to escape, and
+corroboration is coarse enough to cause it: "the same file was edited again"
+misses any correction resolved by a command rather than an edit, by a config
+change outside the repo, or by the model simply doing the next thing right.
+Meanwhile two filters already stand downstream — the drafter's `ABORT` contract
+and the novelty gate, then human approval before any skill is saved. A weak
+nomination costs one model call that aborts; a rejected real correction costs
+the lesson entirely.
+
+Row two is a category a pure self-report cannot detect at all. This slice
+records it; acting on it is deferred (see Non-goals).
+
+As with the marker layer, this makes the design measure its own validity: if
+marks rarely corroborate, that is the data saying to drop the self-report and go
+structural. Recording the rate rather than gating on it is what keeps that
+measurement available — a gate would suppress the very cases that reveal it.
 
 ## Cost weighting
 
@@ -154,6 +168,16 @@ session ends rather than all arriving at once.
 
 The evidence window handed to the drafter runs from the correction's timestamp
 to nomination, so it contains the correction and whatever followed it.
+
+The nomination gate is therefore two conditions, not three: **settled** and
+**at least `MIN_CORRECTION_EDITS` edit rows after it**. Corroboration is not
+consulted.
+
+A nomination spawns a drafter immediately and detached, at most one per session
+at a time — `reconcile.draft_blockers` already enforces that cap and is reused
+unchanged. Each spawn is a real `claude -p` call, so the cost floor is doing
+double duty: it keeps trivial corrections from drafting, and it is the only
+thing bounding spend in a session full of small redirections.
 
 ## Drafter changes
 
@@ -209,6 +233,7 @@ CREATE TABLE IF NOT EXISTS corrections (
   session TEXT NOT NULL,
   what TEXT NOT NULL,
   status TEXT NOT NULL,      -- pending | nominated | discarded
+  corroborated INTEGER,      -- NULL until evaluated, then 0 or 1
   ts TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_corrections_session ON corrections(session, id);
@@ -253,18 +278,41 @@ malformed JSON; an `event` value that is not `correction`; a `what` that is not
 a string; oversize `what` truncated; the file consumed even when only
 corrections were present.
 
-**Corroboration** — a correction with a re-edited file is corroborated; one with
-no subsequent edits is not; one whose only edits are to different files is not;
-edits from a different session do not corroborate this one.
+**Corroboration** — a correction with a re-edited file records corroborated; one
+whose only edits touch different files records uncorroborated; edits from a
+different session never corroborate this one. Critically: **an uncorroborated
+correction still nominates**, which is the test that pins corroboration as
+metadata rather than a gate.
 
-**Nomination** — a settled corroborated correction nominates once; an unsettled
-one does not; a newer correction resets the settle clock; `SessionEnd` nominates
-regardless of the clock; a correction below `MIN_CORRECTION_EDITS` never
-nominates; one nomination per correction per session.
+**Nomination** — a settled correction nominates once; an unsettled one does not;
+a newer correction resets the settle clock; `SessionEnd` nominates regardless of
+the clock; a correction below `MIN_CORRECTION_EDITS` never nominates; one
+nomination per correction per session; a second nomination while a drafter is
+already running is deferred, not dropped.
 
-**Mutation** — removing the corroboration check must fail the no-rework test;
-removing the settle check must fail the unsettled test; removing the cost floor
-must fail the trivial-correction test.
+**Mutation** — removing the settle check must fail the unsettled test; removing
+the cost floor must fail the trivial-correction test; making corroboration a
+gate must fail the uncorroborated-still-nominates test.
+
+## Parent spec amendment
+
+`docs/skillforge-architecture-v4.md` is updated in this slice rather than left
+to drift. Two places go stale the moment this ships:
+
+- **§9.1's capture model** describes struggle detection via repeated command
+  failure. That path is removed here; the section is rewritten to describe the
+  correction signal, with the measured reason the old one is going rather than a
+  bare replacement.
+- **§9.3's cost budget** claims zero context tokens for the detection pipeline.
+  It gains the ~150-tokens-per-SessionStart and ~35-per-correction figures, and
+  the note that SessionStart re-fires on compaction so the charge recurs.
+
+The v0.2 roadmap line in §13 keeps its wording: "the usage-detection core"
+still ships, by a different trigger.
+
+This is scoped deliberately. Last slice's whole-branch review named the pattern
+— the plan gets corrected while the spec silently drifts — as a recurring
+defect, and it recurred five times in that slice alone.
 
 ## Non-goals
 
@@ -278,8 +326,10 @@ work proposed.
 
 **Acting on silent redirects (row two).** Recorded, not acted on. It needs its
 own calibration — distinguishing a silent redirect from ordinary iteration is
-the same ambiguity that sank the exit-code trigger, and this slice should
-establish the corroborated case first.
+the same ambiguity that sank the exit-code trigger. This slice needs the
+corroboration rate on marked corrections first — without knowing how often a
+mark and observed rework agree, there is no basis for trusting rework on its
+own.
 
 **Retrieval-miss detection** — a skill injected and the user corrected anyway,
 which is evidence the skill or its triggers were wrong. Valuable and unique to
@@ -308,8 +358,13 @@ has edit rows timestamped fractionally earlier. `prompt_id` resolves this
 exactly — edits and correction share a turn id rather than being ordered by
 clock. **Open question for implementation: whether the `Stop` payload carries
 `prompt_id`.** If it does, corroboration keys on it. If it does not, it falls
-back to timestamps and under-corroborates fast fixes, which is the safe
-direction (a missed nomination, never a false one).
+back to timestamps and under-corroborates fast fixes.
+
+Because corroboration does not gate nomination, the cost of getting this wrong
+is a skewed metric rather than a lost capture — the correction still drafts. But
+the metric is the thing this design offers over a pure self-report, so a
+systematic undercount on the fastest fixes would quietly understate how well the
+marks work.
 
 **Concurrent sessions in one repo share one scratch file.** Two sessions in the
 same tree can cross-read corrections. The old marker layer bounds this with an
