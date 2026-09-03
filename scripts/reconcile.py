@@ -261,30 +261,29 @@ def marker_path(cwd):
     return Path(cwd) / ".claude" / "skillforge" / "session-usage.jsonl"
 
 
-def read_markers(cwd):
-    """Skill names the model claimed to apply; the file is consumed on read.
+def read_scratch(cwd):
+    """(skills, corrections) from the session scratch file; consumed on read.
 
-    Consumed, not accumulated: the model has no session id to write, so the
-    file is not session-scoped, and a line surviving from an earlier session
-    would credit this one the next time that skill is injected. The unlink
-    therefore happens even when nothing parses -- a file of junk that stays
-    on disk is a file re-read at every Stop forever.
+    One reader for both kinds, because the file is deleted as it is read and
+    two readers cannot both consume it. Everything else is as it was: a
+    bounded binary read, decode with errors="replace", unlink even when
+    nothing parses, and per-line skip of anything malformed.
 
-    Untrusted input. Bad lines are skipped rather than raising, and a name
-    is only a candidate here: `_credit_markers` still checks it against the
-    index, the scope, and the injection gate before it becomes a row.
+    Untrusted input. A name or a correction is only a candidate here --
+    _credit_markers still checks skills against the index and the injection
+    gate, and a correction is capped before it reaches the table.
     """
     p = marker_path(cwd)
     try:
         with open(str(p), "rb") as fh:
             text = fh.read(MAX_MARKER_BYTES).decode("utf-8", "replace")
     except OSError:
-        return set()
+        return set(), []
     try:
         p.unlink()
     except OSError:
-        pass          # read succeeded; a stale file is better than losing the names
-    out = set()
+        pass          # read succeeded; a stale file beats losing the contents
+    skills, corrections = set(), []
     for line in text.splitlines():
         try:
             obj = json.loads(line)
@@ -295,10 +294,16 @@ def read_markers(cwd):
                        # written input and must never propagate
         if not isinstance(obj, dict):
             continue
+        if obj.get("event") == "correction":
+            what = obj.get("what")
+            if isinstance(what, str) and what.strip():
+                corrections.append(
+                    what.strip()[:ledger.MAX_CORRECTION_CHARS])
+            continue
         name = obj.get("skill")
         if isinstance(name, str) and name.strip():
-            out.add(name.strip()[:MAX_MARKER_NAME])
-    return out
+            skills.add(name.strip()[:MAX_MARKER_NAME])
+    return skills, corrections
 
 
 def _credit_markers(session, cwd, state, entries, markers):
@@ -338,8 +343,13 @@ def _reconcile_c2(session, cwd, rows, now, final):
     # Read above the `no events` guard: a hot skill's marker arrives in a
     # session with no injection row of its own, so gating ingestion on other
     # events existing would drop exactly the tier the marker exists to reach.
-    markers = read_markers(cwd)
-    if not state and not markers:
+    markers, corrections = read_scratch(cwd)
+    for what in corrections:
+        try:
+            ledger.open_correction(session, what)
+        except Exception as err:
+            print("skillforge: correction write failed: %s" % err, file=sys.stderr)
+    if not state and not markers and not corrections:
         return
     entries = load_entries()
     _credit_markers(session, cwd, state, entries, markers)

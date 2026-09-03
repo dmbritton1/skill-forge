@@ -870,7 +870,9 @@ def test_read_markers_collects_skill_names():
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         write_markers(root, ['{"skill": "alpha"}', '{"skill": "beta"}'])
-        assert reconcile.read_markers(root) == {"alpha", "beta"}
+        skills, corrections = reconcile.read_scratch(root)
+        assert skills == {"alpha", "beta"}
+        assert corrections == []
 
 
 def test_read_markers_consumes_the_file():
@@ -878,9 +880,11 @@ def test_read_markers_consumes_the_file():
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         p = write_markers(root, ['{"skill": "alpha"}'])
-        assert reconcile.read_markers(root) == {"alpha"}
+        skills, corrections = reconcile.read_scratch(root)
+        assert skills == {"alpha"}
+        assert corrections == []
         assert not p.exists()
-        assert reconcile.read_markers(root) == set()
+        assert reconcile.read_scratch(root) == (set(), [])
 
 
 def test_read_markers_skips_junk_without_losing_good_lines():
@@ -897,14 +901,16 @@ def test_read_markers_skips_junk_without_losing_good_lines():
                                           # not ValueError -- must not escape
             '{"skill": "  alpha  "}',    # stripped
         ])
-        assert reconcile.read_markers(root) == {"alpha"}
+        skills, corrections = reconcile.read_scratch(root)
+        assert skills == {"alpha"}
+        assert corrections == []
 
 
 def test_read_markers_still_consumes_a_file_of_pure_junk():
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         p = write_markers(root, ["garbage", "more garbage"])
-        assert reconcile.read_markers(root) == set()
+        assert reconcile.read_scratch(root) == (set(), [])
         assert not p.exists()
 
 
@@ -913,22 +919,23 @@ def test_read_markers_caps_the_read_and_the_name():
         root = pathlib.Path(tmp)
         long_name = "n" * 400
         write_markers(root, ['{"skill": "%s"}' % long_name])
-        got = reconcile.read_markers(root)
+        got, corrections = reconcile.read_scratch(root)
         assert got == {"n" * reconcile.MAX_MARKER_NAME}, got
+        assert corrections == []
 
     with tempfile.TemporaryDirectory() as tmp:
         root = pathlib.Path(tmp)
         filler = ['{"skill": "pad%d"}' % i
                   for i in range(reconcile.MAX_MARKER_BYTES // 20 + 200)]
         write_markers(root, filler + ['{"skill": "last"}'])
-        got = reconcile.read_markers(root)
+        got, corrections = reconcile.read_scratch(root)
         assert "last" not in got, "read past the size cap"
         assert got, "cap discarded everything"
 
 
 def test_read_markers_on_a_missing_file_is_empty():
     with tempfile.TemporaryDirectory() as tmp:
-        assert reconcile.read_markers(pathlib.Path(tmp)) == set()
+        assert reconcile.read_scratch(pathlib.Path(tmp)) == (set(), [])
 
 
 def test_read_markers_survives_binary_content():
@@ -938,7 +945,9 @@ def test_read_markers_survives_binary_content():
         p = reconcile.marker_path(root)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_bytes(b'\xff\xfe\x00\x00\n{"skill": "alpha"}\n')
-        assert reconcile.read_markers(root) == {"alpha"}
+        skills, corrections = reconcile.read_scratch(root)
+        assert skills == {"alpha"}
+        assert corrections == []
 
 
 def marker_rows():
@@ -1109,6 +1118,92 @@ def test_a_marker_and_a_fingerprint_both_land_for_one_session():
         detections = events("detection")
         assert ("fixer", "marker", None, None) in detections, detections
         assert ("fixer", "fingerprint", None, None) in detections, detections
+    in_sandbox(check)
+
+
+def correction_rows():
+    con = ledger.connect()
+    try:
+        return con.execute(
+            "SELECT session, what, status, corroborated FROM corrections"
+            " ORDER BY id").fetchall()
+    finally:
+        con.close()
+
+
+def test_read_scratch_returns_skills_and_corrections():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        write_markers(root, ['{"skill": "alpha"}',
+                             '{"event": "correction", "what": "wrong field"}'])
+        skills, corrections = reconcile.read_scratch(root)
+        assert skills == {"alpha"}, skills
+        assert corrections == ["wrong field"], corrections
+
+
+def test_read_scratch_still_consumes_the_file():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        p = write_markers(root, ['{"event": "correction", "what": "x"}'])
+        reconcile.read_scratch(root)
+        assert not p.exists()
+        assert reconcile.read_scratch(root) == (set(), [])
+
+
+def test_read_scratch_skips_junk_corrections():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        write_markers(root, [
+            '{"event": "correction"}',                  # no what
+            '{"event": "correction", "what": 7}',        # not a string
+            '{"event": "correction", "what": "   "}',    # empty after strip
+            '{"event": "something-else", "what": "no"}',  # wrong event
+            '{"event": "correction", "what": "  real  "}',
+        ])
+        skills, corrections = reconcile.read_scratch(root)
+        assert skills == set(), skills
+        assert corrections == ["real"], corrections
+
+
+def test_read_scratch_caps_a_long_correction():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        write_markers(root, ['{"event": "correction", "what": "%s"}' % ("x" * 900)])
+        _, corrections = reconcile.read_scratch(root)
+        assert len(corrections[0]) == ledger.MAX_CORRECTION_CHARS, len(corrections[0])
+
+
+def test_a_correction_lands_in_the_table_at_stop():
+    def check(home):
+        write_index(home, [])
+        write_markers(home, ['{"event": "correction", "what": "wrong field"}'])
+        stop_in(home)
+        rows = correction_rows()
+        assert len(rows) == 1, rows
+        assert rows[0][0] == "s1" and rows[0][1] == "wrong field", rows
+        assert rows[0][2] == "pending", rows
+        assert rows[0][3] is None, "corroboration is not evaluated at ingest"
+    in_sandbox(check)
+
+
+def test_a_correction_only_session_reconciles():
+    """A correction can arrive with no injections and no other events."""
+    def check(home):
+        write_index(home, [])
+        write_markers(home, ['{"event": "correction", "what": "x"}'])
+        stop_in(home, session="fresh")
+        assert len(correction_rows()) == 1, correction_rows()
+    in_sandbox(check)
+
+
+def test_a_second_stop_does_not_re_ingest():
+    """The file is consumed, so nothing is left to read twice."""
+    def check(home):
+        write_index(home, [])
+        write_markers(home, ['{"event": "correction", "what": "x"}'])
+        stop_in(home)
+        stop_in(home)
+        assert len(correction_rows()) == 1, correction_rows()
     in_sandbox(check)
 
 
