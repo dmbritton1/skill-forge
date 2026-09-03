@@ -39,6 +39,11 @@ MIN_ESCAPE_S = 60
 # Stop stops probing for its fingerprints (an injection the model ignored must
 # not tax every remaining turn of a long session).
 RECONCILE_WINDOW_S = 900
+# How long a correction waits before it is treated as finished. Shorter than
+# RECONCILE_WINDOW_S: that bounds a skill's fate, this only has to outlast the
+# model's response to the correction.
+CORRECTION_SETTLE_S = 300
+MIN_CORRECTION_EDITS = 2
 # ponytail: 1s ceiling, larger than retrieve's 150ms because this runs once
 # per turn instead of once per tool call, and only when work is pending.
 GIT_TIMEOUT_S = 1.0
@@ -388,6 +393,62 @@ def _spawn(argv, cwd):
                      env=dict(os.environ, SKILLFORGE_DRAFTING="1"))
 
 
+def _nominate_corrections(data, session, cwd, now, final, busy):
+    """Spawn a drafter for the oldest settled correction. At most one.
+
+    The gate is settled + cost floor. Corroboration is recorded and NOT
+    consulted: `rework_after` misses any correction resolved by a command
+    rather than an edit, and a gate that rejects real lessons is the failure
+    this trigger replaced. The drafter's ABORT and human approval are the
+    filters that matter.
+    """
+    if busy:
+        return False
+    try:
+        pending = ledger.pending_corrections(session)
+    except Exception as err:
+        print("skillforge: correction read failed: %s" % err, file=sys.stderr)
+        return False
+    if not pending:
+        return False
+    newest = max(parse_ts(c[2]) or now for c in pending)
+    settled = final or (now - newest).total_seconds() >= CORRECTION_SETTLE_S
+    if not settled:
+        return False
+
+    for cid, what, ts in pending:
+        edits = ledger.edit_count_since(session, ts)
+        if edits < MIN_CORRECTION_EDITS:
+            if final:
+                ledger.close_correction(cid, "discarded")
+            continue
+        corroborated = ledger.rework_after(session, ts)
+        try:
+            draft_id = ledger.open_draft(session, "correction:%s" % what[:80])
+        except Exception as err:
+            print("skillforge: draft row failed: %s" % err, file=sys.stderr)
+            return False
+        argv = [sys.executable,
+                str(Path(__file__).resolve().parent / "draft.py"), "run",
+                "--draft-id", str(draft_id), "--kind", "correction",
+                "--target", what,
+                "--transcript", str(data.get("transcript_path") or ""),
+                "--since", ts,
+                "--until", now.isoformat(timespec="seconds"),
+                "--cwd", str(cwd)]
+        try:
+            _spawn(argv, cwd)
+        except Exception as err:
+            print("skillforge: drafter spawn failed: %s" % err, file=sys.stderr)
+            try:
+                ledger.set_draft_status(draft_id, "failed")
+            except Exception:
+                pass
+        ledger.close_correction(cid, "nominated", corroborated=corroborated)
+        return True     # one drafter at a time, even with several pending
+    return False
+
+
 def _spawn_drafts(data, session, cwd, signal_rows, drafted, busy):
     """At most one detached drafter per Stop, and one per session at a time."""
     if busy:
@@ -496,6 +557,7 @@ def run(data):
         print(json.dumps({"decision": "block", "reason": reason}))
 
     _reconcile_c2(session, cwd, rows, now, final)
+    _nominate_corrections(data, session, cwd, now, final, busy)
     _spawn_drafts(data, session, cwd, signal_rows, drafted, busy)
     if final:
         # Breadcrumbs are scratch. The drafts row -- the recurrence memory --

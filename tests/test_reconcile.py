@@ -1207,6 +1207,116 @@ def test_a_second_stop_does_not_re_ingest():
     in_sandbox(check)
 
 
+def old_correction(home, what="wrong field", secs=400, session="s1"):
+    """A correction old enough to have settled, with edits after it."""
+    write_index(home, [])
+    cid = ledger.open_correction(session, what, ts=ago(secs))
+    ledger.log_edit(session, "a.py", ts=ago(secs + 10))
+    ledger.log_edit(session, "a.py", ts=ago(secs - 10))
+    ledger.log_edit(session, "b.py", ts=ago(secs - 20))
+    return cid
+
+
+def test_a_settled_correction_nominates_a_drafter():
+    def check(home):
+        old_correction(home)
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        assert len(sp.calls) == 1, sp.calls
+        argv = sp.calls[0]
+        assert "--kind" in argv and "correction" in argv, argv
+        assert correction_rows()[0][2] == "nominated", correction_rows()
+    in_sandbox(check)
+
+
+def test_an_unsettled_correction_does_not_nominate():
+    def check(home):
+        old_correction(home, secs=30)
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        assert sp.calls == [], sp.calls
+        assert correction_rows()[0][2] == "pending", correction_rows()
+    in_sandbox(check)
+
+
+def test_a_newer_correction_resets_the_settle_clock():
+    """Still being corrected means the episode is not over."""
+    def check(home):
+        old_correction(home)
+        ledger.open_correction("s1", "and this too", ts=ago(10))
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        assert sp.calls == [], sp.calls
+    in_sandbox(check)
+
+
+def test_a_correction_below_the_cost_floor_never_nominates():
+    """One trivial edit is a typo fix, not a lesson -- and a model call."""
+    def check(home):
+        write_index(home, [])
+        ledger.open_correction("s1", "tiny", ts=ago(400))
+        ledger.log_edit("s1", "a.py", ts=ago(380))
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home, final=True))
+        assert sp.calls == [], sp.calls
+        assert correction_rows()[0][2] == "discarded", correction_rows()
+    in_sandbox(check)
+
+
+def test_an_uncorroborated_correction_still_nominates():
+    """Corroboration is metadata, not a gate. This is the test that pins it."""
+    def check(home):
+        write_index(home, [])
+        ledger.open_correction("s1", "no rework", ts=ago(400))
+        ledger.log_edit("s1", "a.py", ts=ago(390))
+        ledger.log_edit("s1", "b.py", ts=ago(380))
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        assert len(sp.calls) == 1, sp.calls
+        assert correction_rows()[0][3] == 0, "recorded as uncorroborated"
+    in_sandbox(check)
+
+
+def test_corroboration_is_recorded_when_a_file_is_reworked():
+    def check(home):
+        old_correction(home)
+        with_spawner(Spawner(), lambda: stop_in(home))
+        assert correction_rows()[0][3] == 1, correction_rows()
+    in_sandbox(check)
+
+
+def test_session_end_nominates_regardless_of_the_clock():
+    def check(home):
+        write_index(home, [])
+        ledger.open_correction("s1", "recent", ts=ago(10))
+        ledger.log_edit("s1", "a.py", ts=ago(9))
+        ledger.log_edit("s1", "a.py", ts=ago(8))
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home, final=True))
+        assert len(sp.calls) == 1, sp.calls
+    in_sandbox(check)
+
+
+def test_one_nomination_per_correction():
+    def check(home):
+        old_correction(home)
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        with_spawner(sp, lambda: stop_in(home))
+        assert len(sp.calls) == 1, sp.calls
+    in_sandbox(check)
+
+
+def test_only_one_drafter_runs_at_a_time():
+    def check(home):
+        old_correction(home)
+        ledger.open_correction("s1", "second", ts=ago(500))
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        assert len(sp.calls) == 1, sp.calls
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
