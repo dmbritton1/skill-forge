@@ -410,6 +410,33 @@ def test_resolve_discarded_deletes_the_file_but_keeps_the_row():
     in_sandbox(check)
 
 
+def test_correction_prompt_does_not_claim_a_success_happened():
+    """The struggle head asserts a success. Under a correction it may be false,
+    and asserting it is how a model is led to invent one."""
+    p = draft.build_prompt("wrong auth header", "evidence here", ".",
+                           kind="correction")
+    assert "failed repeatedly and then succeeded" not in p, p
+    assert "wrong auth header" in p, p
+
+
+def test_correction_prompt_instructs_abort_when_unresolved():
+    p = draft.build_prompt("wrong auth header", "evidence here", ".",
+                           kind="correction")
+    assert "ABORT" in p, p
+    low = p.lower()
+    assert "resolved" in low or "never fixed" in low, p
+
+
+def test_correction_prompt_keeps_the_untrusted_data_warning():
+    p = draft.build_prompt("wrong auth header", "evidence", ".", kind="correction")
+    assert "untrusted" in p.lower(), p
+
+
+def test_struggle_prompt_is_unchanged_by_default():
+    p = draft.build_prompt("python3 tests/test_x.py", "evidence", ".")
+    assert "failed repeatedly and then\nsucceeded" in p, p
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
