@@ -1298,6 +1298,14 @@ def test_session_end_nominates_regardless_of_the_clock():
 
 
 def test_one_nomination_per_correction():
+    """Only one correction is seeded, so this does not isolate which cap
+    holds: on the second Stop, `busy` is true (the first draft is still
+    `drafting`) AND the row is no longer in `pending_corrections` (closed
+    to `nominated`) -- either alone would already block a second spawn.
+    Both are real, independently-sufficient caps; no test in this file
+    isolates `busy` alone since nothing here seeds a `drafting` row by
+    hand instead of through a real nomination.
+    """
     def check(home):
         old_correction(home)
         sp = Spawner()

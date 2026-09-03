@@ -557,8 +557,8 @@ def run(data):
         print(json.dumps({"decision": "block", "reason": reason}))
 
     _reconcile_c2(session, cwd, rows, now, final)
-    _nominate_corrections(data, session, cwd, now, final, busy)
-    _spawn_drafts(data, session, cwd, signal_rows, drafted, busy)
+    nominated = _nominate_corrections(data, session, cwd, now, final, busy)
+    _spawn_drafts(data, session, cwd, signal_rows, drafted, busy or nominated)
     if final:
         # Breadcrumbs are scratch. The drafts row -- the recurrence memory --
         # is deliberately not pruned, here or anywhere.
