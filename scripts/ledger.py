@@ -83,6 +83,26 @@ CREATE TABLE IF NOT EXISTS signals (
   ts TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_signals_session ON signals(session, id);
+-- Scratch, like `signals`: pruned at SessionEnd and swept by TTL at sync.
+-- Not `events` rows -- events.skill is NOT NULL and an edit belongs to no
+-- skill. `prompt_id` is nullable because not every hook payload carries one.
+CREATE TABLE IF NOT EXISTS edits (
+  id INTEGER PRIMARY KEY,
+  session TEXT NOT NULL,
+  prompt_id TEXT,
+  path TEXT NOT NULL,
+  ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_edits_session ON edits(session, id);
+CREATE TABLE IF NOT EXISTS corrections (
+  id INTEGER PRIMARY KEY,
+  session TEXT NOT NULL,
+  what TEXT NOT NULL,
+  status TEXT NOT NULL,      -- pending | nominated | discarded
+  corroborated INTEGER,      -- NULL until evaluated, then 0 or 1
+  ts TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_corrections_session ON corrections(session, id);
 CREATE TABLE IF NOT EXISTS drafts (
   id INTEGER PRIMARY KEY,
   session TEXT,
@@ -511,6 +531,119 @@ def log_signal(session, target, ok, *, ts=None, path=None):
         with con:
             con.execute("INSERT INTO signals (session, target, ok, ts)"
                         " VALUES (?,?,?,?)", (session, target, 1 if ok else 0, ts))
+    finally:
+        con.close()
+
+
+MAX_CORRECTION_CHARS = 500
+
+
+def log_edit(session, file_path, prompt_id=None, *, ts=None, path=None):
+    """One file-edit breadcrumb. Scratch, never an `events` row.
+
+    `file_path` is the file the model edited; `path` is the database, per
+    this module's convention.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            con.execute("INSERT INTO edits (session, prompt_id, path, ts)"
+                        " VALUES (?,?,?,?)", (session, prompt_id, file_path, ts))
+    finally:
+        con.close()
+
+
+def open_correction(session, what, *, ts=None, path=None):
+    """Record a claimed correction as pending; returns its row id.
+
+    `what` is model-written free text -- capped here rather than at the call
+    site so every path into the table is bounded.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            cur = con.execute(
+                "INSERT INTO corrections (session, what, status, ts)"
+                " VALUES (?,?,'pending',?)",
+                (session, str(what)[:MAX_CORRECTION_CHARS], ts))
+            return cur.lastrowid
+    finally:
+        con.close()
+
+
+def pending_corrections(session, *, path=None):
+    """[(id, what, ts)] still awaiting a verdict, oldest first."""
+    con = connect(path)
+    try:
+        return con.execute(
+            "SELECT id, what, ts FROM corrections"
+            " WHERE session = ? AND status = 'pending' ORDER BY id",
+            (session,)).fetchall()
+    finally:
+        con.close()
+
+
+def close_correction(cid, status, corroborated=None, *, path=None):
+    """Settle one correction. `corroborated` is recorded, never a gate."""
+    con = connect(path)
+    try:
+        with con:
+            con.execute(
+                "UPDATE corrections SET status = ?, corroborated = ?"
+                " WHERE id = ?",
+                (status,
+                 None if corroborated is None else (1 if corroborated else 0),
+                 cid))
+    finally:
+        con.close()
+
+
+def edit_count_since(session, ts, *, path=None):
+    """How many files this session edited after `ts` -- the cost floor."""
+    con = connect(path)
+    try:
+        return con.execute(
+            "SELECT COUNT(*) FROM edits WHERE session = ? AND ts > ?",
+            (session, ts)).fetchone()[0]
+    finally:
+        con.close()
+
+
+def rework_after(session, ts, *, path=None):
+    """True if a file edited before `ts` was edited again after it.
+
+    Rework, not activity: more edits to *other* files is ordinary progress,
+    while the same file coming back is what a correction looks like.
+    """
+    con = connect(path)
+    try:
+        return con.execute(
+            "SELECT EXISTS (SELECT 1 FROM edits a JOIN edits b"
+            "  ON a.path = b.path AND a.session = b.session"
+            " WHERE a.session = ? AND a.ts <= ? AND b.ts > ?)",
+            (session, ts, ts)).fetchone()[0] == 1
+    finally:
+        con.close()
+
+
+def prune_scratch(session=None, older_than_hours=None, path=None):
+    """Delete scratch: one finished session's, or anything past the TTL.
+
+    ponytail: DELETEs, no VACUUM -- the same reasoning as prune_signals.
+    """
+    con = connect(path)
+    try:
+        with con:
+            if session is not None:
+                con.execute("DELETE FROM edits WHERE session = ?", (session,))
+                con.execute("DELETE FROM corrections WHERE session = ?", (session,))
+            if older_than_hours is not None:
+                cutoff = (now_utc() - datetime.timedelta(hours=older_than_hours)
+                          ).isoformat(timespec="seconds")
+                con.execute("DELETE FROM edits WHERE ts < ?", (cutoff,))
+                con.execute("DELETE FROM corrections WHERE ts < ?", (cutoff,))
     finally:
         con.close()
 

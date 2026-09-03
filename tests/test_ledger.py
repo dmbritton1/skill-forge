@@ -781,6 +781,135 @@ def test_usage_for_ignores_symptom_only_sessions():
         assert u["sessions"] == 0, u
         assert u["neither"] == 0, u
 
+
+def test_log_edit_writes_a_row():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_edit("s1", "scripts/a.py", "p1", path=db)
+        con = ledger.connect(db)
+        rows = con.execute(
+            "SELECT session, prompt_id, path FROM edits").fetchall()
+        con.close()
+        assert rows == [("s1", "p1", "scripts/a.py")], rows
+
+
+def test_log_edit_allows_a_missing_prompt_id():
+    """Stop may not carry prompt_id; the column is nullable on purpose."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_edit("s1", "scripts/a.py", path=db)
+        con = ledger.connect(db)
+        assert con.execute("SELECT prompt_id FROM edits").fetchone() == (None,)
+        con.close()
+
+
+def test_open_and_read_pending_corrections():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        a = ledger.open_correction("s1", "wrong API field", ts="2026-09-03T10:00:00+00:00", path=db)
+        b = ledger.open_correction("s1", "wrong auth header", ts="2026-09-03T10:05:00+00:00", path=db)
+        got = ledger.pending_corrections("s1", path=db)
+        assert [g[0] for g in got] == [a, b], got          # oldest first
+        assert got[0][1] == "wrong API field", got
+        assert got[0][2] == "2026-09-03T10:00:00+00:00", got
+
+
+def test_pending_corrections_ignores_other_sessions_and_closed_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.open_correction("other", "not mine", path=db)
+        cid = ledger.open_correction("s1", "mine", path=db)
+        assert len(ledger.pending_corrections("s1", path=db)) == 1
+        ledger.close_correction(cid, "nominated", corroborated=True, path=db)
+        assert ledger.pending_corrections("s1", path=db) == []
+
+
+def test_close_correction_records_status_and_corroboration():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        cid = ledger.open_correction("s1", "mine", path=db)
+        ledger.close_correction(cid, "nominated", corroborated=False, path=db)
+        con = ledger.connect(db)
+        row = con.execute(
+            "SELECT status, corroborated FROM corrections WHERE id = ?",
+            (cid,)).fetchone()
+        con.close()
+        assert row == ("nominated", 0), row
+
+
+def test_corroboration_is_null_until_evaluated():
+    """A pending correction has no verdict yet -- 0 and NULL are different facts."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        cid = ledger.open_correction("s1", "mine", path=db)
+        con = ledger.connect(db)
+        row = con.execute(
+            "SELECT corroborated FROM corrections WHERE id = ?", (cid,)).fetchone()
+        con.close()
+        assert row == (None,), row
+
+
+def test_edit_count_since_counts_only_later_edits_in_this_session():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_edit("s1", "a.py", ts="2026-09-03T10:00:00+00:00", path=db)
+        ledger.log_edit("s1", "b.py", ts="2026-09-03T10:10:00+00:00", path=db)
+        ledger.log_edit("s1", "c.py", ts="2026-09-03T10:20:00+00:00", path=db)
+        ledger.log_edit("other", "d.py", ts="2026-09-03T10:20:00+00:00", path=db)
+        assert ledger.edit_count_since("s1", "2026-09-03T10:05:00+00:00", path=db) == 2
+
+
+def test_rework_after_needs_the_same_file_on_both_sides():
+    """Rework means a file touched again -- not merely more edits."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_edit("s1", "a.py", ts="2026-09-03T10:00:00+00:00", path=db)
+        ledger.log_edit("s1", "a.py", ts="2026-09-03T10:10:00+00:00", path=db)
+        assert ledger.rework_after("s1", "2026-09-03T10:05:00+00:00", path=db) is True
+
+
+def test_rework_after_is_false_when_later_edits_touch_other_files():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_edit("s1", "a.py", ts="2026-09-03T10:00:00+00:00", path=db)
+        ledger.log_edit("s1", "b.py", ts="2026-09-03T10:10:00+00:00", path=db)
+        assert ledger.rework_after("s1", "2026-09-03T10:05:00+00:00", path=db) is False
+
+
+def test_rework_after_ignores_other_sessions():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_edit("s1", "a.py", ts="2026-09-03T10:00:00+00:00", path=db)
+        ledger.log_edit("other", "a.py", ts="2026-09-03T10:10:00+00:00", path=db)
+        assert ledger.rework_after("s1", "2026-09-03T10:05:00+00:00", path=db) is False
+
+
+def test_prune_scratch_clears_both_tables_for_one_session():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_edit("s1", "a.py", path=db)
+        ledger.open_correction("s1", "mine", path=db)
+        ledger.log_edit("keep", "b.py", path=db)
+        ledger.prune_scratch(session="s1", path=db)
+        con = ledger.connect(db)
+        assert con.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM corrections").fetchone()[0] == 0
+        con.close()
+
+
+def test_prune_scratch_sweeps_by_ttl():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        old = (ledger.now_utc() - datetime.timedelta(hours=48)).isoformat(timespec="seconds")
+        ledger.log_edit("s1", "a.py", ts=old, path=db)
+        ledger.open_correction("s1", "stale", ts=old, path=db)
+        ledger.log_edit("s1", "b.py", path=db)
+        ledger.prune_scratch(older_than_hours=24, path=db)
+        con = ledger.connect(db)
+        assert con.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM corrections").fetchone()[0] == 0
+        con.close()
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
