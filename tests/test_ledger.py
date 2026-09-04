@@ -379,7 +379,7 @@ def test_validations_never_reach_skill_confidence():
     """A failed validation must not be counted as a real-session failure.
 
     skill_confidence counts outcome='failure' across events. This is the
-    same trap the `signals` table was kept out of events to avoid.
+    same trap the scratch tables are kept out of events to avoid.
     """
     def check(home):
         ledger.log_event("detection", "w", outcome="success", session="s1")

@@ -420,12 +420,19 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--project-root")
     args = ap.parse_args(argv)
+    # Outside the try, and first: this note is the ONLY delivery path for the
+    # capture trigger, and it has no dependency on sync's results. Inside the
+    # try, one unreadable SKILL.md anywhere in the store -- a stray non-UTF-8
+    # byte is enough -- aborts sync() before the print and silently disables
+    # capture for every session and every compaction thereafter, reporting the
+    # loss only on stderr. That is precisely the never-fires failure this
+    # trigger was written to replace.
+    print(CORRECTION_NOTE)
     try:
         counts = sync(project_root=args.project_root)
         if counts["quarantined"]:
             print("skillforge: %d skill(s) quarantined pending /skillforge:review"
                   % counts["quarantined"])
-        print(CORRECTION_NOTE)
         # One of each per session, and this is what makes that true:
         # SessionStart runs main() once, while sync() itself runs again after
         # every save and delete. Detached, never waited on -- an executable run

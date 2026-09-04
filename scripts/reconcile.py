@@ -106,7 +106,7 @@ def draft_blockers(con, session):
     """(signatures already drafted this session, is a drafter still running).
 
     One draft per target per session, and one drafter at a time -- a session
-    with five signals must not fan out five `claude` processes.
+    with five settled corrections must not fan out five `claude` processes.
     """
     done = {r[0] for r in con.execute(
         "SELECT signature FROM drafts WHERE session = ?", (session,))}
@@ -413,8 +413,7 @@ def _nominate_corrections(data, session, cwd, now, final, busy):
             except Exception:
                 pass
         ledger.close_correction(cid, "nominated", corroborated=corroborated)
-        return True     # one drafter at a time, even with several pending
-    return False
+        return          # one drafter at a time, even with several pending
 
 
 def reason_text(draft_id, name, path, repeats):

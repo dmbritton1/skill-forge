@@ -530,8 +530,11 @@ def log_edit(session, file_path, prompt_id=None, *, ts=None, path=None):
 def open_correction(session, what, *, ts=None, path=None):
     """Record a claimed correction as pending; returns its row id.
 
-    `what` is model-written free text -- capped here rather than at the call
-    site so every path into the table is bounded.
+    `what` is model-written free text, and it reaches a drafting prompt --
+    capped AND whitespace-flattened here rather than at the call site so every
+    path into the table is bounded. Flattening is the load-bearing half: a
+    multi-line `what` can otherwise forge the prompt's own delimiters and
+    front-matter, and 500 characters is plenty of room to do it in.
     """
     ts = ts or now_utc().isoformat(timespec="seconds")
     con = connect(path)
@@ -540,7 +543,8 @@ def open_correction(session, what, *, ts=None, path=None):
             cur = con.execute(
                 "INSERT INTO corrections (session, what, status, ts)"
                 " VALUES (?,?,'pending',?)",
-                (session, str(what)[:MAX_CORRECTION_CHARS], ts))
+                (session, " ".join(str(what).split())[:MAX_CORRECTION_CHARS],
+                 ts))
             return cur.lastrowid
     finally:
         con.close()
@@ -574,7 +578,12 @@ def close_correction(cid, status, corroborated=None, *, path=None):
 
 
 def edit_count_since(session, ts, *, path=None):
-    """How many files this session edited after `ts` -- the cost floor."""
+    """How many edit rows this session wrote after `ts` -- the cost floor.
+
+    Rows, not distinct files: five edits to one file clear a floor of two.
+    That is deliberate -- the floor prices effort, and corroboration (which
+    does key on path) is recorded separately.
+    """
     con = connect(path)
     try:
         return con.execute(

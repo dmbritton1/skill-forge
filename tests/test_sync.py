@@ -1079,6 +1079,33 @@ def test_the_note_carries_a_do_not_log_list():
     assert "typo" in low, sync.CORRECTION_NOTE
 
 
+def test_the_note_is_delivered_even_when_sync_fails():
+    """The note is the ONLY delivery path for the capture trigger.
+
+    sync() reads every SKILL.md in the store unguarded, so one non-UTF-8 byte
+    anywhere aborts it. If the print sits inside that try, capture is silently
+    dead for every session and every compaction thereafter -- the exact
+    never-fires failure this trigger was written to replace.
+    """
+    def check(home):
+        real = sync.sync
+
+        def boom(*a, **k):
+            raise OSError("simulated unreadable SKILL.md")
+
+        sync.sync = boom
+        try:
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc = sync.main([])
+        finally:
+            sync.sync = real
+        assert rc == 0, rc
+        assert ".claude/skillforge/session-usage.jsonl" in out.getvalue(), \
+            out.getvalue()
+    in_sandbox(check)
+
+
 def test_the_note_stays_within_budget():
     """~100 tokens; it is charged at every SessionStart and every compaction."""
     assert len(sync.CORRECTION_NOTE) <= 800, len(sync.CORRECTION_NOTE)

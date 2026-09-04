@@ -1140,6 +1140,86 @@ def test_only_one_drafter_runs_at_a_time():
     in_sandbox(check)
 
 
+# The three tests below covered _spawn_drafts before it was deleted. The
+# branches they pin are NOT gone -- _nominate_corrections carries the same
+# spawn-failure handling, and reap_stale_drafts is still called from run() --
+# so they are restored against the correction path rather than dropped with
+# the trigger they used to reach.
+
+
+def test_a_failed_spawn_marks_the_row_failed():
+    """A drafter that never starts must not leave the session wedged.
+
+    The row is created before the spawn, so an OSError with no handler would
+    leave a permanent 'drafting' row and block every later nomination in the
+    session.
+    """
+    def check(home):
+        old_correction(home)
+        sp = Spawner(explode=True)
+        with_spawner(sp, lambda: stop_in(home))
+        assert len(sp.calls) == 1, sp.calls
+        assert [r[2] for r in draft_rows()] == ["failed"], draft_rows()
+        assert correction_rows()[0][2] == "nominated", correction_rows()
+    in_sandbox(check)
+
+
+def test_a_second_correction_is_deferred_not_dropped():
+    """`busy` defers the runner-up; it must still be there once the lock lifts.
+
+    Dropping it would silently discard the correction the user actually cared
+    about whenever two settle in one session.
+    """
+    def check(home):
+        old_correction(home)
+        ledger.open_correction("s1", "second thing", ts=ago(500))
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        assert len(sp.calls) == 1, sp.calls
+        pending = [c for c in correction_rows() if c[1] == "second thing"]
+        assert pending and pending[0][2] == "pending", correction_rows()
+
+        # The drafter finishes; the next Stop picks up the one that waited.
+        for did, _sig, status in [(r[0], r[1], r[2]) for r in _draft_ids()]:
+            if status == "drafting":
+                ledger.set_draft_status(did, "ready", name="w",
+                                        draft_path="/tmp/d.md")
+        sp2 = Spawner()
+        with_spawner(sp2, lambda: stop_in(home))
+        assert len(sp2.calls) == 1, sp2.calls
+        argv = sp2.calls[0]
+        assert "second thing" in argv, argv
+    in_sandbox(check)
+
+
+def test_a_reaped_drafter_unblocks_the_session():
+    """A drafter killed by a reboot must not wedge the session forever."""
+    def check(home):
+        old_correction(home)
+        did = ledger.open_draft("s1", "old")     # still 'drafting', and stale
+        con = ledger.connect()
+        with con:
+            con.execute("UPDATE drafts SET ts = ? WHERE id = ?",
+                        (ago(reconcile.DRAFT_TIMEOUT_S
+                             + reconcile.DRAFT_REAP_SLACK_S + 60), did))
+        con.close()
+        sp = Spawner()
+        with_spawner(sp, lambda: stop_in(home))
+        assert len(sp.calls) == 1, sp.calls
+        got = {r[0]: r[2] for r in _draft_ids()}
+        assert got[did] == "failed", got
+    in_sandbox(check)
+
+
+def _draft_ids():
+    con = ledger.connect()
+    try:
+        return con.execute(
+            "SELECT id, signature, status FROM drafts ORDER BY id").fetchall()
+    finally:
+        con.close()
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
