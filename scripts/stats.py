@@ -10,15 +10,6 @@ rather than a hedged rate -- a number on screen gets read as a number.
 Two of spec 14's eleven metrics have no instrument behind them and are
 printed as such rather than omitted, so the gap stays visible.
 """
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import ledger
-import library
-import retrieve
-import trust
-
 # The floor below which no percentage is printed. Chosen as the low end of
 # the range spec 1.1 already calls insufficient (5-15 lifetime events), not
 # derived from anything -- worth revisiting against real volume rather than
