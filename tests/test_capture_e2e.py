@@ -1,6 +1,7 @@
-"""Breadcrumb to delivered draft, through the real hook entry points.
+"""Correction to delivered draft, through the real hook entry points.
 Run: python3 tests/test_capture_e2e.py
 """
+import datetime
 import io
 import json
 import os
@@ -10,7 +11,6 @@ import tempfile
 from contextlib import redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
-import detect
 import draft
 import ledger
 import reconcile
@@ -57,10 +57,24 @@ def empty_triggers(home):
                                          encoding="utf-8")
 
 
-def bash(command, is_error):
-    detect.run({"session_id": "s1", "tool_name": "Bash",
-                "tool_input": {"command": command},
-                "tool_response": {"is_error": is_error, "stdout": "..."}})
+def ago(seconds):
+    return (ledger.now_utc() - datetime.timedelta(seconds=seconds)).isoformat(
+        timespec="seconds")
+
+
+def old_correction(session="s1", what="used the wrong flush order", secs=400):
+    """A correction old enough to have settled, with edits after it.
+
+    Backdated through the ledger API directly rather than the scratch marker
+    file: the marker-to-table ingestion path is already covered in
+    tests/test_reconcile.py (test_a_correction_lands_in_the_table_at_stop and
+    friends), and threading real wall-clock delays through detect.run here
+    would make the edit-count-since-correction comparison race the test's
+    own execution speed, since ledger timestamps are second-truncated.
+    """
+    ledger.open_correction(session, what, ts=ago(secs))
+    ledger.log_edit(session, "widget.py", ts=ago(secs - 10))
+    ledger.log_edit(session, "widget.py", ts=ago(secs - 20))
 
 
 def write_transcript(home):
@@ -71,10 +85,10 @@ def write_transcript(home):
     design -- a model call with nothing to distill invents a skill). The
     lines here carry no parseable `timestamp`, so transcript_slice falls
     through to its undated tail fallback and returns this text whole,
-    regardless of the signal's since/until window.
+    regardless of the correction's since/until window.
     """
     p = home / "transcript.jsonl"
-    p.write_text("widget flush before pool close, then teardown\n",
+    p.write_text("corrected the flush order, then fixed widget.py\n",
                  encoding="utf-8")
     return str(p)
 
@@ -92,8 +106,9 @@ def inline_drafter(reply):
     return spawn
 
 
-def stop(**extra):
-    data = {"session_id": "s1", "cwd": ".", "hook_event_name": "Stop"}
+def stop(home, final=False, **extra):
+    data = {"session_id": "s1", "cwd": str(home),
+            "hook_event_name": "SessionEnd" if final else "Stop"}
     data.update(extra)
     out = io.StringIO()
     with redirect_stdout(out):
@@ -110,17 +125,16 @@ def with_spawner(spawn, fn):
         reconcile._spawn = real
 
 
-def test_struggle_becomes_a_delivered_draft():
+def test_correction_becomes_a_delivered_draft():
     def check(home):
         empty_triggers(home)
-        bash("python3 tests/test_widget.py", True)
-        bash("python3 tests/test_widget.py", True)
-        bash("python3 tests/test_widget.py", False)
-
-        # First Stop: the signal fires and the drafter runs (inline here).
+        old_correction()
         transcript = write_transcript(home)
+
+        # A settled Stop: the correction nominates and the drafter runs
+        # (inline here, in place of the detached `claude -p` process).
         assert with_spawner(inline_drafter(DRAFTED),
-                             lambda: stop(transcript_path=transcript)) == ""
+                             lambda: stop(home, transcript_path=transcript)) == ""
 
         con = ledger.connect()
         try:
@@ -130,8 +144,9 @@ def test_struggle_becomes_a_delivered_draft():
             con.close()
         assert (status, name) == ("ready", "pool-close-order")
 
-        # Second Stop: the finished draft interrupts.
-        payload = json.loads(with_spawner(inline_drafter(DRAFTED), stop))
+        # Next Stop: the finished draft interrupts.
+        payload = json.loads(with_spawner(inline_drafter(DRAFTED),
+                                          lambda: stop(home)))
         assert payload["decision"] == "block"
         assert "pool-close-order" in payload["reason"]
 
@@ -141,29 +156,14 @@ def test_struggle_becomes_a_delivered_draft():
     in_sandbox(check)
 
 
-def test_an_aborted_draft_never_interrupts():
+def test_a_correction_below_the_cost_floor_never_drafts():
+    """One edit is a typo fix, not a lesson -- and not worth a model call."""
     def check(home):
         empty_triggers(home)
-        for ok in (False, False, True):
-            bash("python3 tests/test_widget.py", not ok)
-        transcript = write_transcript(home)
-        with_spawner(inline_drafter("ABORT: a fresh Claude would know this"),
-                     lambda: stop(transcript_path=transcript))
-        assert with_spawner(inline_drafter("unused"), stop) == ""
-        con = ledger.connect()
-        try:
-            assert con.execute("SELECT status FROM drafts").fetchone()[0] == "aborted"
-        finally:
-            con.close()
-    in_sandbox(check)
-
-
-def test_a_one_shot_failure_never_drafts():
-    def check(home):
-        empty_triggers(home)
-        bash("python3 tests/test_widget.py", True)
-        bash("python3 tests/test_widget.py", False)
-        assert with_spawner(inline_drafter(DRAFTED), stop) == ""
+        ledger.open_correction("s1", "tiny", ts=ago(400))
+        ledger.log_edit("s1", "widget.py", ts=ago(380))
+        assert with_spawner(inline_drafter(DRAFTED),
+                            lambda: stop(home, final=True)) == ""
         con = ledger.connect()
         try:
             assert con.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 0
@@ -172,18 +172,18 @@ def test_a_one_shot_failure_never_drafts():
     in_sandbox(check)
 
 
-def test_session_end_clears_the_breadcrumbs_but_keeps_the_draft():
+def test_session_end_clears_the_scratch_but_keeps_the_draft():
     def check(home):
         empty_triggers(home)
-        for ok in (False, False, True):
-            bash("python3 tests/test_widget.py", not ok)
+        old_correction()
         transcript = write_transcript(home)
-        with_spawner(inline_drafter(DRAFTED), lambda: stop(transcript_path=transcript))
-        with_spawner(inline_drafter(DRAFTED), lambda: reconcile.run(
-            {"session_id": "s1", "cwd": ".", "hook_event_name": "SessionEnd"}))
+        with_spawner(inline_drafter(DRAFTED),
+                     lambda: stop(home, transcript_path=transcript))
+        with_spawner(inline_drafter(DRAFTED), lambda: stop(home, final=True))
         con = ledger.connect()
         try:
-            assert con.execute("SELECT COUNT(*) FROM signals").fetchone()[0] == 0
+            assert con.execute("SELECT COUNT(*) FROM edits").fetchone()[0] == 0
+            assert con.execute("SELECT COUNT(*) FROM corrections").fetchone()[0] == 0
             assert con.execute("SELECT COUNT(*) FROM drafts").fetchone()[0] == 1
         finally:
             con.close()

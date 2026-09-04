@@ -92,9 +92,9 @@ def test_transcript_slice_of_a_missing_file_is_empty():
 
 
 def test_evidence_window_covers_the_whole_second_until_names():
-    """Signal stamps are second-truncated; transcript stamps are not.
+    """Caller-supplied stamps are second-truncated; transcript stamps are not.
 
-    ledger.log_signal stores isoformat(timespec="seconds"), so `until` names
+    Callers pass isoformat(timespec="seconds") stamps, so `until` names
     a second, not an instant. Compared closed against microsecond transcript
     entries it excludes the rest of its own second -- which is exactly where
     the entry for the command that finally PASSED lives, since the breadcrumb

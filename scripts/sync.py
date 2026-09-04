@@ -100,7 +100,7 @@ UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0,
            "last_used": ""}
 # Catches sessions that died without a clean SessionEnd -- a crash, a kill,
 # a closed terminal. A day is long enough that no live session is swept.
-SIGNAL_TTL_HOURS = 24
+SCRATCH_TTL_HOURS = 24
 
 # SessionStart is one of the few events whose stdout becomes visible context,
 # and it fires again with source="compact" after every compaction -- so this
@@ -405,9 +405,9 @@ def sync(project_root=None):
         print("skillforge: candidate select failed: %s" % err, file=sys.stderr)
     _cleanup_state()
     try:
-        ledger.prune_signals(older_than_hours=SIGNAL_TTL_HOURS)
+        ledger.prune_scratch(older_than_hours=SCRATCH_TTL_HOURS)
     except Exception:
-        pass    # a stale breadcrumb is harmless; a failed sync is not
+        pass    # stale scratch is harmless; a failed sync is not
     return counts
 
 

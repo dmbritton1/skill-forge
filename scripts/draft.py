@@ -59,10 +59,10 @@ def _tail_bytes(lines, cap):
 
 
 def evidence_window(since_str, until_str):
-    """(since, until) for the evidence slice, from two signal timestamps.
+    """(since, until) for the evidence slice, from two caller-supplied timestamps.
 
-    ledger.log_signal stores isoformat(timespec="seconds"), so both stamps
-    name a SECOND, not an instant, while transcript entries carry
+    Callers pass isoformat(timespec="seconds") stamps, so both name a
+    SECOND, not an instant, while transcript entries carry
     microseconds. Comparing them closed against the truncated `until` drops
     the rest of that second -- and that is precisely where the entry for the
     command that finally passed lives, because the breadcrumb is written from

@@ -405,64 +405,6 @@ def test_verdicts_are_scoped_to_their_own_session():
     in_sandbox(check)
 
 
-def sig(target, ok, ts="2026-08-24T10:00:00+00:00"):
-    return (target, 1 if ok else 0, ts)
-
-
-def test_two_failures_then_success_is_a_signal():
-    out = reconcile.struggle_targets([
-        sig("make test", False, "t1"), sig("make test", False, "t2"),
-        sig("make test", True, "t3")])
-    assert out == [("make test", "t1", "t3")]
-
-
-def test_one_failure_then_success_is_not_a_struggle():
-    assert reconcile.struggle_targets([
-        sig("make test", False, "t1"), sig("make test", True, "t2")]) == []
-
-
-def test_success_resets_the_streak():
-    """fail, pass, fail, pass never reaches two consecutive failures."""
-    assert reconcile.struggle_targets([
-        sig("t", False, "t1"), sig("t", True, "t2"),
-        sig("t", False, "t3"), sig("t", True, "t4")]) == []
-
-
-def test_failures_without_a_fix_produce_nothing():
-    assert reconcile.struggle_targets([
-        sig("t", False, "t1"), sig("t", False, "t2"), sig("t", False, "t3")]) == []
-
-
-def test_interleaved_targets_are_tracked_separately():
-    out = reconcile.struggle_targets([
-        sig("a", False, "1"), sig("b", False, "2"),
-        sig("a", False, "3"), sig("b", True, "4"),
-        sig("a", True, "5")])
-    assert out == [("a", "1", "5")]
-
-
-def test_three_failures_then_success_still_signals():
-    out = reconcile.struggle_targets([
-        sig("t", False, "1"), sig("t", False, "2"),
-        sig("t", False, "3"), sig("t", True, "4")])
-    assert out == [("t", "1", "4")]
-
-
-def test_repeat_struggle_on_one_target_yields_one_signal():
-    out = reconcile.struggle_targets([
-        sig("t", False, "1"), sig("t", False, "2"), sig("t", True, "3"),
-        sig("t", False, "4"), sig("t", False, "5"), sig("t", True, "6")])
-    assert out == [("t", "1", "3")]
-
-
-def test_window_starts_at_the_first_failure_of_the_streak():
-    """A success before the streak must not widen the evidence window."""
-    out = reconcile.struggle_targets([
-        sig("t", True, "1"), sig("t", False, "2"),
-        sig("t", False, "3"), sig("t", True, "4")])
-    assert out == [("t", "2", "4")]
-
-
 def test_draft_blockers_reports_signatures_and_busy():
     def check(home):
         ledger.open_draft("s1", "make test")
@@ -531,12 +473,6 @@ def with_spawner(spawner, fn):
         reconcile._spawn = real
 
 
-def struggle(session="s1", target="make test"):
-    ledger.log_signal(session, target, False)
-    ledger.log_signal(session, target, False)
-    ledger.log_signal(session, target, True)
-
-
 def stop(session="s1", cwd=".", **extra):
     data = {"session_id": session, "cwd": cwd, "hook_event_name": "Stop"}
     data.update(extra)
@@ -550,133 +486,6 @@ def draft_rows():
             "SELECT session, signature, status FROM drafts ORDER BY id").fetchall()
     finally:
         con.close()
-
-
-def arg_of(argv, flag):
-    return argv[argv.index(flag) + 1]
-
-
-def test_a_struggle_spawns_one_drafter():
-    def check(home):
-        write_index(home, [])
-        struggle()
-        sp = Spawner()
-        with_spawner(sp, stop)
-        assert len(sp.calls) == 1
-        assert draft_rows() == [("s1", "make test", "drafting")]
-    in_sandbox(check)
-
-
-def test_spawn_passes_the_draft_id_target_and_window():
-    def check(home):
-        write_index(home, [])
-        struggle()
-        sp = Spawner()
-        with_spawner(sp, lambda: stop(transcript_path="/tmp/t.jsonl"))
-        argv = sp.calls[0]
-        assert "draft.py" in " ".join(argv) and "run" in argv
-        assert arg_of(argv, "--target") == "make test"
-        assert arg_of(argv, "--transcript") == "/tmp/t.jsonl"
-        assert arg_of(argv, "--draft-id") == "1"
-        assert arg_of(argv, "--since") and arg_of(argv, "--until")
-    in_sandbox(check)
-
-
-def test_no_struggle_spawns_nothing():
-    def check(home):
-        write_index(home, [])
-        ledger.log_signal("s1", "make test", False)
-        ledger.log_signal("s1", "make test", True)
-        sp = Spawner()
-        with_spawner(sp, stop)
-        assert sp.calls == [] and draft_rows() == []
-    in_sandbox(check)
-
-
-def test_the_same_target_is_not_drafted_twice():
-    def check(home):
-        write_index(home, [])
-        struggle()
-        with_spawner(Spawner(), stop)
-        ledger.set_draft_status(1, "ready")   # clear `busy`, keep the signature
-        sp = Spawner()
-        with_spawner(sp, stop)
-        assert sp.calls == []
-        assert len(draft_rows()) == 1
-    in_sandbox(check)
-
-
-def test_a_running_drafter_blocks_a_second_spawn():
-    def check(home):
-        write_index(home, [])
-        struggle()
-        struggle(target="make lint")
-        sp = Spawner()
-        with_spawner(sp, stop)
-        assert len(sp.calls) == 1          # one per Stop, even with two signals
-        sp2 = Spawner()
-        with_spawner(sp2, stop)
-        assert sp2.calls == []             # still drafting
-    in_sandbox(check)
-
-
-def test_second_target_drafts_once_the_first_settles():
-    def check(home):
-        write_index(home, [])
-        struggle()
-        struggle(target="make lint")
-        with_spawner(Spawner(), stop)
-        ledger.set_draft_status(1, "ready")
-        sp = Spawner()
-        with_spawner(sp, stop)
-        assert arg_of(sp.calls[0], "--target") == "make lint"
-    in_sandbox(check)
-
-
-def test_a_failed_spawn_marks_the_row_failed():
-    def check(home):
-        write_index(home, [])
-        struggle()
-        with_spawner(Spawner(explode=True), stop)
-        assert draft_rows() == [("s1", "make test", "failed")]
-    in_sandbox(check)
-
-
-def test_a_reaped_drafter_unblocks_the_session():
-    def check(home):
-        write_index(home, [])
-        ledger.open_draft("s1", "old", ts=ago(3600))
-        struggle()
-        sp = Spawner()
-        with_spawner(sp, stop)
-        assert len(sp.calls) == 1
-        assert ("s1", "old", "failed") in draft_rows()
-    in_sandbox(check)
-
-
-def test_signals_are_scoped_to_their_session():
-    def check(home):
-        write_index(home, [])
-        struggle(session="other")
-        sp = Spawner()
-        with_spawner(sp, stop)
-        assert sp.calls == []
-    in_sandbox(check)
-
-
-def test_c2_verdicts_still_land_alongside_a_spawn():
-    """The D1 additions must not displace the reconciler's existing work."""
-    def check(home):
-        repo = git_repo(home / "repo")
-        write_index(home, [TRAP_ENTRY])
-        inject_trap(600)
-        ledger.log_event("detection", "trap", detection="symptom",
-                         trigger="symptom", session="s1", ts=ago(300))
-        struggle()
-        with_spawner(Spawner(), lambda: stop(cwd=str(repo)))
-        assert [r[3] for r in events("reconcile")] == ["failure"]
-        assert len(draft_rows()) == 1
-    in_sandbox(check)
 
 
 def ready_draft(session="s1", signature="make test", name="widget-flush-order"):
@@ -818,41 +627,40 @@ def test_delivery_survives_a_session_with_no_c2_events():
     in_sandbox(check)
 
 
-def signal_sessions():
+def scratch_sessions():
     con = ledger.connect()
     try:
         return [r[0] for r in con.execute(
-            "SELECT session FROM signals ORDER BY id")]
+            "SELECT session FROM edits ORDER BY id")]
     finally:
         con.close()
 
 
-def test_session_end_prunes_this_sessions_breadcrumbs():
+def test_session_end_prunes_this_sessions_scratch():
     def check(home):
         write_index(home, [])
-        struggle(session="s1")
-        struggle(session="s2")
+        ledger.log_edit("s1", "a.py")
+        ledger.log_edit("s2", "a.py")
         with_spawner(Spawner(), lambda: reconcile.run(
             {"session_id": "s1", "cwd": ".", "hook_event_name": "SessionEnd"}))
-        assert set(signal_sessions()) == {"s2"}
+        assert set(scratch_sessions()) == {"s2"}
     in_sandbox(check)
 
 
-def test_stop_does_not_prune_breadcrumbs():
+def test_stop_does_not_prune_scratch():
     def check(home):
         write_index(home, [])
-        struggle()
+        ledger.log_edit("s1", "a.py")
         with_spawner(Spawner(), stop)
-        assert signal_sessions() == ["s1", "s1", "s1"]
+        assert scratch_sessions() == ["s1"]
     in_sandbox(check)
 
 
 def test_session_end_keeps_the_draft_row():
-    """Breadcrumbs are scratch; draft outcomes are the recurrence memory."""
+    """Scratch is pruned at SessionEnd; draft outcomes are the recurrence memory."""
     def check(home):
         write_index(home, [])
-        struggle()
-        with_spawner(Spawner(), stop)
+        ledger.open_draft("s1", "make test")
         with_spawner(Spawner(), lambda: reconcile.run(
             {"session_id": "s1", "cwd": ".", "hook_event_name": "SessionEnd"}))
         assert len(draft_rows()) == 1
@@ -1251,7 +1059,14 @@ def test_a_newer_correction_resets_the_settle_clock():
 
 
 def test_a_correction_below_the_cost_floor_never_nominates():
-    """One trivial edit is a typo fix, not a lesson -- and a model call."""
+    """One trivial edit is a typo fix, not a lesson -- and not a model call.
+
+    Discarding and pruning both happen only at a final Stop, in the same
+    reconcile.run() call -- so a discarded row is pruned as scratch before
+    this test ever gets to look at it. There is no observable "discarded
+    but not yet pruned" state; the absence of both a spawn and a lingering
+    row is the test.
+    """
     def check(home):
         write_index(home, [])
         ledger.open_correction("s1", "tiny", ts=ago(400))
@@ -1259,7 +1074,7 @@ def test_a_correction_below_the_cost_floor_never_nominates():
         sp = Spawner()
         with_spawner(sp, lambda: stop_in(home, final=True))
         assert sp.calls == [], sp.calls
-        assert correction_rows()[0][2] == "discarded", correction_rows()
+        assert correction_rows() == []
     in_sandbox(check)
 
 

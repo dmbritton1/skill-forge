@@ -485,30 +485,30 @@ def test_trusted_outranks_working_for_a_scarce_hot_slot():
     in_sandbox(check)
 
 
-def signal_count():
+def edit_count():
     con = ledger.connect()
     try:
-        return con.execute("SELECT COUNT(*) FROM signals").fetchone()[0]
+        return con.execute("SELECT COUNT(*) FROM edits").fetchone()[0]
     finally:
         con.close()
 
 
-def test_sync_sweeps_breadcrumbs_past_the_ttl():
+def test_sync_sweeps_scratch_past_the_ttl():
     def check(home):
         stale = (datetime.datetime.now(datetime.timezone.utc)
-                 - datetime.timedelta(hours=sync.SIGNAL_TTL_HOURS + 1)
+                 - datetime.timedelta(hours=sync.SCRATCH_TTL_HOURS + 1)
                  ).isoformat(timespec="seconds")
-        ledger.log_signal("dead-session", "make test", False, ts=stale)
+        ledger.log_edit("dead-session", "a.py", ts=stale)
         sync.sync()
-        assert signal_count() == 0
+        assert edit_count() == 0
     in_sandbox(check)
 
 
-def test_sync_keeps_fresh_breadcrumbs():
+def test_sync_keeps_fresh_scratch():
     def check(home):
-        ledger.log_signal("live-session", "make test", False)
+        ledger.log_edit("live-session", "a.py")
         sync.sync()
-        assert signal_count() == 1
+        assert edit_count() == 1
     in_sandbox(check)
 
 

@@ -55,10 +55,6 @@ MAX_DIFF_BYTES = 512 * 1024
 MAX_MARKER_BYTES = 64 * 1024
 MAX_MARKER_NAME = 128
 
-# Two failures on one command, then a success. One failure then a success is
-# not a struggle -- that is the case where the model already knew the answer,
-# and a skill restating it would fail the novelty gate anyway.
-STRUGGLE_FAILURES = 2
 # Wall-clock ceiling on a detached drafter, mirrored in draft.py; the slack
 # is what separates "still working" from "killed by a reboot".
 DRAFT_TIMEOUT_S = 300
@@ -66,7 +62,6 @@ DRAFT_REAP_SLACK_S = 60
 
 SESSION_SQL = ('SELECT event_type, skill, detection, ts, preexisting_fingerprint, "trigger"'
                " FROM events WHERE session = ? ORDER BY id")
-SIGNAL_SQL = "SELECT target, ok, ts FROM signals WHERE session = ? ORDER BY id"
 
 # Deliberately not filtered by session: a drafter that finished after its own
 # session ended is delivered at the first Stop of the next one.
@@ -105,33 +100,6 @@ def session_state(rows):
         elif event_type == "reconcile":
             s["settled"] = True
     return state
-
-
-def struggle_targets(rows):
-    """[(target, first_failure_ts, success_ts)] for each struggle-then-fix.
-
-    A pure function of one session's id-ordered breadcrumbs, which is what
-    makes the whole trigger testable without a session, a subprocess, or a
-    model. The window returned is the evidence slice the drafter reads:
-    from the first failure of the streak to the success that ended it, so a
-    success *before* the streak never widens it.
-
-    One signal per target per session -- a target that struggles twice is
-    still one lesson, and the second draft would restate the first.
-    """
-    streak = {}
-    seen = set()
-    out = []
-    for target, ok, ts in rows:
-        run = streak.get(target)
-        if ok:
-            if run and run[0] >= STRUGGLE_FAILURES and target not in seen:
-                seen.add(target)
-                out.append((target, run[1], ts))
-            streak[target] = None
-        else:
-            streak[target] = [run[0] + 1, run[1]] if run else [1, ts]
-    return out
 
 
 def draft_blockers(con, session):
@@ -449,35 +417,6 @@ def _nominate_corrections(data, session, cwd, now, final, busy):
     return False
 
 
-def _spawn_drafts(data, session, cwd, signal_rows, drafted, busy):
-    """At most one detached drafter per Stop, and one per session at a time."""
-    if busy:
-        return
-    for target, since, until in struggle_targets(signal_rows):
-        if target in drafted:
-            continue
-        try:
-            draft_id = ledger.open_draft(session, target)
-        except Exception as err:
-            print("skillforge: draft row failed: %s" % err, file=sys.stderr)
-            return
-        argv = [sys.executable,
-                str(Path(__file__).resolve().parent / "draft.py"), "run",
-                "--draft-id", str(draft_id), "--target", target,
-                "--transcript", str(data.get("transcript_path") or ""),
-                "--since", str(since), "--until", str(until),
-                "--cwd", str(cwd)]
-        try:
-            _spawn(argv, cwd)
-        except Exception as err:
-            print("skillforge: drafter spawn failed: %s" % err, file=sys.stderr)
-            try:
-                ledger.set_draft_status(draft_id, "failed")
-            except Exception:
-                pass
-        return   # one drafter at a time, even when several targets qualify
-
-
 def reason_text(draft_id, name, path, repeats):
     """What the model is told when a draft is ready.
 
@@ -541,15 +480,14 @@ def run(data):
     try:
         rows = con.execute(SESSION_SQL, (session,)).fetchall()
         reap_stale_drafts(con, now)
-        signal_rows = con.execute(SIGNAL_SQL, (session,)).fetchall()
-        drafted, busy = draft_blockers(con, session)
+        _, busy = draft_blockers(con, session)
         reason = deliver(con, data)
     finally:
         con.close()
 
     # Printed as soon as the connection is closed and the row is already
-    # marked delivered -- not last. _reconcile_c2 and _spawn_drafts below
-    # can both raise (git subprocesses, file reads, Popen), and main()'s
+    # marked delivered -- not last. _reconcile_c2 and _nominate_corrections
+    # below can both raise (git subprocesses, file reads, Popen), and main()'s
     # catch-all would otherwise swallow the exception and lose this
     # delivery permanently: the row already says 'delivered', so a draft
     # that never gets printed is a draft that never reaches the user.
@@ -557,15 +495,14 @@ def run(data):
         print(json.dumps({"decision": "block", "reason": reason}))
 
     _reconcile_c2(session, cwd, rows, now, final)
-    nominated = _nominate_corrections(data, session, cwd, now, final, busy)
-    _spawn_drafts(data, session, cwd, signal_rows, drafted, busy or nominated)
+    _nominate_corrections(data, session, cwd, now, final, busy)
     if final:
-        # Breadcrumbs are scratch. The drafts row -- the recurrence memory --
-        # is deliberately not pruned, here or anywhere.
+        # Edits and corrections are scratch. The drafts row -- the recurrence
+        # memory -- is deliberately not pruned, here or anywhere.
         try:
-            ledger.prune_signals(session=session)
+            ledger.prune_scratch(session=session)
         except Exception as err:
-            print("skillforge: signal prune failed: %s" % err, file=sys.stderr)
+            print("skillforge: scratch prune failed: %s" % err, file=sys.stderr)
     return 0
 
 

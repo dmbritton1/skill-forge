@@ -16,10 +16,7 @@ from pathlib import Path
 # in the Tier A conjunct) requires an explicit one-time DROP + CREATE
 # migration -- not a DROP on every connect(), because detect.py connects on
 # every tool call and DDL means a write transaction.
-# `signals` is deliberately NOT part of `events`: events.skill is NOT NULL and
-# a breadcrumb has no skill, and any breadcrumb carrying outcome='failure'
-# would be counted by skill_confidence and corrupt a real skill's bucket.
-# `validations` is separate for the same reason: a verdict of 'fail' is not a
+# `validations` is deliberately NOT part of `events`: a verdict of 'fail' is not a
 # real-session failure, and skill_confidence counts outcome='failure' across
 # every events row. It is also keyed by content hash, which events has no
 # column for and no reason to grow one.
@@ -75,15 +72,7 @@ SELECT skill, success_sessions, failure_sessions, last_used, fresh,
     ELSE 'unproven'
   END AS organic_bucket
 FROM f;
-CREATE TABLE IF NOT EXISTS signals (
-  id INTEGER PRIMARY KEY,
-  session TEXT NOT NULL,
-  target TEXT NOT NULL,
-  ok INTEGER NOT NULL,
-  ts TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_signals_session ON signals(session, id);
--- Scratch, like `signals`: pruned at SessionEnd and swept by TTL at sync.
+-- Scratch: pruned at SessionEnd and swept by TTL at sync.
 -- Not `events` rows -- events.skill is NOT NULL and an edit belongs to no
 -- skill. `prompt_id` is nullable because not every hook payload carries one.
 CREATE TABLE IF NOT EXISTS edits (
@@ -519,22 +508,6 @@ def parse_ts(value):
     return parsed
 
 
-def log_signal(session, target, ok, *, ts=None, path=None):
-    """One tool-call breadcrumb (slice D1 design 2).
-
-    Scratch, not history: pruned at SessionEnd and swept by TTL at sync.
-    Never an `events` row -- see the note above SCHEMA.
-    """
-    ts = ts or now_utc().isoformat(timespec="seconds")
-    con = connect(path)
-    try:
-        with con:
-            con.execute("INSERT INTO signals (session, target, ok, ts)"
-                        " VALUES (?,?,?,?)", (session, target, 1 if ok else 0, ts))
-    finally:
-        con.close()
-
-
 MAX_CORRECTION_CHARS = 500
 
 
@@ -631,7 +604,8 @@ def rework_after(session, ts, *, path=None):
 def prune_scratch(session=None, older_than_hours=None, path=None):
     """Delete scratch: one finished session's, or anything past the TTL.
 
-    ponytail: DELETEs, no VACUUM -- the same reasoning as prune_signals.
+    ponytail: DELETEs, no VACUUM -- the table is small by construction and
+    never survives a day, so reclaiming pages costs more than it saves.
     """
     con = connect(path)
     try:
@@ -680,25 +654,6 @@ def set_draft_status(draft_id, status, *, name=None, draft_path=None, path=None)
     try:
         with con:
             con.execute("UPDATE drafts SET %s WHERE id = ?" % ", ".join(sets), vals)
-    finally:
-        con.close()
-
-
-def prune_signals(session=None, older_than_hours=None, path=None):
-    """Delete breadcrumbs: one finished session's, or anything past the TTL.
-
-    ponytail: two DELETEs, no VACUUM. The table is small by construction --
-    it never survives a day -- so reclaiming pages costs more than it saves.
-    """
-    con = connect(path)
-    try:
-        with con:
-            if session is not None:
-                con.execute("DELETE FROM signals WHERE session = ?", (session,))
-            if older_than_hours is not None:
-                cutoff = (now_utc() - datetime.timedelta(hours=older_than_hours)
-                          ).isoformat(timespec="seconds")
-                con.execute("DELETE FROM signals WHERE ts < ?", (cutoff,))
     finally:
         con.close()
 

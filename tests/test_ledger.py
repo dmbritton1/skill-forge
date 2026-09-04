@@ -175,15 +175,6 @@ def days_ago(n):
             - datetime.timedelta(days=n)).isoformat(timespec="seconds")
 
 
-def signals(db):
-    con = ledger.connect(db)
-    try:
-        return con.execute(
-            "SELECT session, target, ok FROM signals ORDER BY id").fetchall()
-    finally:
-        con.close()
-
-
 def drafts(db):
     con = ledger.connect(db)
     try:
@@ -192,34 +183,6 @@ def drafts(db):
             " ORDER BY id").fetchall()
     finally:
         con.close()
-
-
-def test_log_signal_roundtrips():
-    with tempfile.TemporaryDirectory() as tmp:
-        db = pathlib.Path(tmp) / "ledger.db"
-        ledger.log_signal("s1", "python3 tests foo py", False, path=db)
-        ledger.log_signal("s1", "python3 tests foo py", True, path=db)
-        assert signals(db) == [("s1", "python3 tests foo py", 0),
-                              ("s1", "python3 tests foo py", 1)]
-
-
-def test_log_signal_coerces_truthiness_to_int():
-    with tempfile.TemporaryDirectory() as tmp:
-        db = pathlib.Path(tmp) / "ledger.db"
-        ledger.log_signal("s1", "t", "yes", path=db)
-        assert signals(db) == [("s1", "t", 1)]
-
-
-def test_signals_never_reach_skill_confidence():
-    """Design decision 11: breadcrumbs must not be able to corrupt a bucket."""
-    with tempfile.TemporaryDirectory() as tmp:
-        db = pathlib.Path(tmp) / "ledger.db"
-        ledger.log_event("detection", "foo", outcome="success", session="s1", path=db)
-        ledger.log_event("detection", "foo", outcome="success", session="s2", path=db)
-        assert bucket_of(db, "foo") == "trusted"
-        for _ in range(20):
-            ledger.log_signal("s1", "foo", False, path=db)
-        assert bucket_of(db, "foo") == "trusted"
 
 
 def test_open_draft_returns_id_and_starts_drafting():
@@ -242,39 +205,6 @@ def test_set_draft_status_touches_only_named_columns():
         ledger.set_draft_status(did, "delivered", path=db)
         assert drafts(db) == [(did, "s1", "make test", "flush-first", "delivered",
                               "/tmp/1.md")]
-
-
-def test_prune_signals_by_session_spares_other_sessions():
-    with tempfile.TemporaryDirectory() as tmp:
-        db = pathlib.Path(tmp) / "ledger.db"
-        ledger.log_signal("s1", "t", False, path=db)
-        ledger.log_signal("s2", "t", False, path=db)
-        ledger.prune_signals(session="s1", path=db)
-        assert signals(db) == [("s2", "t", 0)]
-
-
-def test_prune_signals_by_ttl_spares_fresh_rows():
-    with tempfile.TemporaryDirectory() as tmp:
-        db = pathlib.Path(tmp) / "ledger.db"
-        stale = (datetime.datetime.now(datetime.timezone.utc)
-                 - datetime.timedelta(hours=48)).isoformat(timespec="seconds")
-        ledger.log_signal("old", "t", False, ts=stale, path=db)
-        ledger.log_signal("new", "t", False, path=db)
-        ledger.prune_signals(older_than_hours=24, path=db)
-        assert signals(db) == [("new", "t", 0)]
-
-
-def test_prune_signals_never_touches_events():
-    with tempfile.TemporaryDirectory() as tmp:
-        db = pathlib.Path(tmp) / "ledger.db"
-        ledger.log_event("injection", "foo", session="s1", path=db)
-        ledger.log_signal("s1", "t", False, path=db)
-        ledger.prune_signals(session="s1", older_than_hours=0, path=db)
-        con = ledger.connect(db)
-        try:
-            assert con.execute("SELECT COUNT(*) FROM events").fetchone()[0] == 1
-        finally:
-            con.close()
 
 
 def test_parse_ts_accepts_a_trailing_z():
