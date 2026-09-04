@@ -840,6 +840,58 @@ def test_prune_scratch_sweeps_by_ttl():
         assert con.execute("SELECT COUNT(*) FROM corrections").fetchone()[0] == 0
         con.close()
 
+
+def test_event_totals_counts_by_type_and_detection():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("injection", "a", tier="warm", session="s1", path=db)
+        ledger.log_event("injection", "b", tier="warm", session="s1", path=db)
+        ledger.log_event("detection", "a", detection="marker", session="s1", path=db)
+        ledger.log_event("detection", "a", detection="verification",
+                         outcome="success", session="s1", path=db)
+        t = ledger.event_totals(path=db)
+        assert t["by_type"] == {"injection": 2, "detection": 2}, t
+        assert t["by_detection"] == {"marker": 1, "verification": 1}, t
+
+
+def test_event_totals_counts_null_outcome_as_unknown():
+    """The bug this whole command exists to surface.
+
+    bash_outcome returned None for every call ever made, so every
+    verification landed with a NULL outcome. A report that folded those
+    into 'no successes' would have hidden it; 'unknown' shows it.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        for _ in range(3):
+            ledger.log_event("detection", "a", detection="verification",
+                             session="s1", path=db)
+        t = ledger.event_totals(path=db)
+        assert t["verification_outcomes"] == {
+            "success": 0, "failure": 0, "unknown": 3}, t
+
+
+def test_event_totals_is_all_zeros_on_an_empty_ledger():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        t = ledger.event_totals(path=db)
+        assert t["by_type"] == {}, t
+        assert t["by_detection"] == {}, t
+        assert t["verification_outcomes"] == {
+            "success": 0, "failure": 0, "unknown": 0}, t
+
+
+def test_event_totals_never_raises_into_a_display():
+    """Ledger reads are best-effort; a display gets zeros, not a traceback."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = pathlib.Path(tmp) / "not-a-db"
+        bad.write_text("this is not sqlite")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            t = ledger.event_totals(path=bad)
+        assert t["by_type"] == {}, t
+        assert "skillforge" in err.getvalue(), err.getvalue()
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

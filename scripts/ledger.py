@@ -427,6 +427,44 @@ def usage_for(skill, *, path=None):
     return out
 
 
+def event_totals(*, path=None):
+    """Library-wide event counts; every other accessor here is per-skill.
+
+    A NULL verification outcome is reported as `unknown`, never folded
+    into zero successes. That distinction is the one this command exists
+    to make visible: `bash_outcome` returned None for every call ever
+    made, and a report that showed "0 successes" would have read as a
+    library nobody had used rather than an instrument that was broken.
+
+    Zeros on any failure: this feeds a display, and a read helper that
+    raises would trade a missing number for no output.
+    """
+    out = {"by_type": {}, "by_detection": {},
+           "verification_outcomes": {"success": 0, "failure": 0, "unknown": 0}}
+    try:
+        con = connect(path)
+        try:
+            for et, n in con.execute(
+                    "SELECT event_type, COUNT(*) FROM events"
+                    " GROUP BY event_type"):
+                out["by_type"][et] = n
+            for det, n in con.execute(
+                    "SELECT detection, COUNT(*) FROM events"
+                    " WHERE event_type = 'detection' AND detection IS NOT NULL"
+                    " GROUP BY detection"):
+                out["by_detection"][det] = n
+            for oc, n in con.execute(
+                    "SELECT outcome, COUNT(*) FROM events"
+                    " WHERE event_type = 'detection'"
+                    "   AND detection = 'verification' GROUP BY outcome"):
+                out["verification_outcomes"][oc or "unknown"] = n
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: event totals read failed: %s" % err, file=sys.stderr)
+    return out
+
+
 def record_attempt(skill, content_hash, mode, *, ts=None, path=None):
     """Record that this mode ran against this exact text and got no verdict.
 
