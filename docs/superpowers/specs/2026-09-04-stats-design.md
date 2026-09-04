@@ -53,13 +53,13 @@ Checked against Section 14's eleven:
 | marker compliance-miss rate | measurable |
 | symptom hit rate and re-fire rate | measurable |
 | skill survival rate | measurable |
-| injection tokens per prompt | derivable from index descriptions; no token column exists |
+| **injection tokens per prompt** | **not instrumented** — the payload size is derivable, but nothing counts prompts: `turn` is NULL on every injection row and no code writes it |
 | rediscovery time saved | needs parsing `cost of rediscovery` out of anti-skill bodies |
 | **hot-tier churn** | **not instrumented** — nothing writes a tier-change event |
 | **model-obvious rate** | **not instrumented** — needs the ε-holdouts cut from v0.3 |
 
-Nine work, two cannot. Both gaps are reported in the output rather than
-omitted, per Section 14's own instruction that volume-gated numbers be
+Eight work, three cannot. All three gaps are reported in the output rather
+than omitted, per Section 14's own instruction that volume-gated numbers be
 "visibly marked as placeholders rather than rendered alongside real
 measurements". The rule is stated there for scale; it applies at least as
 strongly to a metric with no instrument at all.
@@ -135,8 +135,8 @@ number.
 5. **Value** — rediscovery time saved: anti-skill `cost of rediscovery` ×
    uses. Reported as a sum with its own sample size, since one anti-skill
    with a large stated cost can dominate it.
-6. **Not measured** — hot-tier churn and model-obvious rate, each naming
-   the instrument it would need.
+6. **Not measured** — hot-tier churn, model-obvious rate, and injection
+   tokens per prompt, each naming the instrument it would need.
 
 An unknown count is never rounded to zero. `verification outcomes: 3 (all
 unknown)` and `verification outcomes: 3 successes` must be visibly
@@ -177,8 +177,10 @@ runner, matching the suite.
 ## Section 14 amendment
 
 Section 14 names hot-tier churn as "the metric to watch" without
-qualification, and nothing writes a tier-change event. It gains a note that
-churn is not instrumented and what it would take. Model-obvious is already
+qualification, and nothing writes a tier-change event. It also names
+injection tokens per prompt as "the ruthlessness metric" while nothing
+counts prompts. Both gain a note that they are not instrumented and what it
+would take. Model-obvious is already
 correctly described there as a placeholder pending volume, so it needs no
 change.
 
