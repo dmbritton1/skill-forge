@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ledger
 import trust
 
 # The floor below which no percentage is printed. Chosen as the low end of
@@ -99,3 +100,50 @@ def section_context(entries, budget):
     return ["CONTEXT COST",
             "  hot skills        %d" % len(hot),
             "  standing tokens   ~%d of %s" % (tokens, budget_txt)]
+
+
+def section_usage(rows, totals):
+    """Injection-to-use, reported warm-only and said so.
+
+    `injection` rows are written for the warm tier alone; hot skills are
+    materialized natively and never produce one, while detections are
+    written for every tier. A library-wide ratio would therefore divide
+    across two different populations and still read as relevance. The
+    same defect class as reading a response key the harness never sends.
+    """
+    inj = totals["by_type"].get("injection", 0)
+    det = totals["by_detection"]
+    used = sum(det.values())
+    lines = ["USAGE",
+             "  warm injections   %d" % inj,
+             "  detections        %s" % _counts(det),
+             "  injection-to-use  %s" % rate(used, inj, "warm injections"),
+             "                    (warm tier only -- hot skills are native"
+             " and log no injection)"]
+
+    # Compliance miss: the skill was used, the marker protocol drifted.
+    miss = seen = 0
+    for r in rows:
+        u = ledger.usage_for(r["name"])
+        miss += u["corroborated_only"]
+        seen += u["both"] + u["corroborated_only"] + u["marker_only"]
+    lines.append("  marker miss       %s" % rate(miss, seen, "used sessions"))
+    return lines
+
+
+def section_outcomes(rows, totals):
+    """What the library's use actually produced.
+
+    `unknown` is printed as its own state and never folded into zero
+    successes: an instrument that records nothing and a library nobody
+    used look identical once you round one into the other.
+    """
+    oc = totals["verification_outcomes"]
+    buckets = _tally(rows, "bucket")
+    saved = totals["by_type"].get("save", 0)
+    trusted = buckets.get("trusted", 0)
+    return ["OUTCOMES",
+            "  verification      success=%d, failure=%d, unknown=%d"
+            % (oc["success"], oc["failure"], oc["unknown"]),
+            "  buckets           %s" % _counts(buckets),
+            "  survival          %s" % rate(trusted, saved, "saved skills")]

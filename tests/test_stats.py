@@ -111,6 +111,48 @@ def test_context_section_handles_a_missing_budget():
     assert text.strip(), text
 
 
+def test_usage_section_labels_the_ratio_warm_only():
+    """Injections are logged for warm tier alone while detections are
+    logged for every tier, so a library-wide ratio would draw its two
+    halves from different populations. Saying 'warm' is the fix."""
+    totals = {"by_type": {"injection": 4, "detection": 2},
+              "by_detection": {"marker": 1, "verification": 1},
+              "verification_outcomes": {"success": 1, "failure": 0,
+                                        "unknown": 0}}
+    text = "\n".join(stats.section_usage([], totals)).lower()
+    assert "warm" in text, text
+
+
+def test_usage_section_withholds_the_rate_on_a_small_sample():
+    totals = {"by_type": {"injection": 4, "detection": 2},
+              "by_detection": {"marker": 1},
+              "verification_outcomes": {"success": 0, "failure": 0,
+                                        "unknown": 0}}
+    text = "\n".join(stats.section_usage([], totals))
+    assert "%" not in text, text
+
+
+def test_outcomes_section_shows_unknown_rather_than_zero_successes():
+    """The regression pin for the bug that motivated this command."""
+    totals = {"by_type": {"detection": 3}, "by_detection": {"verification": 3},
+              "verification_outcomes": {"success": 0, "failure": 0,
+                                        "unknown": 3}}
+    text = "\n".join(stats.section_outcomes([], totals))
+    assert "unknown" in text.lower(), text
+    assert "3" in text, text
+
+
+def test_outcomes_section_reports_survival_without_a_rate_when_small():
+    rows = [{"name": "a", "kind": "skill", "bucket": "trusted", "path": ""},
+            {"name": "b", "kind": "skill", "bucket": "unproven", "path": ""}]
+    totals = {"by_type": {"save": 2}, "by_detection": {},
+              "verification_outcomes": {"success": 0, "failure": 0,
+                                        "unknown": 0}}
+    text = "\n".join(stats.section_outcomes(rows, totals))
+    assert "%" not in text, text
+    assert "trusted" in text, text
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
