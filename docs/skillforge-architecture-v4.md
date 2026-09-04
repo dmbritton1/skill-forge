@@ -80,34 +80,54 @@ Six subsystems: **Capture**, **Distiller**, **Validator**, **Store + Ledger**, *
 
 ## 3. Plugin layout (the engine)
 
+Shipped layout as of v0.2. Entries marked `[v0.3]` are designed but not
+built; nothing else here is aspirational.
+
 ```
 skillforge/
 ├── .claude-plugin/
-│   └── plugin.json
+│   ├── plugin.json
+│   └── marketplace.json
 ├── skills/
 │   ├── distilling-skills/SKILL.md      # teaches Claude the distillation procedure
-│   ├── distilling-failures/SKILL.md    # teaches anti-skill extraction
-│   └── skillforge-usage/SKILL.md       # teaches Claude how to apply/report on skills
+│   └── distilling-failures/SKILL.md    # teaches anti-skill extraction
 ├── commands/
 │   ├── learn.md            # /skillforge:learn   — distill current session (success path)
 │   ├── learn-failure.md    # /skillforge:learn-failure — distill a gotcha/anti-skill
 │   ├── find.md             # /skillforge:find    — search the library (cold-tier pull path)
-│   ├── consolidate.md      # /skillforge:consolidate — dedup, merge, generalize
-│   ├── audit.md            # /skillforge:audit   — review low-confidence & stale skills
+│   ├── library.md          # /skillforge:library — contents, confidence, deletion
 │   ├── review.md           # /skillforge:review  — approve/reject quarantined pulled skills
-│   └── stats.md            # /skillforge:stats   — library health dashboard
+│   ├── consolidate.md      # [v0.3] dedup, merge, generalize
+│   ├── audit.md            # [v0.3] review low-confidence & stale skills
+│   └── stats.md            # [v0.2, last open item] library health dashboard (Section 14)
 ├── hooks/
-│   └── hooks.json          # Stop, UserPromptSubmit, PostToolUse wiring
+│   └── hooks.json          # SessionStart, UserPromptSubmit, PostToolUse, Stop, SessionEnd
 ├── scripts/
-│   ├── retrieve.py         # keyword+embedding matcher used by UserPromptSubmit hook
-│   ├── symptoms.py         # PostToolUse symptom matcher (anti-skill fast path, Section 8.1)
-│   ├── ledger.py           # read/update confidence ledger
+│   ├── retrieve.py         # BM25 matcher for UserPromptSubmit; also carries the
+│   │                       #   marker-protocol preamble (Section 9.1)
+│   ├── patterns.py         # tokenizer + matcher behind symptoms and fingerprints
+│   ├── detect.py           # PostToolUse: symptom fast path, fingerprint and
+│   │                       #   verification matching, edit breadcrumbs (Section 5)
+│   ├── reconcile.py        # Stop/SessionEnd: outcome reconciliation, correction
+│   │                       #   settling and drafter nomination
+│   ├── sync.py             # SessionStart: native materialization, trust gate,
+│   │                       #   correction-mark delivery
+│   ├── draft.py            # the detached drafter (spawned, never inline)
+│   ├── validate.py         # Tier A critique and executable validation
+│   ├── ledger.py           # SQLite event ledger, confidence view, scratch tables
+│   ├── library.py          # library listing and deletion
 │   ├── trust.py            # local trust registry ops + pull quarantine check (Section 11)
-│   ├── secscan.py          # blocking secret scan used by the distiller and write path
-│   ├── capture_check.py    # Stop-hook heuristic: "was this session skill-worthy?"
-│   └── outcome.py          # PostToolUse outcome recorder
+│   ├── save_skill.py       # the ONLY write path into the store (validates + scans)
+│   └── secscan.py          # blocking secret scan used by the distiller and write path
+├── bench/                  # paired A/B harness and pilot results (bench/RESULTS.md)
 └── README.md
 ```
+
+There is no `skillforge-usage` engine skill. The marker protocol it would have
+carried is delivered instead as a preamble on the retrieval injection and
+appended to the materialized hot body — the same instruction at a fraction of
+the standing cost, since an always-loaded engine skill is charged every session
+whether or not a skill is injected.
 
 Notes on the engine:
 
