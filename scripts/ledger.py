@@ -457,7 +457,8 @@ def event_totals(*, path=None):
                     "SELECT outcome, COUNT(*) FROM events"
                     " WHERE event_type = 'detection'"
                     "   AND detection = 'verification' GROUP BY outcome"):
-                out["verification_outcomes"][oc or "unknown"] = n
+                key = oc if oc in ("success", "failure") else "unknown"
+                out["verification_outcomes"][key] += n
         finally:
             con.close()
     except Exception as err:

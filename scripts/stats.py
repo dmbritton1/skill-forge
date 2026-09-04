@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Library health report (spec 14) -- read-only, zero writes.
+"""Library health report (spec 14) -- writes no events.
 
 Counts always print. A percentage prints only when the sample can carry
 one: a count is true at any n, while a rate asserts something stable, and

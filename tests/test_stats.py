@@ -224,6 +224,42 @@ def test_no_percentage_anywhere_in_a_small_sample_report():
     in_sandbox(check)
 
 
+def test_a_percentage_appears_once_the_sample_clears_the_floor():
+    """The load-bearing pair to the small-sample test above.
+
+    Proving "no %" below the floor is only half the rule; nothing else
+    proves a % ever appears once the sample is big enough. A report whose
+    denominators were clamped (e.g. wrapped in `min(x, 9)`) would still
+    pass every "small sample" test and never print a rate at any volume
+    -- this is the test that would catch that.
+
+    Also seeds a mixed outcome set (success, failure, and no outcome at
+    all) in the same ledger and checks the report surfaces all three
+    distinctly: a NULL outcome must show as its own `unknown=N`, never
+    folded into the success or failure count.
+    """
+    def check(home):
+        for i in range(12):
+            ledger.log_event("injection", "a", tier="warm", session="s%d" % i)
+        for i in range(6):
+            ledger.log_event("detection", "a", detection="verification",
+                             outcome="success", session="s%d" % i)
+        for i in range(6, 9):
+            ledger.log_event("detection", "a", detection="verification",
+                             outcome="failure", session="s%d" % i)
+        for i in range(9, 12):
+            ledger.log_event("detection", "a", detection="verification",
+                             session="s%d" % i)
+        text = stats.report()
+        assert "%" in text, text
+        oc_lines = [l for l in text.splitlines() if "success=" in l]
+        assert oc_lines, text
+        assert "success=6" in oc_lines[0], oc_lines[0]
+        assert "failure=3" in oc_lines[0], oc_lines[0]
+        assert "unknown=3" in oc_lines[0], oc_lines[0]
+    in_sandbox(check)
+
+
 def test_main_exits_zero_and_prints_the_report():
     def check(home):
         out = io.StringIO()

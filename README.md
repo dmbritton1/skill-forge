@@ -50,6 +50,8 @@ tree installs in about a second from local storage.
   loaded natively until approved.
 - `/skillforge:find <topic>` — search the whole library (hot + warm) and
   pull anything the automatic paths didn't surface.
+- `/skillforge:stats` — library health: what SkillForge has, what it is
+  being used for, and what is not measured.
 
 Trust model (v0.2): every skill's content hash is registered in a local,
 never-committed `~/.claude/skillforge/trust.json` (self-saves auto-trust).
@@ -213,6 +215,6 @@ Plans and designs live in `docs/superpowers/`. Shipped: v0.1, v0.2 slice A
 (ledger, trust, sync), slice B (retrieval, tiering), slice C1 (detection
 substrate: symptom triggers, verification capture, fingerprint snapshots),
 slice C2 (Stop/SessionEnd reconciler, confidence buckets), slice D1
-(automatic capture), and slice D2 (Tier A validation). Not yet built:
-`/stats` — `/skillforge:library` is a library view, not an analytics
-surface.
+(automatic capture), slice D2 (Tier A validation), and `/stats`
+(spec 14 health report) — `/skillforge:library` remains a library view,
+not an analytics surface.

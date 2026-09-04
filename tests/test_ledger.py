@@ -892,6 +892,26 @@ def test_event_totals_never_raises_into_a_display():
         assert t["by_type"] == {}, t
         assert "skillforge" in err.getvalue(), err.getvalue()
 
+
+def test_event_totals_sums_null_and_empty_outcome_into_unknown():
+    """GROUP BY outcome returns NULL and '' as separate rows; both must
+
+    land in 'unknown' by addition, not overwrite each other -- the bug
+    was `out[key] = n` clobbering the first row's count with the second's.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "a", detection="verification",
+                         outcome=None, session="s1", path=db)
+        ledger.log_event("detection", "a", detection="verification",
+                         outcome="", session="s1", path=db)
+        ledger.log_event("detection", "a", detection="verification",
+                         outcome="", session="s1", path=db)
+        t = ledger.event_totals(path=db)
+        assert t["verification_outcomes"] == {
+            "success": 0, "failure": 0, "unknown": 3}, t
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
