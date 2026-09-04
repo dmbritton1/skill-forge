@@ -1,10 +1,13 @@
 """Tests for the /stats health report. Run: python3 tests/test_stats.py"""
+import io
 import os
 import pathlib
 import sys
 import tempfile
+from contextlib import redirect_stdout
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
+import ledger
 import stats
 import trust
 
@@ -151,6 +154,84 @@ def test_outcomes_section_reports_survival_without_a_rate_when_small():
     text = "\n".join(stats.section_outcomes(rows, totals))
     assert "%" not in text, text
     assert "trusted" in text, text
+
+
+def _antiskill(home, name, minutes):
+    d = home / ".claude" / "skillforge" / "antiskills" / name
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / "SKILL.md"
+    p.write_text("---\nname: %s\nkind: antiskill\n---\n\n## Trap\nx\n\n"
+                 "## Cost of rediscovery\n~%d min (observed in source"
+                 " session)\n" % (name, minutes))
+    return p
+
+
+def test_rediscovery_parses_the_stated_cost():
+    def check(home):
+        p = _antiskill(home, "trap-a", 45)
+        rows = [{"name": "trap-a", "kind": "antiskill", "path": str(p)}]
+        total, n = stats.rediscovery_minutes(rows)
+        assert n == 1, (total, n)
+        assert total >= 0, (total, n)
+    in_sandbox(check)
+
+
+def test_rediscovery_ignores_skills_without_the_heading():
+    def check(home):
+        p = _skill(home, "plain")
+        rows = [{"name": "plain", "kind": "antiskill", "path": str(p)}]
+        assert stats.rediscovery_minutes(rows) == (0, 0)
+    in_sandbox(check)
+
+
+def test_rediscovery_ignores_an_unreadable_path():
+    rows = [{"name": "gone", "kind": "antiskill", "path": "/nope/SKILL.md"}]
+    assert stats.rediscovery_minutes(rows) == (0, 0)
+
+
+def test_unmeasured_section_names_all_three_gaps_and_what_they_need():
+    text = "\n".join(stats.section_unmeasured()).lower()
+    assert "churn" in text, text
+    assert "model-obvious" in text, text
+    assert "holdout" in text, text
+    assert "prompt" in text, text
+    assert "turn" in text, text
+
+
+def test_report_runs_on_an_empty_install_without_crashing():
+    """No index, no store, no ledger -- the first-run case."""
+    def check(home):
+        text = stats.report()
+        assert "LIBRARY" in text, text
+        assert "NOT MEASURED" in text, text
+        assert "%" not in text.split("CONTEXT COST")[0], text
+    in_sandbox(check)
+
+
+def test_no_percentage_anywhere_in_a_small_sample_report():
+    """The small-n rule as a property of the WHOLE render, not one line.
+
+    Testing rate() alone would not catch a section that formats its own
+    percentage and bypasses the helper -- which is exactly how a rule
+    with one carve-out erodes. Seeded well under MIN_RATIO_N.
+    """
+    def check(home):
+        for _ in range(4):
+            ledger.log_event("injection", "a", tier="warm", session="s1")
+            ledger.log_event("detection", "a", detection="verification",
+                             session="s1")
+        assert "%" not in stats.report(), stats.report()
+    in_sandbox(check)
+
+
+def test_main_exits_zero_and_prints_the_report():
+    def check(home):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = stats.main([])
+        assert rc == 0, rc
+        assert "LIBRARY" in out.getvalue(), out.getvalue()
+    in_sandbox(check)
 
 
 if __name__ == "__main__":

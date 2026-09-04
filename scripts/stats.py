@@ -10,11 +10,14 @@ rather than a hedged rate -- a number on screen gets read as a number.
 Two of spec 14's eleven metrics have no instrument behind them and are
 printed as such rather than omitted, so the gap stays visible.
 """
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ledger
+import library
+import retrieve
 import trust
 
 # The floor below which no percentage is printed. Chosen as the low end of
@@ -147,3 +150,84 @@ def section_outcomes(rows, totals):
             % (oc["success"], oc["failure"], oc["unknown"]),
             "  buckets           %s" % _counts(buckets),
             "  survival          %s" % rate(trusted, saved, "saved skills")]
+
+
+# `~<N> min (observed in source session)`, the shape distilling-failures
+# tells the drafter to write. Anchored to the line start so a stray "5 min"
+# elsewhere in the prose cannot be read as the cost.
+COST_RE = re.compile(r"^~?\s*(\d+)\s*min", re.M)
+
+
+def rediscovery_minutes(rows):
+    """(total minutes, anti-skills counted) from stated rediscovery costs.
+
+    Returns the sample size alongside the sum because one anti-skill with
+    a large stated cost can dominate the total, and a bare number would
+    hide that. The costs are model-written estimates from the source
+    session, not measurements -- reported as the claim they are.
+    """
+    total = n = 0
+    for r in rows:
+        if r.get("kind") != "antiskill":
+            continue
+        try:
+            text = Path(r.get("path") or "").read_text(encoding="utf-8")
+        except OSError:
+            continue
+        parts = text.split("## Cost of rediscovery", 1)
+        if len(parts) < 2:
+            continue
+        m = COST_RE.search(parts[1].strip())
+        if not m:
+            continue
+        u = ledger.usage_for(r["name"])
+        uses = u["both"] + u["corroborated_only"] + u["marker_only"]
+        total += int(m.group(1)) * uses
+        n += 1
+    return total, n
+
+
+def section_value(rows):
+    minutes, n = rediscovery_minutes(rows)
+    return ["VALUE",
+            "  rediscovery saved ~%d min across %d anti-skill(s)"
+            % (minutes, n),
+            "                    (self-reported costs x observed uses,"
+            " not measured)"]
+
+
+def section_unmeasured():
+    """Named, not omitted -- spec 14 requires the gaps stay visible."""
+    return ["NOT MEASURED",
+            "  hot-tier churn    no tier-change event is written;"
+            " needs instrumenting sync.py",
+            "  tokens per prompt payload size is derivable, but nothing"
+            " counts prompts (`turn` is never written)",
+            "  model-obvious     needs epsilon-holdouts (v0.3) and team"
+            " volume (spec 1.1)"]
+
+
+def report():
+    rows = library.rows()
+    idx = retrieve.load_index() or {}
+    totals = ledger.event_totals()
+    out = []
+    for block in (section_library(rows),
+                  section_context(idx.get("entries", []),
+                                  idx.get("hot_budget_tokens", 0)),
+                  section_usage(rows, totals),
+                  section_outcomes(rows, totals),
+                  section_value(rows),
+                  section_unmeasured()):
+        out.extend(block)
+        out.append("")
+    return "\n".join(out)
+
+
+def main(argv=None):
+    print(report())
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
