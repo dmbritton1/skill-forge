@@ -1080,7 +1080,7 @@ def test_the_note_carries_a_do_not_log_list():
 
 
 def test_the_note_stays_within_budget():
-    """~150 tokens; it is charged at every SessionStart and every compaction."""
+    """~100 tokens; it is charged at every SessionStart and every compaction."""
     assert len(sync.CORRECTION_NOTE) <= 800, len(sync.CORRECTION_NOTE)
 
 

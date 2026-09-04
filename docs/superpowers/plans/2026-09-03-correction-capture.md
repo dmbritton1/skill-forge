@@ -36,7 +36,7 @@
 | `scripts/reconcile.py` | `read_scratch` (generalises `read_markers`), correction ingest, and nomination + drafter spawn. Later loses `struggle_targets` and `SIGNAL_SQL`. |
 | `scripts/draft.py` | A correction-shaped `PROMPT_HEAD` that does not assert a success happened. |
 | `scripts/sync.py` | `CORRECTION_NOTE` on stdout at SessionStart; prune call repointed. |
-| `docs/skillforge-architecture-v4.md` | §9.1's capture model and §9.3's context budget. |
+| `docs/skillforge-architecture-v4.md` | §5's capture model and §9.3's context budget. |
 
 Tasks are ordered so the replacement works before the old trigger is removed: ledger primitives, then the two recorders, then the drafter prompt, then nomination, then delivery, then removal, then the parent spec.
 
@@ -685,7 +685,7 @@ def read_scratch(cwd):
     for line in text.splitlines():
         try:
             obj = json.loads(line)
-        except ValueError:
+        except Exception:   # json.loads raises RecursionError, not ValueError, on deep nesting
             continue
         if not isinstance(obj, dict):
             continue
@@ -774,7 +774,7 @@ def test_correction_prompt_does_not_claim_a_success_happened():
     and asserting it is how a model is led to invent one."""
     p = draft.build_prompt("wrong auth header", "evidence here", ".",
                            kind="correction")
-    assert "failed repeatedly and then succeeded" not in p, p
+    assert "failed repeatedly and then\nsucceeded" not in p, p
     assert "wrong auth header" in p, p
 
 
@@ -793,7 +793,7 @@ def test_correction_prompt_keeps_the_untrusted_data_warning():
 
 def test_struggle_prompt_is_unchanged_by_default():
     p = draft.build_prompt("python3 tests/test_x.py", "evidence", ".")
-    assert "failed repeatedly and then succeeded" in p, p
+    assert "failed repeatedly and then\nsucceeded" in p, p
 ```
 
 - [ ] **Step 2: Run the tests to verify they fail**
@@ -948,7 +948,7 @@ def test_a_settled_correction_nominates_a_drafter():
         sp = Spawner()
         with_spawner(sp, lambda: stop_in(home))
         assert len(sp.calls) == 1, sp.calls
-        argv = sp.calls[0][0]
+        argv = sp.calls[0]
         assert "--kind" in argv and "correction" in argv, argv
         assert correction_rows()[0][2] == "nominated", correction_rows()
     in_sandbox(check)
@@ -1126,10 +1126,10 @@ def _nominate_corrections(data, session, cwd, now, final, busy):
 In `run()`, replace the `_spawn_drafts(...)` call with:
 
 ```python
-    _nominate_corrections(data, session, cwd, now, final, busy)
+    nominated = _nominate_corrections(data, session, cwd, now, final, busy)
 ```
 
-Leave `_spawn_drafts` in place for now — Task 7 removes it along with the rest of the old trigger.
+Leave the `_spawn_drafts` **function definition** in place for now — Task 7 deletes it with the rest of the old trigger — but do not leave a second call to it in `run()`: one Stop must never spawn two drafters.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -1177,11 +1177,11 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Context you need:** `SessionStart` is one of only four events whose plain stdout becomes context Claude can see, and `sync.main` already writes there (the quarantine notice). SessionStart also fires with `source: "compact"` after every compaction, so this instruction re-delivers itself once the previous copy has been summarised away — that is why delivery is here and not in `retrieve.py`'s injection payload, which is silent both when nothing matched and when no index exists at all.
 
-Budget: aim for ~150 tokens. The do-not-log list is load-bearing, not padding — a stated negative space is more actionable than an introspective "would a fresh instance know this?".
+Budget: aim for ~100 tokens. The do-not-log list is load-bearing, not padding — a stated negative space is more actionable than an introspective "would a fresh instance know this?".
 
 - [ ] **Step 1: Write the failing tests**
 
-Add to `tests/test_sync.py`, above the `if __name__ == "__main__":` block. The file has `in_sandbox`; capture stdout with `redirect_stdout` as the file's other output tests do.
+Add to `tests/test_sync.py`, above the `if __name__ == "__main__":` block. The file has `in_sandbox`, and already imports `io` and `contextlib.redirect_stdout` at the top; capture stdout with those.
 
 ```python
 def test_session_start_prints_the_correction_note():
@@ -1206,7 +1206,7 @@ def test_the_note_carries_a_do_not_log_list():
 
 
 def test_the_note_stays_within_budget():
-    """~150 tokens; it is charged at every SessionStart and every compaction."""
+    """~100 tokens; it is charged at every SessionStart and every compaction."""
     assert len(sync.CORRECTION_NOTE) <= 800, len(sync.CORRECTION_NOTE)
 ```
 
@@ -1296,7 +1296,7 @@ From `scripts/ledger.py` remove: the `signals` table and `idx_signals_session` f
 
 - [ ] **Step 2: Delete the detect machinery**
 
-From `scripts/detect.py` remove: `_log_signal`, `target_key`, `bash_outcome`, and the `if is_bash:` block in `run()` that computes `outcome` and calls `_log_signal`. Keep the `is_bash` variable and the verification-matching loop below it — that loop is the usage detector and is unrelated. If `patterns` becomes unused, leave the import: `patterns.matches` is still used by the symptom loop.
+From `scripts/detect.py` remove: `_log_signal`, `target_key`, and the `if is_bash:` block in `run()` that computes `outcome` and calls `_log_signal`. **Keep `bash_outcome`.** It has a second, live consumer: the verification-matching loop passes its result as `outcome=` on detection rows, and that column is the sole input to the ledger's `success_sessions`. Deleting it would silently wall off skill promotion. Keep the `is_bash` variable and the verification-matching loop below it — that loop is the usage detector and is unrelated. If `patterns` becomes unused, leave the import: `patterns.matches` is still used by the symptom loop.
 
 - [ ] **Step 3: Delete the reconcile machinery**
 
@@ -1308,7 +1308,7 @@ In `scripts/sync.py`, change `ledger.prune_signals(older_than_hours=SIGNAL_TTL_H
 
 - [ ] **Step 5: Delete the tests that covered the removed code**
 
-Remove every test naming `log_signal`, `prune_signals`, `struggle_targets`, `target_key` or `bash_outcome` from `tests/test_ledger.py`, `tests/test_detect.py` and `tests/test_reconcile.py`. `tests/test_capture_e2e.py` exercises the struggle→draft path end to end; rewrite it against the correction path — a correction in the scratch file, edits after it, a settled Stop, one spawn — or delete it if Task 5's tests already cover the same ground. Say which you chose and why in your report.
+Remove every test naming `log_signal`, `prune_signals`, `struggle_targets` or `target_key` from `tests/test_ledger.py`, `tests/test_detect.py` and `tests/test_reconcile.py`. `tests/test_capture_e2e.py` exercises the struggle→draft path end to end; rewrite it against the correction path — a correction in the scratch file, edits after it, a settled Stop, one spawn — or delete it if Task 5's tests already cover the same ground. Say which you chose and why in your report.
 
 Deleting a test for deleted code is not weakening a test. Deleting one that still covers live code is — if you are unsure which a test is, keep it and say so.
 
@@ -1323,7 +1323,7 @@ Expected: `FAILED: none`.
 - [ ] **Step 7: Verify nothing references the removed names**
 
 ```bash
-grep -rn "log_signal\|prune_signals\|struggle_targets\|target_key\|bash_outcome\|SIGNAL_SQL\|STRUGGLE_FAILURES" scripts/ tests/
+grep -rn "log_signal\|prune_signals\|struggle_targets\|target_key\|SIGNAL_SQL\|STRUGGLE_FAILURES" scripts/ tests/
 ```
 
 Expected: no output.
@@ -1333,8 +1333,8 @@ Expected: no output.
 ```bash
 git add -A scripts tests && git commit -m "refactor: remove the exit-code struggle trigger
 
-It has never fired, for three independent reasons: bash_outcome reads a
-field absent from 2441 real payloads; PostToolUse fires only on success so
+It has never fired, for three independent reasons: the exit-code read
+looks for a field absent from 2441 real payloads; PostToolUse fires only on success so
 detect.py is never told about a failure; and replaying 1561 real Bash
 calls through target_key and struggle_targets yields zero struggles,
 because the keys that failed twice never recovered and the keys that
@@ -1359,13 +1359,13 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 **Context you need:** Two passages go stale the moment this ships. Last slice's whole-branch review named this exact pattern — the plan gets corrected while the spec drifts — as a recurring defect, and it recurred five times in that slice alone. Read `docs/superpowers/specs/2026-09-03-correction-capture-design.md`'s "Parent spec amendment" section, which states what to change and why.
 
-- [ ] **Step 1: Amend §9.1's capture model**
+- [ ] **Step 1: Amend §5's capture model**
 
-Find the passage in §9.1 describing struggle detection via repeated command failure. Replace it with the correction signal: the model marks a correction, `detect.py` records file edits independently, the Stop reconciler settles and nominates, and corroboration is recorded rather than enforced. Include the measured reason the old trigger is gone — zero struggles across 1561 replayed calls, with the disjoint failed/recovered sets — rather than a bare swap. Keep the section's existing voice.
+Find the passage in §5 (Capture subsystem) describing struggle detection via repeated command failure. Replace it with the correction signal: the model marks a correction, `detect.py` records file edits independently, the Stop reconciler settles and nominates, and corroboration is recorded rather than enforced. Include the measured reason the old trigger is gone — zero struggles across 1561 replayed calls, with the disjoint failed/recovered sets — rather than a bare swap. Keep the section's existing voice.
 
 - [ ] **Step 2: Amend §9.3's cost budget**
 
-§9.3 opens by claiming zero context tokens for the detection pipeline. Add the correction layer's cost: ~150 tokens per SessionStart, ~35 per correction written, and the note that SessionStart re-fires on compaction so the charge recurs within a long session. State it as a deliberate amendment: the compared alternative, an always-loaded observer skill, costs ~7,850 tokens unconditionally.
+§9.3 opens by claiming zero context tokens for the detection pipeline. Add the correction layer's cost: ~100 tokens per SessionStart, ~35 per correction written, and the note that SessionStart re-fires on compaction so the charge recurs within a long session. State it as a deliberate amendment: the compared alternative, an always-loaded observer skill, costs ~7,850 tokens unconditionally.
 
 - [ ] **Step 3: Leave §13's roadmap wording alone**
 
@@ -1403,6 +1403,6 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 - A correction written to the scratch file lands in the `corrections` table at the next Stop.
 - A settled correction with two or more subsequent edits spawns exactly one drafter, with `--kind correction`.
 - An **uncorroborated** correction still nominates, and records `corroborated = 0`.
-- `grep -rn "log_signal\|struggle_targets\|bash_outcome" scripts/ tests/` returns nothing.
-- §9.1 and §9.3 describe what the code does.
+- `grep -rn "log_signal\|struggle_targets\|target_key" scripts/ tests/` returns nothing.
+- §5 and §9.3 describe what the code does.
 - No new dependency, no schema version bump, no test weakened.
