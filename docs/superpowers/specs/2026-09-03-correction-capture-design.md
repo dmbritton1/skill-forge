@@ -66,9 +66,9 @@ and `if not picked` — so it is silent both when nothing matched and, more
 importantly, when no index exists at all. A fresh install with no skills would
 never receive it, and a fresh install is exactly where capture matters most.
 
-**Budget.** ~150 tokens per SessionStart, ~35 per correction written. A normal
-session with three corrections costs ~255 tokens; a heavy session with two
-compactions ~555. Against §9.3's stated "zero context tokens" this is a
+**Budget.** ~100 tokens per SessionStart, ~35 per correction written. A normal
+session with three corrections costs ~205 tokens; a heavy session with two
+compactions ~405. Against §9.3's stated "zero context tokens" this is a
 deliberate amendment, not drift: the compared alternative (an always-loaded
 observer skill) costs ~7,850 tokens unconditionally, and SkillForge can buy the
 same signal at ~3% of that because its bookkeeping lives in SQLite rather than
@@ -304,7 +304,7 @@ to drift. Two places go stale the moment this ships:
   correction signal, with the measured reason the old one is going rather than a
   bare replacement.
 - **§9.3's cost budget** claims zero context tokens for the detection pipeline.
-  It gains the ~150-tokens-per-SessionStart and ~35-per-correction figures, and
+  It gains the ~100-tokens-per-SessionStart and ~35-per-correction figures, and
   the note that SessionStart re-fires on compaction so the charge recurs.
 
 The v0.2 roadmap line in §13 keeps its wording: "the usage-detection core"
