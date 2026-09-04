@@ -1,9 +1,12 @@
 """Tests for the /stats health report. Run: python3 tests/test_stats.py"""
+import os
 import pathlib
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import stats
+import trust
 
 
 def test_no_percentage_below_the_threshold():
@@ -34,6 +37,78 @@ def test_zero_sample_says_so_without_dividing():
     out = stats.rate(0, 0, unit="injections")
     assert "%" not in out, out
     assert "injections" in out, out
+
+
+def in_sandbox(fn):
+    old_home = os.environ["HOME"]
+    old_cwd = os.getcwd()
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        os.chdir(tmp)
+        try:
+            fn(pathlib.Path(tmp))
+        finally:
+            os.chdir(old_cwd)
+            os.environ["HOME"] = old_home
+
+
+def _skill(home, name, kind="skills", trusted=True):
+    """Write a store file, and register it as trusted unless told not to."""
+    d = home / ".claude" / "skillforge" / kind / name
+    d.mkdir(parents=True, exist_ok=True)
+    text = "---\nname: %s\nkind: skill\n---\n\n## Procedure\n1. do it\n" % name
+    (d / "SKILL.md").write_text(text)
+    if trusted:
+        trust.record(name, text, "self")
+    return d / "SKILL.md"
+
+
+def test_library_section_counts_by_kind_and_bucket():
+    def check(home):
+        rows = [{"name": "a", "kind": "skill", "scope": "global",
+                 "tier": "hot", "bucket": "trusted", "successes": 2,
+                 "failures": 0, "path": ""},
+                {"name": "b", "kind": "antiskill", "scope": "project",
+                 "tier": "warm", "bucket": "unproven", "successes": 0,
+                 "failures": 0, "path": ""}]
+        text = "\n".join(stats.section_library(rows))
+        assert "skills            2" in text, text
+        assert "antiskill" in text, text
+        assert "trusted" in text, text
+    in_sandbox(check)
+
+
+def test_library_section_survives_an_empty_library():
+    def check(home):
+        text = "\n".join(stats.section_library([]))
+        assert text.strip(), "an empty library must still print a section"
+        assert "%" not in text, text
+    in_sandbox(check)
+
+
+def test_quarantined_counts_store_files_the_registry_does_not_vouch_for():
+    """An untrusted skill is absent from the index entirely, so the count
+    has to come from the store, not the index."""
+    def check(home):
+        _skill(home, "good", trusted=True)
+        _skill(home, "bad", trusted=False)
+        assert stats.quarantined() == 1, stats.quarantined()
+    in_sandbox(check)
+
+
+def test_context_section_reports_fill_against_the_budget():
+    entries = [{"name": "a", "tier": "hot", "description": "x" * 400},
+               {"name": "b", "tier": "warm", "description": "y" * 4000}]
+    text = "\n".join(stats.section_context(entries, 1500))
+    assert "1500" in text, text
+    assert "100" in text, text          # 400 chars // 4 == 100 tokens
+    assert "4000" not in text, "warm descriptions are not standing cost"
+    assert "%" not in text, "the no-percentage rule holds with no exception"
+
+
+def test_context_section_handles_a_missing_budget():
+    text = "\n".join(stats.section_context([], 0))
+    assert text.strip(), text
 
 
 if __name__ == "__main__":
