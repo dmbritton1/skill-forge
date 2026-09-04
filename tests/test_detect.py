@@ -74,10 +74,25 @@ def run_capture(data):
     return rc, out.getvalue()
 
 
-def tool_data(home, output, tool="Bash", command="", session="sess1", is_error=None):
-    resp = {"stdout": output}
-    if is_error is not None:
-        resp["is_error"] = is_error
+def tool_data(home, output, tool="Bash", command="", session="sess1",
+              is_error=None, resp=None):
+    """Builds the response shapes the harness really sends.
+
+    The old version set an `is_error` key on a dict. No real Bash result has
+    that key -- success is a bare dict, failure is a plain string -- so every
+    test built on it exercised a contract that does not exist, and the
+    outcome mapping stayed broken in production while these tests were green.
+
+    is_error falsy/None -> real dict success shape
+    is_error True       -> real string failure shape
+    resp                -> explicit override, for refusals and odd shapes
+    """
+    if resp is None:
+        if is_error:
+            resp = "Error: Exit code 1\n%s" % output
+        else:
+            resp = {"stdout": output, "stderr": "", "interrupted": False,
+                    "isImage": False, "noOutputExpected": False}
     return {"session_id": session, "cwd": str(home), "tool_name": tool,
             "tool_input": {"command": command}, "tool_response": resp}
 
@@ -236,6 +251,57 @@ def test_project_symptom_scoped_to_its_root():
     in_sandbox(check)
 
 
+# Shapes below are taken from 12,678 real Bash results across 1,109
+# transcripts. Success is a dict and carries NO error flag of any kind;
+# failure is a plain string. The old fixture invented an `is_error` key that
+# appears in none of them, which is why this function returned None in
+# production for every call while its tests stayed green.
+REAL_SUCCESS = {"stdout": "ok", "stderr": "", "interrupted": False,
+                "isImage": False, "noOutputExpected": False}
+REAL_TOLERATED = dict(REAL_SUCCESS, returnCodeInterpretation="No matches found")
+REAL_GIT = dict(REAL_SUCCESS, gitOperation={"type": "commit"})
+
+
+def test_bash_outcome_maps_the_shapes_the_harness_really_sends():
+    cases = [
+        # (response, expected, why)
+        (REAL_SUCCESS, "success", "the 92.5% case: a plain dict result"),
+        (REAL_TOLERATED, "success", "tolerated non-zero, e.g. grep no-match"),
+        (REAL_GIT, "success", "dict with extra keys is still a dict"),
+        ("Error: Exit code 1\nassert failed", "failure", "the common failure"),
+        ("Error: Exit code 127\ncommand not found: python", "failure", "127"),
+        ("Error: Exit code 143\nCommand timed out after 2m 0s", "failure",
+         "timeout is a real failure of the command"),
+        ("Error: This session is isolated and cannot run that", None,
+         "harness refusal is NOT the skill failing"),
+        ("Error: User rejected tool use", None, "user rejection is not a failure"),
+        ("Error: Blocked: sleep 90 followed by: cat /tmp/x", None,
+         "auto-mode classifier block is not a failure"),
+        ("Error: Permission for this action was denied by the Claude Code"
+         " auto mode classifier.", None, "permission denial is not a failure"),
+        ("Error: claude-sonnet-5[1m] is temporarily unavailable", None,
+         "model unavailability is not a failure"),
+        (None, None, "no response at all"),
+        ("", None, "empty string"),
+    ]
+    bad = []
+    for resp, want, why in cases:
+        got = detect.bash_outcome(resp)
+        if got != want:
+            bad.append("%s -> %r, wanted %r (%s)"
+                       % (repr(resp)[:50], got, want, why))
+    assert not bad, "\n  " + "\n  ".join(bad)
+
+
+def test_an_interrupted_command_is_not_a_success():
+    """The user hit escape; the verification never finished.
+
+    Zero occurrences in the corpus, but a false success is corrosive in
+    exactly the way a false failure is, and the guard is one line.
+    """
+    assert detect.bash_outcome(dict(REAL_SUCCESS, interrupted=True)) is None
+
+
 def test_verification_hit_logs_outcome():
     def check(home):
         write_triggers(home, verifications=[
@@ -260,11 +326,18 @@ def test_verification_failure_outcome():
     in_sandbox(check)
 
 
-def test_verification_outcome_unknown_without_flag():
+def test_verification_outcome_unknown_on_harness_refusal():
+    """A refusal is not the skill failing.
+
+    37% of real string results are the harness blocking or the user
+    rejecting. Charging those to the skill would hold back skills that
+    worked -- the corrosive false failure bash_outcome exists to avoid.
+    """
     def check(home):
         write_triggers(home, verifications=[
             {"skill": "stripe-hook", "root": str(home), "tier": "hot", "tokens": ["npx", "stripe", "trigger"]}])
-        run_capture(tool_data(home, "output only", command="npx stripe trigger"))
+        run_capture(tool_data(home, "", command="npx stripe trigger",
+                              resp="Error: User rejected tool use"))
         assert ("detection", "stripe-hook", "verification", None, None) in rows(
             "skill='stripe-hook'")
     in_sandbox(check)

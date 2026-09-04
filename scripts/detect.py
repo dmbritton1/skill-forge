@@ -15,6 +15,7 @@ which the harness does not parse.
 """
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -56,17 +57,39 @@ def load_triggers():
         return None
 
 
-def bash_outcome(resp):
-    """success/failure from the harness's own error flag; None when absent.
+# A failed Bash call arrives as a plain string whose first line is
+# "Error: Exit code N". Anchored so it cannot match the phrase appearing
+# later inside ordinary command output.
+EXIT_CODE_RE = re.compile(r"^Error: Exit code \d+")
 
-    ponytail: no stderr heuristic. Plenty of healthy tools write to stderr,
-    and a false failure penalizes a skill that worked -- an unknown outcome
-    is honest, a wrong one is corrosive.
+
+def bash_outcome(resp):
+    """success / failure / None, from the shapes the harness actually sends.
+
+    Measured over 12,678 real Bash results: a command that ran returns a
+    DICT (stdout, stderr, interrupted, isImage, noOutputExpected, sometimes
+    returnCodeInterpretation or gitOperation) carrying no error flag of any
+    kind, and a command that failed returns a plain STRING beginning
+    "Error: Exit code N".
+
+    The previous version looked for `is_error`/`isError` inside the dict.
+    Neither key occurs in any of the 11,729 real dicts, and the 950 real
+    failures are not dicts at all, so it returned None on every call in
+    production -- leaving success_sessions permanently 0 and no skill ever
+    promotable. Its tests passed only because the fixture invented the key.
+
+    A string that is NOT "Exit code N" is the harness refusing, blocking, or
+    the user rejecting -- 356 of those 950. Those are unknown, never failure:
+    a false failure penalizes a skill that worked, and an unknown outcome is
+    honest where a wrong one is corrosive. Same reason there is still no
+    stderr heuristic; plenty of healthy tools write to stderr.
     """
     if isinstance(resp, dict):
-        for key in ("is_error", "isError"):
-            if key in resp:
-                return "failure" if resp[key] else "success"
+        # ponytail: interrupted means the user stopped it, so the
+        # verification never finished -- unknown, not success.
+        return None if resp.get("interrupted") else "success"
+    if isinstance(resp, str) and EXIT_CODE_RE.match(resp):
+        return "failure"
     return None
 
 
