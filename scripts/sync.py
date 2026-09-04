@@ -427,7 +427,11 @@ def main(argv=None):
     # capture for every session and every compaction thereafter, reporting the
     # loss only on stderr. That is precisely the never-fires failure this
     # trigger was written to replace.
-    print(CORRECTION_NOTE)
+    try:
+        print(CORRECTION_NOTE)
+    except Exception:
+        pass    # its own guard, not sync's: a hook exits 0 even when the
+                # harness has closed the pipe out from under it
     try:
         counts = sync(project_root=args.project_root)
         if counts["quarantined"]:

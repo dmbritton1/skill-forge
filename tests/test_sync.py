@@ -1106,6 +1106,31 @@ def test_the_note_is_delivered_even_when_sync_fails():
     in_sandbox(check)
 
 
+def test_a_dead_stdout_still_exits_zero():
+    """A hook exits 0 always -- including when the harness closed the pipe.
+
+    The note sits outside sync()'s try so a corrupt store cannot swallow it;
+    that hoist also moved it out of the only handler guaranteeing exit 0, so
+    it carries its own.
+    """
+    class Dead:
+        def write(self, *a):
+            raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self, *a):
+            pass
+
+    def check(home):
+        real = sys.stdout
+        sys.stdout = Dead()
+        try:
+            rc = sync.main([])
+        finally:
+            sys.stdout = real
+        assert rc == 0, rc
+    in_sandbox(check)
+
+
 def test_the_note_stays_within_budget():
     """~100 tokens; it is charged at every SessionStart and every compaction."""
     assert len(sync.CORRECTION_NOTE) <= 800, len(sync.CORRECTION_NOTE)

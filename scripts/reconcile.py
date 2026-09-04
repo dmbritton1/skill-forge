@@ -371,18 +371,18 @@ def _nominate_corrections(data, session, cwd, now, final, busy):
     filters that matter.
     """
     if busy:
-        return False
+        return
     try:
         pending = ledger.pending_corrections(session)
     except Exception as err:
         print("skillforge: correction read failed: %s" % err, file=sys.stderr)
-        return False
+        return
     if not pending:
-        return False
+        return
     newest = max(parse_ts(c[2]) or now for c in pending)
     settled = final or (now - newest).total_seconds() >= CORRECTION_SETTLE_S
     if not settled:
-        return False
+        return
 
     for cid, what, ts in pending:
         edits = ledger.edit_count_since(session, ts)
@@ -395,7 +395,7 @@ def _nominate_corrections(data, session, cwd, now, final, busy):
             draft_id = ledger.open_draft(session, "correction:%s" % what[:80])
         except Exception as err:
             print("skillforge: draft row failed: %s" % err, file=sys.stderr)
-            return False
+            return
         argv = [sys.executable,
                 str(Path(__file__).resolve().parent / "draft.py"), "run",
                 "--draft-id", str(draft_id), "--kind", "correction",
