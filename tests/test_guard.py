@@ -93,23 +93,48 @@ def test_sync_is_inert():
     in_drafter(check)
 
 
+def registered_hooks():
+    """Every `scripts/<name>.py` that hooks/hooks.json actually registers."""
+    import json
+    import re
+    root = pathlib.Path(__file__).resolve().parent.parent
+    spec = json.loads((root / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    names = set()
+    for groups in spec.get("hooks", {}).values():
+        for group in groups:
+            for hook in group.get("hooks", []):
+                m = re.search(r"scripts/(\w+)\.py", hook.get("command", ""))
+                if m:
+                    names.add(m.group(1))
+    return sorted(names)
+
+
+def test_no_hook_touches_stdin_or_argv_at_import_time():
+    """The guard lives in main(), so anything read BEFORE main() escapes it.
+
+    The other tests import these modules once at the top of this file and only
+    then install the counting stdin, so an import-time read happens while
+    nothing is watching and every assertion still passes. Re-importing each
+    module under the stub is what closes that -- without it the skill warns
+    about a case its own verification cannot see.
+    """
+    import importlib
+    for name in registered_hooks():
+        def check(home, stdin, name=name):
+            importlib.reload(importlib.import_module(name))
+            assert stdin.reads == 0, (
+                "%s reads stdin at import time, before main()'s guard can run"
+                % name)
+        in_drafter(check)
+
+
 def test_every_registered_hook_has_a_guard_test():
     """The suite only runs tests it names, so a NEW hook added without a
     `test_<script>_is_inert` used to leave this file green while shipping an
     unguarded hook -- the verification passed with the procedure skipped,
     which is not a verification. Enumerate the registration instead.
     """
-    import json
-    import re
-    root = pathlib.Path(__file__).resolve().parent.parent
-    spec = json.loads((root / "hooks" / "hooks.json").read_text(encoding="utf-8"))
-    scripts = set()
-    for groups in spec.get("hooks", {}).values():
-        for group in groups:
-            for hook in group.get("hooks", []):
-                m = re.search(r"scripts/(\w+)\.py", hook.get("command", ""))
-                if m:
-                    scripts.add(m.group(1))
+    scripts = registered_hooks()
     assert scripts, "no hook scripts found in hooks/hooks.json"
     missing = sorted(n for n in scripts
                      if "test_%s_is_inert" % n not in globals())
