@@ -34,6 +34,16 @@ ANTISKILL_SECTIONS = ("## Trap", "## Symptom", "## Cause", "## Fix")
 MIN_SYMPTOM_CHARS = 8
 MIN_SYMPTOM_TOKENS = 2
 
+# Executables common enough in a distilled procedure that a fingerprint
+# STARTING with one is almost certainly describing an action rather than
+# code. Not exhaustive and not meant to be -- it is a warning, and the
+# general version of this judgement is what critique does.
+COMMAND_WORDS = frozenset("""
+git npm npx pnpm yarn node python python3 pip pip3 pytest tox make cmake
+cargo go rustc docker kubectl helm terraform bash sh zsh curl wget ruby
+gem bundle java mvn gradle dotnet composer php psql mysql sqlite3
+""".split())
+
 
 def parse_frontmatter(text):
     """Return (dict, body) from a --- fenced frontmatter block, or (None, text).
@@ -303,6 +313,27 @@ def main(argv=None):
     fps = fm.get("fingerprints")
     if not isinstance(fps, list) or len(fps) < 2:
         print("WARNING: fewer than 2 fingerprints; outcome tracking (v0.2 slice C) will not see this skill")
+
+    # Fingerprints are matched against `git diff HEAD` added lines plus
+    # untracked file contents (reconcile.changed_tokens) -- i.e. FILE CONTENT.
+    # A command the model runs never lands there, so such a fingerprint cannot
+    # match however well the skill was applied. commit-trailer shipped
+    # `git commit -F -` and took zero fingerprint credits across 9 injections.
+    #
+    # Only the first token is checked, and only against a whole-word match:
+    # `git.Repo(path)` is code that happens to start with those letters, not
+    # an invocation. The message-shaped version of this mistake
+    # (`Co-Authored-By: ...`, which lives in a commit message) is NOT caught
+    # here -- no honest heuristic separates it from ordinary file text.
+    for item in (fps if isinstance(fps, list) else []):
+        if not isinstance(item, str):
+            continue
+        head = item.strip().strip('"\'').split(" ")[0] if item.strip() else ""
+        if head in COMMAND_WORDS:
+            print("WARNING: fingerprint %r looks like a command to run; "
+                  "fingerprints are matched against file content, so a command "
+                  "will never match. Fingerprint what the change LEAVES IN A "
+                  "FILE instead." % item)
 
     # sync drops single-token patterns (they would match nearly every command
     # or file), so a one-word command compiles to nothing and the skill gets

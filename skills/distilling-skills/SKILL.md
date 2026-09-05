@@ -61,6 +61,32 @@ one line and stop.
    does not. These power usage detection; a skill without them is
    invisible to outcome tracking.
 
+   Two rules decide whether either one is worth anything. Both were learned
+   the hard way — every skill in the library failed critique on one of them.
+
+   **The verification must FAIL when the skill is skipped.** "Passes when
+   applied" is not the bar; a check that passes either way is not evidence
+   of anything. Ask concretely: if someone ignored this procedure entirely,
+   would this command still exit 0? If yes, it is not a verification.
+   - `grep -q 'Co-Authored-By' .git/COMMIT_EDITMSG` — **no**. That file is
+     not cleared between commits, so it still holds the previous commit's
+     trailer and passes on any repeat.
+   - `python3 tests/test_guard.py` where the suite only checks hooks it
+     names — **no**. A brand-new hook that skips both the guard and its test
+     leaves the suite green.
+   State in `## Verification` what the command does when the procedure was
+   NOT followed. If you cannot make it discriminate, say so there plainly
+   rather than shipping a check that always passes.
+
+   **A fingerprint must be text that ends up IN A FILE.** Matching runs
+   against the added lines of `git diff HEAD` plus untracked file contents.
+   Anything else is invisible no matter how well the skill was applied:
+   commands you run (`git commit -F -`), commit messages
+   (`Co-Authored-By: ...`), tag annotations, PR bodies, shell output. If the
+   procedure's whole effect is outside the working tree, it has no usable
+   fingerprint — say so rather than inventing one, and let
+   `verification.command` carry the detection alone.
+
 9. **Secret scan the draft yourself** before showing it:
    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/secscan.py" <draft-path>`
    Session transcripts routinely contain keys, tokens, and connection

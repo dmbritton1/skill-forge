@@ -667,6 +667,46 @@ def test_rejected_save_records_no_human_decision():
     in_sandbox(check)
 
 
+def _save_output(tmp, text):
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = save_skill.main([write_draft(tmp, text), "--scope", "global"])
+    return rc, out.getvalue()
+
+
+def test_a_command_shaped_fingerprint_warns_about_medium():
+    """Fingerprints are matched against added lines in the diff. A command you
+    RUN never lands there, so it can never match -- commit-trailer shipped
+    `git commit -F -` and earned zero fingerprint credits in 9 injections."""
+    def check(home, tmp):
+        bad = VALID_SKILL.replace('- "do_the_thing --alpha"',
+                                  '- "git commit -F -"')
+        rc, out = _save_output(tmp, bad)
+        assert rc == 0, "a medium mismatch warns, it does not reject"
+        assert "git commit -F -" in out, out
+        assert "command" in out.lower(), out
+    in_sandbox(check)
+
+
+def test_code_shaped_fingerprints_do_not_warn():
+    def check(home, tmp):
+        rc, out = _save_output(tmp, VALID_SKILL)
+        assert rc == 0
+        assert "command to run" not in out, out
+    in_sandbox(check)
+
+
+def test_a_fingerprint_that_merely_mentions_a_command_word_does_not_warn():
+    """`git` inside an expression is code, not an invocation."""
+    def check(home, tmp):
+        ok = VALID_SKILL.replace('- "do_the_thing --alpha"',
+                                 '- "repo = git.Repo(path)"')
+        rc, out = _save_output(tmp, ok)
+        assert rc == 0
+        assert "command to run" not in out, out
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

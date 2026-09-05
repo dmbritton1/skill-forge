@@ -46,6 +46,13 @@ miss is a repeated multi-hour debugging pit.
    `verification.command` is optional for anti-skills: include it only
    when the Fix has a single checkable command.
 
+   The same two rules from distilling-skills step 8 apply, and matter more
+   here because the Fix is the only thing being detected: a fingerprint must
+   be text that ends up IN A FILE (matching runs over the diff's added lines,
+   so commands run and messages written never match), and any
+   `verification.command` you do include must FAIL when the Fix is absent —
+   otherwise it reports success on a trap that is still there.
+
 6. **Assign scope** (same heuristic as skills: repo-specific → project,
    else global), **secret-scan the draft**
    (`python3 "${CLAUDE_PLUGIN_ROOT}/scripts/secscan.py" <draft-path>`),
