@@ -5,12 +5,14 @@
 `show`   -- one skill's Tier A verdicts and the findings behind them.
 `delete` -- remove one skill from the store, the native tier, and the trust
             registry, then rebuild the derived indexes.
+`archive`/`restore`/`archived` -- the same retirement, reversibly.
 
 Deletion removes the skill, not its history: `events` rows survive, so a
 name deleted and later re-saved does not silently inherit an old bucket.
 """
 import argparse
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -148,39 +150,158 @@ def cmd_show(name):
     return 0
 
 
-def cmd_delete(name):
+ARCHIVE = "archive"
+
+
+def _resolve_store(name):
+    """(store_dir, root, kind) for an indexed skill, or None after printing why.
+
+    Shared by delete and archive so the containment check below exists once.
+    Two copies of a guard that stands in front of `shutil.rmtree` and
+    `os.replace` is exactly the kind of thing that drifts.
+    """
     entry = next((e for e in (retrieve.load_index() or {}).get("entries", [])
                   if e.get("name") == name), None)
     if entry is None:
         print("no such skill in the index: %r" % name)
-        return 1
+        return None
     # Resolved from the index by name, never from a path argument -- and then
     # checked against the entry's own root anyway. `store` and `root` both
     # come from the same index entry, so this does not defend against a
     # tampered index (whoever controls one controls both); it catches
     # internal inconsistency -- an entry whose path has drifted outside its
-    # own declared root -- before shutil.rmtree runs.
+    # own declared root -- before anything destructive runs.
     store = Path(entry.get("path", "")).parent
     root = Path(entry.get("root", ""))
     if (root / ".claude" / "skillforge") not in store.parents:
         print("refusing: %s is outside the knowledge store" % store)
+        return None
+    # `skills` or `antiskills` -- the parent of the skill's own directory.
+    return store, root, store.parent.name
+
+
+def _resync(root):
+    """Rebuild derived state from the skill's OWN base.
+
+    sync() only rebuilds index.json for the bases it is given, so syncing any
+    other base would strip every other skill belonging to this one out of the
+    shared index. It also owns native-dir eviction, so with the trust entry
+    already popped this call evicts the native copy too.
+    """
+    sync.sync(project_root=str(root) if root != Path.home() else None)
+
+
+def cmd_archive(name):
+    """Retire a skill reversibly: move the store dir aside, drop its trust."""
+    resolved = _resolve_store(name)
+    if resolved is None:
         return 1
+    store, root, kind = resolved
+    stamp = ledger.now_utc().strftime("%Y%m%dT%H%M%SZ")
+    dest_parent = root / ".claude" / "skillforge" / ARCHIVE / kind
+    dest_parent.mkdir(parents=True, exist_ok=True)
+    # Always stamped, never conditionally: archive -> re-save -> archive again
+    # is ordinary, and an unstamped name would let the second archive
+    # overwrite the first -- silently losing the thing this command exists to
+    # keep. A collision inside one second keeps counting up.
+    dest = dest_parent / ("%s@%s" % (name, stamp))
+    n = 1
+    while dest.exists():
+        dest = dest_parent / ("%s@%s-%d" % (name, stamp, n))
+        n += 1
+    os.replace(str(store), str(dest))    # same filesystem, so atomic
+    reg = trust.load()
+    reg.pop(name, None)
+    trust.save(reg)
+    ledger.log_event(ARCHIVE, name, outcome="archived")
+    _resync(root)
+    print("archived: %s -> %s" % (name, dest))
+    return 0
+
+
+def _archive_roots():
+    """Every (base, kind_dir) archive directory that exists."""
+    for base in {Path.home()} | {Path(e.get("root", ""))
+                                 for e in (retrieve.load_index() or {}).get("entries", [])
+                                 if e.get("root")}:
+        for kind in ("skills", "antiskills"):
+            d = base / ".claude" / "skillforge" / ARCHIVE / kind
+            if d.is_dir():
+                yield base, kind, d
+
+
+def _archived_entries(name=None):
+    """[(base, kind, dir, name, stamp)] for archived skills, oldest first."""
+    out = []
+    for base, kind, d in _archive_roots():
+        for p in sorted(d.iterdir()):
+            if not p.is_dir() or "@" not in p.name:
+                continue
+            nm, stamp = p.name.split("@", 1)
+            if name is None or nm == name:
+                out.append((base, kind, p, nm, stamp))
+    return sorted(out, key=lambda r: r[4])
+
+
+def cmd_archived():
+    rows = _archived_entries()
+    if not rows:
+        print("nothing archived")
+        return 0
+    print("\t".join(("name", "kind", "scope", "archived")))
+    for base, kind, _, nm, stamp in rows:
+        print("\t".join((nm, "antiskill" if kind == "antiskills" else "skill",
+                          "global" if base == Path.home() else "project", stamp)))
+    return 0
+
+
+def cmd_restore(name, at=None):
+    """Move an archived skill back into the store. It returns QUARANTINED.
+
+    Trust is deliberately not restored. An archived directory is plain text
+    the user can edit, so re-trusting on the way back in would make archive ->
+    edit -> restore a way to land unreviewed content as trusted -- exactly
+    what the content hash exists to prevent. /skillforge:review approves it.
+    """
+    rows = [r for r in _archived_entries(name) if at is None or r[4] == at]
+    if not rows:
+        print("nothing archived under that name: %r" % name)
+        return 1
+    if len(rows) > 1:
+        print("%d archived copies of %r; re-run with --at <stamp>:" % (len(rows), name))
+        for _, _, _, _, stamp in rows:
+            print("  %s" % stamp)
+        return 1
+    base, kind, src, nm, stamp = rows[0]
+    dest = base / ".claude" / "skillforge" / kind / nm
+    if dest.exists():
+        print("refusing: a live %s named %r already exists at %s"
+              % (kind[:-1], nm, dest))
+        return 1
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(str(src), str(dest))
+    ledger.log_event("restore", nm, outcome="restored")
+    _resync(base)
+    print("restored: %s -> %s" % (nm, dest))
+    print("it is QUARANTINED until approved -- run /skillforge:review")
+    return 0
+
+
+def cmd_delete(name):
+    """Destructive. `archive` is the reversible one."""
+    resolved = _resolve_store(name)
+    if resolved is None:
+        return 1
+    store, root, _ = resolved
 
     shutil.rmtree(str(store), ignore_errors=True)
     reg = trust.load()
     reg.pop(name, None)
     trust.save(reg)
     ledger.log_event("delete", name, outcome="deleted")
-    # Re-sync from the skill's OWN base, resolved from its index entry above:
-    # sync() only rebuilds index.json for the bases it's given, so syncing
-    # any other base would strip every other skill belonging to this one
-    # out of the shared index until someone re-syncs from the right root.
-    # (This is why delete takes no --project-root -- passing one was the bug.)
-    # sync() also owns native-dir eviction (its docstring: "the ONLY writer
-    # of native skill dirs") -- with the trust entry already popped above,
-    # this same call evicts the skill's native copy too, so no separate
-    # rmtree is needed here.
-    sync.sync(project_root=str(root) if root != Path.home() else None)
+    # (delete takes no --project-root -- passing one was the bug; _resync
+    # derives the right base from the skill's own index entry.)
+    _resync(root)
     print("deleted: %s" % name)
     return 0
 
@@ -212,6 +333,12 @@ def main(argv=None):
     s.add_argument("name")
     d = sub.add_parser("delete")
     d.add_argument("name")
+    ar = sub.add_parser("archive")
+    ar.add_argument("name")
+    rs = sub.add_parser("restore")
+    rs.add_argument("name")
+    rs.add_argument("--at", help="stamp, when a name was archived more than once")
+    sub.add_parser("archived")
     dec = sub.add_parser("decisions")
     dec.add_argument("--actor", choices=("human", "system"))
     dec.add_argument("--verdict")
@@ -223,6 +350,12 @@ def main(argv=None):
         return cmd_list()
     if args.cmd == "show":
         return cmd_show(args.name)
+    if args.cmd == "archive":
+        return cmd_archive(args.name)
+    if args.cmd == "restore":
+        return cmd_restore(args.name, at=args.at)
+    if args.cmd == "archived":
+        return cmd_archived()
     if args.cmd == "decisions":
         return cmd_decisions(actor=args.actor, verdict=args.verdict,
                              skill=args.skill, session=args.session,

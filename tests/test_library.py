@@ -408,6 +408,145 @@ def test_decisions_filter_with_no_match_says_so():
     in_sandbox(check)
 
 
+def archived_dirs(home, kind="skills"):
+    d = home / ".claude" / "skillforge" / "archive" / kind
+    return sorted(p.name for p in d.iterdir()) if d.is_dir() else []
+
+
+def test_archive_moves_the_store_dir_instead_of_destroying_it():
+    def check(home):
+        store = put_skill(home, "alpha")
+        text = (store / "SKILL.md").read_text(encoding="utf-8")
+        rc, _ = capture(["archive", "alpha"])
+        assert rc == 0
+        assert not store.exists(), "store dir should be gone"
+        names = archived_dirs(home)
+        assert len(names) == 1 and names[0].startswith("alpha@"), names
+        moved = (home / ".claude/skillforge/archive/skills" / names[0] / "SKILL.md")
+        assert moved.read_text(encoding="utf-8") == text, "content must survive"
+    in_sandbox(check)
+
+
+def test_archive_evicts_native_copy_and_trust_entry():
+    def check(home):
+        put_skill(home, "alpha")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        sync.sync()
+        native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
+        assert native.exists(), "precondition: skill must be hot before archive"
+        capture(["archive", "alpha"])
+        assert not native.exists()
+        assert "alpha" not in trust.load()
+        assert [r["name"] for r in library.rows()] == []
+    in_sandbox(check)
+
+
+def test_archive_preserves_kind_for_antiskills():
+    def check(home):
+        d = home / ".claude" / "skillforge" / "antiskills" / "trap"
+        d.mkdir(parents=True, exist_ok=True)
+        text = ("---\nname: trap\nkind: antiskill\n"
+                "description: A trap. Do NOT use otherwise.\n"
+                "symptoms:\n  - \"BoomError: the widget exploded\"\n---\n\n"
+                "## Trap\nDoing it wrong.\n\n## Symptom\nBoom.\n\n"
+                "## Cause\nBecause.\n\n## Fix\nDo not.\n")
+        (d / "SKILL.md").write_text(text, encoding="utf-8")
+        trust.record("trap", text, "self")
+        sync.sync()
+        rc, _ = capture(["archive", "trap"])
+        assert rc == 0
+        assert archived_dirs(home, "antiskills"), "antiskill must archive under antiskills/"
+        assert not archived_dirs(home, "skills")
+    in_sandbox(check)
+
+
+def test_archive_logs_an_event_and_keeps_history():
+    def check(home):
+        put_skill(home, "alpha")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        capture(["archive", "alpha"])
+        con = ledger.connect()
+        types = [r[0] for r in con.execute(
+            "SELECT event_type FROM events WHERE skill='alpha'")]
+        con.close()
+        assert "archive" in types, types
+        assert "detection" in types, "archiving removes the skill, not the evidence"
+    in_sandbox(check)
+
+
+def test_restore_puts_it_back_but_quarantined():
+    def check(home):
+        store = put_skill(home, "alpha")
+        capture(["archive", "alpha"])
+        rc, _ = capture(["restore", "alpha"])
+        assert rc == 0
+        assert (store / "SKILL.md").exists(), "file must be back in the store"
+        # Trust is NOT restored: the content hash is the only thing standing
+        # between an edited-while-archived file and a trusted skill.
+        assert "alpha" not in trust.load()
+        assert [r["name"] for r in library.rows()] == [], "quarantined, so unindexed"
+        assert archived_dirs(home) == [], "archive entry consumed"
+    in_sandbox(check)
+
+
+def test_restore_refuses_when_a_live_skill_holds_the_name():
+    def check(home):
+        put_skill(home, "alpha")
+        capture(["archive", "alpha"])
+        put_skill(home, "alpha")
+        rc, out = capture(["restore", "alpha"])
+        assert rc == 1, out
+        assert archived_dirs(home), "archived copy must survive a refused restore"
+    in_sandbox(check)
+
+
+def test_restore_is_ambiguous_when_a_name_was_archived_twice():
+    def check(home):
+        put_skill(home, "alpha")
+        capture(["archive", "alpha"])
+        put_skill(home, "alpha")
+        capture(["archive", "alpha"])
+        assert len(archived_dirs(home)) == 2, archived_dirs(home)
+        rc, out = capture(["restore", "alpha"])
+        assert rc == 1, out
+        assert "--at" in out, out
+        rc, _ = capture(["restore", "alpha", "--at",
+                         archived_dirs(home)[0].split("@", 1)[1]])
+        assert rc == 0
+        assert len(archived_dirs(home)) == 1
+    in_sandbox(check)
+
+
+def test_restore_reports_an_unknown_name():
+    def check(home):
+        rc, out = capture(["restore", "nope"])
+        assert rc == 1
+        assert "nope" in out, out
+    in_sandbox(check)
+
+
+def test_archived_lists_what_is_there():
+    def check(home):
+        rc, out = capture(["archived"])
+        assert rc == 0 and "nothing archived" in out, out
+        put_skill(home, "alpha")
+        capture(["archive", "alpha"])
+        rc, out = capture(["archived"])
+        assert rc == 0
+        assert "alpha" in out and "skill" in out, out
+    in_sandbox(check)
+
+
+def test_delete_is_still_destructive():
+    """Today's choice, pinned: archive is additive, delete still means gone."""
+    def check(home):
+        store = put_skill(home, "alpha")
+        capture(["delete", "alpha"])
+        assert not store.exists()
+        assert archived_dirs(home) == [], "delete must not archive"
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):
