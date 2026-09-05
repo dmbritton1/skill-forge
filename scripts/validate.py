@@ -183,8 +183,16 @@ def verification_paths(argv, repo, ref="HEAD"):
     return out
 
 
-def worktree_dirty(dest):
+def worktree_dirty(dest, baseline=None):
     """Did the follow-run actually change anything? A seam, like the rest.
+
+    Compared against `baseline` -- the tree state captured just before the
+    child started -- not against "is there any dirt at all". A rewound run
+    stages files BEFORE the child exists: the carry-forward does it, and so
+    does precondition.command. Measuring absolute dirt then answers "yes"
+    every time and the guard below never fires, which is how a child that
+    replied "Awaiting your approval on that command" and touched nothing came
+    back graded `fail`.
 
     Ruling R27: run_model builds `claude -p` with no --permission-mode, and
     print mode has no interactive approver, so a tool call needing permission
@@ -198,15 +206,25 @@ def worktree_dirty(dest):
     instance did nothing, so it leaves the pre-existing behaviour alone. Only
     a confirmed-clean tree turns the re-run into `inconclusive`.
     """
+    state = worktree_state(dest)
+    if state is None:
+        return True
+    if baseline is None:
+        return bool(state)
+    return state != baseline
+
+
+def worktree_state(dest):
+    """`git status --porcelain` for `dest`, or None if it cannot be read."""
     try:
         proc = subprocess.run(["git", "-C", str(dest), "status", "--porcelain"],
                               stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               timeout=60)
     except (OSError, subprocess.SubprocessError):
-        return True
+        return None
     if proc.returncode != 0:
-        return True
-    return bool(proc.stdout.strip())
+        return None
+    return proc.stdout.decode("utf-8", "replace").strip()
 
 
 def remove_worktree(repo, dest):
@@ -696,6 +714,9 @@ def executable(text, entry):
             # skill from an ignored one -- a suspect verification, and the
             # inverse of the benchmark's own suspect-test lesson.
             return "inconclusive", "verification passes untouched"
+        # Everything setup did -- the carry-forward and the precondition -- is
+        # already in the tree, so this is the line the child has to move.
+        baseline = worktree_state(dest)
         reply = run_model(build_follow_prompt(text), dest)
         # Emptiness, not `is None`: run_model returns "" for an exit-0 turn
         # that produced nothing. Letting that through would re-run the
@@ -714,7 +735,7 @@ def executable(text, entry):
         # transport-problem-becomes-a-verdict conflation the empty-reply gate
         # above exists to prevent, one step later. A model that changed
         # nothing tells us nothing about followability.
-        if not worktree_dirty(dest):
+        if not worktree_dirty(dest, baseline):
             return "inconclusive", "fresh instance made no changes"
         after = run_verification(argv, dest)
         if after is None:

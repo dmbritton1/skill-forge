@@ -1196,6 +1196,46 @@ def test_a_runnable_precondition_is_attemptable():
         assert validate.unattemptable(PRECOND_SKILL, entry) is None
 
 
+def test_worktree_dirty_compares_against_a_baseline():
+    """A rewound run stages files BEFORE the child ever starts -- the
+    carry-forward does, and so does precondition.command. Judging "did the
+    fresh instance change anything?" by whether the tree is dirty at all then
+    answers yes every time, defeating the guard exactly when it is needed and
+    grading a permission-blocked child `fail`. Measured: a child replied
+    "Awaiting your approval on that command", touched nothing, and the run
+    recorded a verdict.
+    """
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _repo_with_history(pathlib.Path(tmp))
+        # setup dirties the tree before the "child" runs
+        (repo / "staged.txt").write_text("from setup\n")
+        subprocess.run(["git", "add", "staged.txt"], cwd=str(repo), check=True,
+                       stdout=subprocess.DEVNULL)
+        baseline = validate.worktree_state(repo)
+        assert baseline, "precondition: the baseline is already dirty"
+        # a child that does nothing
+        assert validate.worktree_dirty(repo, baseline) is False
+        # a child that does something
+        (repo / "from_child.txt").write_text("edit\n")
+        assert validate.worktree_dirty(repo, baseline) is True
+
+
+def test_worktree_dirty_without_a_baseline_keeps_the_old_meaning():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _repo_with_history(pathlib.Path(tmp))
+        assert validate.worktree_dirty(repo) is False
+        (repo / "x.txt").write_text("x\n")
+        assert validate.worktree_dirty(repo) is True
+
+
+def test_an_unreadable_worktree_still_counts_as_changed():
+    """Cannot tell is not evidence the instance did nothing."""
+    missing = pathlib.Path("/nonexistent-worktree-path")
+    assert validate.worktree_state(missing) is None
+    assert validate.worktree_dirty(missing, "anything") is True
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
