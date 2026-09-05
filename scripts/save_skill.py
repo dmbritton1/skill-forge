@@ -238,12 +238,31 @@ def _subject(text, draft_path):
     return Path(draft_path).name
 
 
+def _run_validation(name, mode):
+    """Blocking sibling of _spawn_validation, for the update path.
+
+    An edit voids the skill's verdicts, so a skill that improves loses its
+    earned trust until something re-earns it -- and the scheduler offers one
+    validation per session, so "until" can mean days. The author who just
+    made the edit is the right person to wait the two minutes, and the only
+    one who knows the change happened.
+    """
+    argv = [sys.executable,
+            str(Path(__file__).resolve().parent / "validate.py"), mode,
+            "--skill", name]
+    subprocess.run(argv, cwd=str(Path(__file__).resolve().parent.parent),
+                   stdin=subprocess.DEVNULL, env=os.environ)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("draft", help="path to the drafted SKILL.md")
     ap.add_argument("--scope", choices=("global", "project"), required=True)
     ap.add_argument("--project-root", default=".",
                     help="repo root for --scope project (default: cwd)")
+    ap.add_argument("--action", default="create", choices=("create", "update"),
+                    help="create refuses to overwrite; update requires an "
+                         "existing skill and re-validates inline")
     ap.add_argument("--decision", default="approved",
                     choices=("approved", "edited", "scope_overridden"),
                     help="what the human did to this draft before saving it")
@@ -310,6 +329,24 @@ def main(argv=None):
                 reason="name already used by a %s in the %s scope" % (kind, scope))
             return 1
 
+    # Same name, same scope, same kind is the ONE case the loop above skips,
+    # and it used to mean a silent overwrite -- "every save is a create" was
+    # true only because a re-save clobbered without saying so. Overwriting is
+    # now something the author asks for.
+    exists = (this_dir / "SKILL.md").exists()
+    if args.action == "create" and exists:
+        print("REJECTED: %r already exists at %s; re-run with --action update "
+              "to replace it" % (fm["name"], this_dir))
+        ledger.log_decision("system", "name_collision", fm["name"],
+                            reason="already exists in this scope; needs --action update")
+        return 1
+    if args.action == "update" and not exists:
+        print("REJECTED: no existing %r to update at %s; drop --action update "
+              "to create it" % (fm["name"], this_dir))
+        ledger.log_decision("system", "rejected", fm["name"],
+                            reason="--action update with no existing skill")
+        return 1
+
     fps = fm.get("fingerprints")
     if not isinstance(fps, list) or len(fps) < 2:
         print("WARNING: fewer than 2 fingerprints; outcome tracking (v0.2 slice C) will not see this skill")
@@ -350,7 +387,8 @@ def main(argv=None):
     (dest / "SKILL.md").write_text(text, encoding="utf-8")
 
     trust.record(fm["name"], text, "self")
-    ledger.log_event("save", fm["name"], outcome="saved")
+    ledger.log_event("save", fm["name"],
+                     outcome="updated" if args.action == "update" else "saved")
     # Self-reported by the model that just drafted this, so it is softer
     # evidence than the 'system' rows above, which are observations.
     ledger.log_decision("human", args.decision, fm["name"],
@@ -365,12 +403,21 @@ def main(argv=None):
     else:
         print("indexed: warm tier (%s)" % _warm_reason(fm["name"]))
 
-    # Legibility is checked on every save, detached: critique reads only the
-    # text, so it needs no environment and the user waits on nothing.
+    # Legibility is checked on every save. A create spawns it detached --
+    # nothing is waiting on a brand-new skill's verdict. An update BLOCKS,
+    # because the edit just voided a verdict the skill had already earned,
+    # and leaving that to the once-per-session scheduler is what makes
+    # improving a skill cost more than writing one.
     try:
-        _spawn_validation(fm["name"], "critique")
+        if args.action == "update":
+            print("re-validating (the edit voided the previous verdict; "
+                  "this takes a couple of minutes)...")
+            _run_validation(fm["name"], "critique")
+            print("re-validated: see `library.py show %s`" % fm["name"])
+        else:
+            _spawn_validation(fm["name"], "critique")
     except Exception as err:
-        print("skillforge: validation spawn failed: %s" % err, file=sys.stderr)
+        print("skillforge: validation failed: %s" % err, file=sys.stderr)
 
     return 0
 

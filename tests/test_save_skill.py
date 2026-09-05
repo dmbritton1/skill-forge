@@ -276,12 +276,29 @@ def test_resave_same_skill_in_place_from_home_cwd_not_rejected():
         # re-save of an existing skill run from $HOME.
         old_cwd = os.getcwd()
         os.chdir(str(home))
+        real = save_skill._run_validation
+        save_skill._run_validation = lambda name, mode: None
         try:
             rc1 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
             assert rc1 == 0
-            rc2 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
-            assert rc2 == 0
+            # The property under test is that the CROSS-SCOPE check does not
+            # fire on the skill's own directory. Overwriting now needs
+            # --action update (a separate, deliberate gate), so the guard is
+            # expressed through that: if the path bug regressed, this is
+            # rejected as a project-scope collision before update is reached.
+            out = io.StringIO()
+            with redirect_stdout(out):
+                rc2 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope",
+                                       "global", "--action", "update"])
+            assert rc2 == 0, out.getvalue()
+            assert "project scope" not in out.getvalue(), out.getvalue()
+            # And a plain re-save is refused for the right reason.
+            out2 = io.StringIO()
+            with redirect_stdout(out2):
+                rc3 = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
+            assert rc3 == 1 and "--action update" in out2.getvalue(), out2.getvalue()
         finally:
+            save_skill._run_validation = real
             os.chdir(old_cwd)
         assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
     in_sandbox(check)
@@ -667,6 +684,13 @@ def test_rejected_save_records_no_human_decision():
     in_sandbox(check)
 
 
+def _save_output_args(tmp, text, extra):
+    out = io.StringIO()
+    with redirect_stdout(out):
+        rc = save_skill.main([write_draft(tmp, text), "--scope", "global"] + extra)
+    return rc, out.getvalue()
+
+
 def _save_output(tmp, text):
     out = io.StringIO()
     with redirect_stdout(out):
@@ -704,6 +728,84 @@ def test_a_fingerprint_that_merely_mentions_a_command_word_does_not_warn():
         rc, out = _save_output(tmp, ok)
         assert rc == 0
         assert "command to run" not in out, out
+    in_sandbox(check)
+
+
+def _stub_inline(recorder):
+    """Swap the blocking validation seam; no suite spawns a real subprocess."""
+    real = save_skill._run_validation
+    save_skill._run_validation = lambda name, mode: recorder.append((name, mode))
+    return real
+
+
+def test_create_refuses_to_overwrite_an_existing_skill():
+    """`every save is a create` was true only because a same-name, same-scope
+    save silently clobbered: the collision check skips this_dir. Overwriting
+    is now something the author has to ask for."""
+    def check(home, tmp):
+        assert save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        rc, out = _save_output(tmp, VALID_SKILL)
+        assert rc == 1, out
+        assert "--action update" in out, out
+        rows = ledger.decisions(actor="system")
+        assert [r["verdict"] for r in rows] == ["name_collision"], rows
+    in_sandbox(check)
+
+
+def test_update_requires_the_skill_to_already_exist():
+    def check(home, tmp):
+        rc, out = _save_output_args(tmp, VALID_SKILL, ["--action", "update"])
+        assert rc == 1, out
+        assert "no existing" in out.lower(), out
+    in_sandbox(check)
+
+
+def test_update_overwrites_and_records_an_update_event():
+    def check(home, tmp):
+        assert save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        edited = VALID_SKILL.replace("1. Do the thing.", "1. Do the thing, carefully.")
+        seen = []
+        real = _stub_inline(seen)
+        try:
+            rc, _ = _save_output_args(tmp, edited, ["--action", "update"])
+        finally:
+            save_skill._run_validation = real
+        assert rc == 0
+        store = home / ".claude/skillforge/skills/test-skill/SKILL.md"
+        assert "carefully" in store.read_text(encoding="utf-8")
+        con = ledger.connect()
+        outcomes = [r[0] for r in con.execute(
+            "SELECT outcome FROM events WHERE skill='test-skill' AND event_type='save'")]
+        con.close()
+        assert "updated" in outcomes, outcomes
+    in_sandbox(check)
+
+
+def test_update_revalidates_inline_rather_than_detached():
+    """The whole point: an edit voids the critique verdict, so re-earning it
+    should happen now and visibly, not in some later session."""
+    def check(home, tmp):
+        assert save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        edited = VALID_SKILL.replace("1. Do the thing.", "1. Do it well.")
+        seen = []
+        real = _stub_inline(seen)
+        try:
+            _save_output_args(tmp, edited, ["--action", "update"])
+        finally:
+            save_skill._run_validation = real
+        assert seen == [("test-skill", "critique")], seen
+    in_sandbox(check)
+
+
+def test_create_still_spawns_critique_detached():
+    def check(home, tmp):
+        seen = []
+        real = _stub_inline(seen)
+        try:
+            assert save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        finally:
+            save_skill._run_validation = real
+        assert seen == [], "a create must not block on validation"
     in_sandbox(check)
 
 

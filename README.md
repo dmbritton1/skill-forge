@@ -223,6 +223,18 @@ trusted — which is what the content hash exists to prevent. Run
 The archive is never pruned and is covered by `.gitignore`, like the rest
 of the knowledge store.
 
+### Changing a skill that already exists
+
+    python3 scripts/save_skill.py <draft> --scope <s> --action update
+
+A plain save refuses to overwrite an existing skill: same-name saves used to
+clobber silently, so every edit looked like a create. `--action update`
+requires the skill to be there, replaces it, and **re-runs critique inline**
+before returning — editing a skill voids its verdicts (they are keyed to the
+content hash, exactly as its trust entry is), and without this the skill sits
+capped until some later session's scheduler gets to it. It blocks for a
+couple of minutes; that is the point.
+
 ### What was decided on the way in
 
     python3 scripts/library.py decisions [--actor human|system]

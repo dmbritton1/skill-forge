@@ -150,6 +150,15 @@ provenance:
 3. On approval:
    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/save_skill.py" <draft-path> --scope <global|project> [--project-root <repo>]`
    (`--project-root` is the repo root; required in practice for project scope.)
+   **Improving a skill that already exists is `--action update`.** A plain
+   save now refuses to overwrite, because a same-name save used to clobber
+   silently and nothing recorded that a create was really an edit. `update`
+   requires the skill to exist, and re-runs critique inline before it returns
+   — an edit voids the previous verdict, and the author who made the edit is
+   the one who should wait for the replacement rather than leaving the skill
+   capped until some later session picks it up. Expect it to block for a
+   couple of minutes.
+
    Add `--decision` naming what the user actually did to the draft, because
    the difference between "took it as written" and "rewrote half of it" is
    the only signal this framework gets about its own distilling:
