@@ -301,7 +301,8 @@ def _credit_markers(session, cwd, state, entries, markers):
         if s and "marker" in s["detections"]:
             continue        # Stop fires every turn; one row per session
         if entry.get("tier") == "hot" or (s and s["injected_ts"] is not None):
-            _log("detection", name, detection="marker", session=session)
+            _log("detection", name, detection="marker", session=session,
+                 project=retrieve.project_key(cwd))
 
 
 def _reconcile_c2(session, cwd, rows, now, final):
@@ -337,7 +338,8 @@ def _reconcile_c2(session, cwd, rows, now, final):
                 if any(patterns.matches(toks, hay)
                        for toks in entry.get("fingerprints") or []):
                     _log("detection", name, detection="fingerprint",
-                         preexisting_fingerprint=0, session=session)
+                         preexisting_fingerprint=0, session=session,
+                         project=retrieve.project_key(cwd))
 
     for name, s, entry in pending:
         verdict = refire_verdict(s, entry, now, final)
@@ -345,7 +347,8 @@ def _reconcile_c2(session, cwd, rows, now, final):
             # A verdict is not a detection: detection stays NULL so
             # skill_aggregates.uses (which counts detection rows) is untouched,
             # while skill_confidence picks the outcome up.
-            _log("reconcile", name, trigger="refire", outcome=verdict, session=session)
+            _log("reconcile", name, trigger="refire", outcome=verdict,
+                 session=session, project=retrieve.project_key(cwd))
 
 
 def _spawn(argv, cwd):

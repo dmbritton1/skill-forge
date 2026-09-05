@@ -172,6 +172,45 @@ def eligible(e, cwd):
     return e.get("tier") == "warm" and in_scope(e.get("root", ""), cwd)
 
 
+_PROJECT_KEY = {}
+
+
+def reset_project_key_cache():
+    """Test seam. A hook process is short-lived, so nothing else needs this."""
+    _PROJECT_KEY.clear()
+
+
+def project_key(cwd):
+    """Stable identity for the repo at `cwd` -- the corroboration key (V16).
+
+    `--git-common-dir` rather than the worktree path: every worktree of one
+    repo resolves to the same .git, so working the same project across five
+    worktrees is one repo's worth of evidence, not five. Outside a git repo
+    the resolved path stands in, which is the most any local check can say.
+
+    Cached per process because this is reached from PostToolUse, which fires
+    on every tool call; `--git-common-dir` does not scan the repo, so the one
+    call it does make is cheap.
+    """
+    key = str(Path(cwd).resolve())
+    if key in _PROJECT_KEY:
+        return _PROJECT_KEY[key]
+    out = key
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            cwd=key, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=GIT_TIMEOUT_S)
+        if proc.returncode == 0:
+            line = proc.stdout.decode("utf-8", "replace").strip()
+            if line:
+                out = line
+    except (OSError, subprocess.SubprocessError):
+        pass    # not a repo, no git, or too slow -- the path is still honest
+    _PROJECT_KEY[key] = out
+    return out
+
+
 def fingerprint_preexisting(fingerprints, cwd):
     """1 if any fingerprint is already in the repo, 0 if none are, None if unknown.
 
@@ -323,7 +362,8 @@ def run_hook(data):
         try:
             ledger.log_event("injection", name, tier="warm",
                              trigger="prompt", session=session,
-                             preexisting_fingerprint=preexisting)
+                             preexisting_fingerprint=preexisting,
+                             project=project_key(cwd))
         except Exception as err:
             print("skillforge: ledger write failed: %s" % err, file=sys.stderr)
     return 0

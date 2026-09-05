@@ -60,8 +60,10 @@ def capture(argv):
 def test_confidence_reports_both_sides():
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
-        ledger.log_event("detection", "foo", outcome="success", session="s1", path=db)
-        ledger.log_event("detection", "foo", outcome="failure", session="s2", path=db)
+        ledger.log_event("detection", "foo", outcome="success", session="s1",
+                         project="/repo/a/.git", path=db)
+        ledger.log_event("detection", "foo", outcome="failure", session="s2",
+                         project="/repo/b/.git", path=db)
         conf = ledger.confidence(path=db)
         assert conf["foo"]["successes"] == 1
         assert conf["foo"]["failures"] == 1
@@ -74,7 +76,8 @@ def test_confidence_reports_both_sides():
 def test_list_reports_bucket_and_counts():
     def check(home):
         put_skill(home, "alpha")
-        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1",
+                         project="/repo/a/.git")
         rows = {r["name"]: r for r in library.rows()}
         assert rows["alpha"]["bucket"] == "working"
         assert rows["alpha"]["successes"] == 1
@@ -108,7 +111,8 @@ def test_delete_removes_store_native_and_trust_entry():
         # materializes it. Give it a verified session so it earns `working`
         # and goes hot -- without this the native-dir assertion below passes
         # because the directory never existed, not because delete removed it.
-        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1",
+                         project="/repo/a/.git")
         sync.sync()
         native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
         assert native.exists(), "precondition: skill must be hot before delete"
@@ -133,7 +137,8 @@ def test_delete_keeps_the_ledger_history():
     """Deleting a skill removes the skill, not the evidence about it."""
     def check(home):
         put_skill(home, "alpha")
-        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1",
+                         project="/repo/a/.git")
         capture(["delete", "alpha"])
         con = ledger.connect()
         try:
@@ -206,7 +211,8 @@ def test_delete_of_a_project_skill_does_not_strip_the_shared_index():
             text = SKILL % name
             (d / "SKILL.md").write_text(text, encoding="utf-8")
             trust.record(name, text, "self")
-        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1",
+                         project="/repo/a/.git")
         sync.sync(project_root=str(proj))
 
         native = proj / ".claude" / "skills" / "skillforge-hot" / "alpha"
@@ -430,7 +436,8 @@ def test_archive_moves_the_store_dir_instead_of_destroying_it():
 def test_archive_evicts_native_copy_and_trust_entry():
     def check(home):
         put_skill(home, "alpha")
-        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1",
+                         project="/repo/a/.git")
         sync.sync()
         native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
         assert native.exists(), "precondition: skill must be hot before archive"
@@ -463,7 +470,8 @@ def test_archive_preserves_kind_for_antiskills():
 def test_archive_logs_an_event_and_keeps_history():
     def check(home):
         put_skill(home, "alpha")
-        ledger.log_event("detection", "alpha", outcome="success", session="s1")
+        ledger.log_event("detection", "alpha", outcome="success", session="s1",
+                         project="/repo/a/.git")
         capture(["archive", "alpha"])
         con = ledger.connect()
         types = [r[0] for r in con.execute(

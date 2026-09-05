@@ -224,7 +224,8 @@ def run(data):
                 if not credited(v, name, seen):
                     continue
                 _log("detection", name, detection="verification",
-                     outcome=outcome, session=session)
+                     outcome=outcome, session=session,
+                     project=retrieve.project_key(cwd))
 
     hay = patterns.tokenize(response_text(resp))
     detected = set()
@@ -238,7 +239,8 @@ def run(data):
             continue
         if name not in detected:
             detected.add(name)
-            _log("detection", name, detection="symptom", trigger="symptom", session=session)
+            _log("detection", name, detection="symptom", trigger="symptom",
+                 session=session, project=retrieve.project_key(cwd))
         if name in seen or len(picked) >= MAX_ANTISKILLS:
             continue
         try:
@@ -279,7 +281,8 @@ def run(data):
         preexisting, used = retrieve.probe_fingerprints(fps, cwd, probes_left)
         probes_left -= used
         _log("injection", name, tier="warm", trigger="symptom", session=session,
-             preexisting_fingerprint=preexisting)
+             preexisting_fingerprint=preexisting,
+             project=retrieve.project_key(cwd))
     return 0
 
 

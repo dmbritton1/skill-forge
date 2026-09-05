@@ -160,6 +160,48 @@ def test_aggregate_view_zero_not_null_for_outcome_free_skills():
         assert row == (0, 0, 0, 1)
 
 
+# The v3 shape, verbatim enough to reproduce a pre-V16 ledger: events with
+# no `project`, and the session-keyed confidence view. Used only by the
+# migration test -- if it drifts from the real v3 that test gets easier, not
+# wrong, so it is not worth generating.
+OLD_SCHEMA_V3 = """
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS events (
+  id INTEGER PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  skill TEXT NOT NULL,
+  session TEXT,
+  turn INTEGER,
+  tier TEXT,
+  "trigger" TEXT,
+  detection TEXT,
+  preexisting_fingerprint INTEGER,
+  outcome TEXT,
+  ts TEXT NOT NULL
+);
+CREATE VIEW IF NOT EXISTS skill_confidence AS
+WITH t AS (
+  SELECT skill,
+    COUNT(DISTINCT CASE WHEN outcome = 'success' THEN COALESCE(session, '') END)
+      AS success_sessions,
+    COUNT(DISTINCT CASE WHEN outcome = 'failure' THEN COALESCE(session, '') END)
+      AS failure_sessions,
+    MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
+  FROM events GROUP BY skill),
+f AS (
+  SELECT *, (last_used IS NULL
+             OR julianday('now') - julianday(last_used) <= 90) AS fresh
+  FROM t)
+SELECT skill, success_sessions, failure_sessions, last_used, fresh,
+  CASE
+    WHEN success_sessions >= 2 AND failure_sessions = 0 AND fresh THEN 'trusted'
+    WHEN success_sessions >= 1 AND success_sessions > failure_sessions THEN 'working'
+    ELSE 'unproven'
+  END AS organic_bucket
+FROM f;
+"""
+
+
 def bucket_of(db, skill):
     con = ledger.connect(db)
     try:
@@ -235,37 +277,48 @@ def test_bucket_working_after_one_success():
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
         ledger.log_event("detection", "foo", detection="verification",
-                         outcome="success", session="s1", path=db)
+                         outcome="success", session="s1",
+                         project="/repo/a/.git", path=db)
         assert bucket_of(db, "foo") == "working"
 
 
-def test_two_successes_in_one_session_do_not_reach_trusted():
+def test_neither_rows_nor_sessions_stand_in_for_projects():
     # C1 dedupes verification detections per hook call, not per session, so a
     # verification command run twice in one session writes two success rows.
-    # Spec 7's bar is k>=2 real SESSIONS -- rows must not stand in for them.
+    # V16 moved the bar from k>=2 sessions to k>=2 PROJECTS, so neither extra
+    # rows nor extra sessions in the same repo may reach it.
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
         for _ in range(2):
             ledger.log_event("detection", "foo", detection="verification",
-                             outcome="success", session="s1", path=db)
+                             outcome="success", session="s1",
+                             project="/repo/a/.git", path=db)
         assert bucket_of(db, "foo") == "working"
         ledger.log_event("detection", "foo", detection="verification",
-                         outcome="success", session="s2", path=db)
+                         outcome="success", session="s2",
+                         project="/repo/a/.git", path=db)
+        assert bucket_of(db, "foo") == "working", "a second session is not a second repo"
+        ledger.log_event("detection", "foo", detection="verification",
+                         outcome="success", session="s2",
+                         project="/repo/b/.git", path=db)
         assert bucket_of(db, "foo") == "trusted"
 
 
 def test_failure_demotes_one_step_at_a_time():
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
-        for s in ("s1", "s2"):
+        for pr in ("/repo/a/.git", "/repo/b/.git"):
             ledger.log_event("detection", "foo", detection="verification",
-                             outcome="success", session=s, path=db)
+                             outcome="success", session="s" + pr,
+                             project=pr, path=db)
         assert bucket_of(db, "foo") == "trusted"
         ledger.log_event("reconcile", "foo", trigger="refire",
-                         outcome="failure", session="s3", path=db)
+                         outcome="failure", session="s3",
+                         project="/repo/c/.git", path=db)
         assert bucket_of(db, "foo") == "working"
         ledger.log_event("reconcile", "foo", trigger="refire",
-                         outcome="failure", session="s4", path=db)
+                         outcome="failure", session="s4",
+                         project="/repo/d/.git", path=db)
         assert bucket_of(db, "foo") == "unproven"
 
 
@@ -275,9 +328,10 @@ def test_trusted_decays_to_working_after_90_days():
     # first WHEN would never fire, and NOTHING would ever be trusted.
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
-        for s in ("s1", "s2"):
+        for pr in ("/repo/a/.git", "/repo/b/.git"):
             ledger.log_event("detection", "foo", detection="verification",
-                             outcome="success", session=s, ts=days_ago(120), path=db)
+                             outcome="success", session="s" + pr, project=pr,
+                             ts=days_ago(120), path=db)
         assert bucket_of(db, "foo") == "working"
         con = ledger.connect(db)
         try:
@@ -289,19 +343,24 @@ def test_trusted_decays_to_working_after_90_days():
 def test_fresh_success_still_reaches_trusted():
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
-        for s in ("s1", "s2"):
+        for pr in ("/repo/a/.git", "/repo/b/.git"):
             ledger.log_event("detection", "foo", detection="verification",
-                             outcome="success", session=s, path=db)
+                             outcome="success", session="s" + pr,
+                             project=pr, path=db)
         assert bucket_of(db, "foo") == "trusted"
 
 
-def test_unsessioned_successes_count_as_one_session():
+def test_session_is_no_longer_consulted_for_corroboration():
+    """Rows with no session at all still corroborate, once, per project."""
     with tempfile.TemporaryDirectory() as tmp:
         db = pathlib.Path(tmp) / "ledger.db"
         for _ in range(3):
             ledger.log_event("detection", "foo", detection="verification",
-                             outcome="success", path=db)
+                             outcome="success", project="/repo/a/.git", path=db)
         assert bucket_of(db, "foo") == "working"
+        ledger.log_event("detection", "foo", detection="verification",
+                         outcome="success", project="/repo/b/.git", path=db)
+        assert bucket_of(db, "foo") == "trusted"
 
 
 def test_reconcile_rows_do_not_inflate_uses():
@@ -382,13 +441,15 @@ def test_validations_never_reach_skill_confidence():
     same trap the scratch tables are kept out of events to avoid.
     """
     def check(home):
-        ledger.log_event("detection", "w", outcome="success", session="s1")
-        ledger.log_event("detection", "w", outcome="success", session="s2")
+        ledger.log_event("detection", "w", outcome="success", session="s1",
+                         project="/repo/a/.git")
+        ledger.log_event("detection", "w", outcome="success", session="s2",
+                         project="/repo/b/.git")
         ledger.record_validation("w", "h", "executable", "fail")
         con = ledger.connect()
         try:
             row = con.execute(
-                "SELECT failure_sessions FROM skill_confidence WHERE skill = 'w'"
+                "SELECT failure_projects FROM skill_confidence WHERE skill = 'w'"
             ).fetchone()
         finally:
             con.close()
@@ -455,13 +516,16 @@ def test_a_fresh_database_gets_the_new_view_directly():
 
 
 def _seed(skill, successes, failures=0, age_days=0):
+    """N independent corroborations -- which V16 keys on project, not session."""
     ts = days_ago(age_days) if age_days else None
     for i in range(successes):
         ledger.log_event("detection", skill, outcome="success",
-                         session="s-ok-%d" % i, ts=ts)
+                         session="s-ok-%d" % i, project="/repo/ok-%d/.git" % i,
+                         ts=ts)
     for i in range(failures):
         ledger.log_event("detection", skill, outcome="failure",
-                         session="s-bad-%d" % i, ts=ts)
+                         session="s-bad-%d" % i, project="/repo/bad-%d/.git" % i,
+                         ts=ts)
 
 
 def test_conjunct_truth_table():
@@ -1044,6 +1108,94 @@ def test_cli_log_decision_reports_a_bad_verdict_without_traceback():
         assert rc == 1, rc
         assert "vibes" in buf.getvalue(), buf.getvalue()
         assert ledger.decisions(path=db) == []
+
+
+def test_two_projects_are_needed_for_trusted():
+    """V16: corroboration is keyed on project, not session.
+
+    Ten sessions in one repo are one repo's worth of evidence. Without this
+    the dogfooding case manufactures `trusted` out of a single project.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        for sess in ("s1", "s2", "s3"):
+            ledger.log_event("detection", "foo", detection="verification",
+                             outcome="success", session=sess,
+                             project="/repo/a/.git", path=db)
+        assert bucket_of(db, "foo") == "working", "one project is not corroboration"
+        ledger.log_event("detection", "foo", detection="verification",
+                         outcome="success", session="s4",
+                         project="/repo/b/.git", path=db)
+        assert bucket_of(db, "foo") == "trusted"
+
+
+def test_null_project_successes_do_not_corroborate():
+    """Unknown is not a project. Legacy rows must not promote anything."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        for sess in ("s1", "s2"):
+            ledger.log_event("detection", "foo", detection="verification",
+                             outcome="success", session=sess, path=db)
+        assert bucket_of(db, "foo") == "unproven", "NULL project must not count"
+
+
+def test_one_known_project_plus_legacy_rows_is_still_one():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("detection", "foo", detection="verification",
+                         outcome="success", session="s1", path=db)
+        ledger.log_event("detection", "foo", detection="verification",
+                         outcome="success", session="s2",
+                         project="/repo/a/.git", path=db)
+        assert bucket_of(db, "foo") == "working"
+
+
+def test_failures_are_counted_per_project_too():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        for pr in ("/repo/a/.git", "/repo/b/.git"):
+            ledger.log_event("detection", "foo", detection="verification",
+                             outcome="success", session="s" + pr, project=pr, path=db)
+        assert bucket_of(db, "foo") == "trusted"
+        for sess in ("s9", "s10"):
+            ledger.log_event("reconcile", "foo", trigger="refire",
+                             outcome="failure", session=sess,
+                             project="/repo/a/.git", path=db)
+        # Two failure rows in ONE project is one failure-project, so this
+        # lands on working (2 wins > 1 loss), not unproven.
+        assert bucket_of(db, "foo") == "working"
+
+
+def test_project_column_is_persisted():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("injection", "foo", project="/repo/a/.git", path=db)
+        con = ledger.connect(db)
+        row = con.execute("SELECT project FROM events").fetchone()
+        con.close()
+        assert row == ("/repo/a/.git",), row
+
+
+def test_migration_replaces_the_old_confidence_view():
+    """CREATE VIEW IF NOT EXISTS leaves a stale definition in place.
+
+    A ledger written by the previous build carries the session-keyed view.
+    Opening it must swap in the project-keyed one, or the whole change is
+    inert on exactly the databases that already have history.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        con = sqlite3.connect(str(db))
+        con.executescript(OLD_SCHEMA_V3)
+        con.execute("INSERT INTO meta (key, value) VALUES ('schema_version','3')")
+        con.commit()
+        con.close()
+        # Two successes, one project: trusted under the old view, not the new.
+        for sess in ("s1", "s2"):
+            ledger.log_event("detection", "foo", detection="verification",
+                             outcome="success", session=sess,
+                             project="/repo/a/.git", path=db)
+        assert bucket_of(db, "foo") == "working", "stale view survived the migration"
 
 
 if __name__ == "__main__":

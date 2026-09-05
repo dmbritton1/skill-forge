@@ -110,7 +110,8 @@ def test_valid_global_skill_saves_and_materializes():
         assert entry["bucket"] == "unproven"
 
         ledger.log_event("detection", "test-skill", detection="verification",
-                         outcome="success", session="s1")
+                         outcome="success", session="s1",
+                         project="/repo/a/.git")
         import sync
         sync.sync()
         assert (home / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
@@ -141,7 +142,8 @@ def test_project_scope_writes_under_project_root():
         # earns a success -- earn one and resync to exercise the native path
         # this test measures (materialization under the project root).
         ledger.log_event("detection", "test-skill", detection="verification",
-                         outcome="success", session="s1")
+                         outcome="success", session="s1",
+                         project="/repo/a/.git")
         import sync
         sync.sync(project_root=str(proj))
         assert (proj / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
@@ -215,7 +217,8 @@ def test_cross_kind_name_collision_rejected_and_native_copy_preserved():
         # resync so there is a native copy for the rejected second save to
         # (not) disturb, which is what "preserved" in this test measures.
         ledger.log_event("detection", "clash", detection="verification",
-                         outcome="success", session="s1")
+                         outcome="success", session="s1",
+                         project="/repo/a/.git")
         import sync
         sync.sync()
         native = home / ".claude/skills/skillforge-hot/clash/SKILL.md"

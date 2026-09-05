@@ -243,10 +243,12 @@ def test_a_percentage_appears_once_the_sample_clears_the_floor():
             ledger.log_event("injection", "a", tier="warm", session="s%d" % i)
         for i in range(6):
             ledger.log_event("detection", "a", detection="verification",
-                             outcome="success", session="s%d" % i)
+                             outcome="success", session="s%d" % i,
+                             project="/repo/%d/.git" % i)
         for i in range(6, 9):
             ledger.log_event("detection", "a", detection="verification",
-                             outcome="failure", session="s%d" % i)
+                             outcome="failure", session="s%d" % i,
+                             project="/repo/%d/.git" % i)
         for i in range(9, 12):
             ledger.log_event("detection", "a", detection="verification",
                              session="s%d" % i)

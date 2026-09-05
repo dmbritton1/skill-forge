@@ -108,7 +108,7 @@ def test_two_successes_without_critique_do_not_reach_trusted():
         save(home, [])
         for i in range(2):
             ledger.log_event("detection", "widget-flush", outcome="success",
-                             session="s%d" % i)
+                             session="s%d" % i, project="/repo/%d/.git" % i)
         sync.sync()
         row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
         # Pinned, not just "working": ledger.confidence also yields "working"
@@ -133,7 +133,7 @@ def test_critique_pass_plus_two_successes_reaches_trusted():
         assert "END SKILL TEXT" in calls[0]
         for i in range(2):
             ledger.log_event("detection", "widget-flush", outcome="success",
-                             session="s%d" % i)
+                             session="s%d" % i, project="/repo/%d/.git" % i)
         sync.sync()
         row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
         assert row["critique"] == "pass", row
@@ -149,7 +149,7 @@ def test_editing_the_skill_voids_its_critique_and_drops_it_from_trusted():
         assert len(calls) == 1
         for i in range(2):
             ledger.log_event("detection", "widget-flush", outcome="success",
-                             session="s%d" % i)
+                             session="s%d" % i, project="/repo/%d/.git" % i)
         sync.sync()
         assert [r for r in library.rows()
                 if r["name"] == "widget-flush"][0]["bucket"] == "trusted"
@@ -176,7 +176,7 @@ def test_a_critique_that_finds_a_problem_blocks_promotion():
         assert len(calls) == 1
         for i in range(2):
             ledger.log_event("detection", "widget-flush", outcome="success",
-                             session="s%d" % i)
+                             session="s%d" % i, project="/repo/%d/.git" % i)
         sync.sync()
         row = [r for r in library.rows() if r["name"] == "widget-flush"][0]
         # Same discrimination as the first test: "working" alone doesn't

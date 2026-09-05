@@ -579,6 +579,59 @@ def test_a_corrupt_index_is_reported_and_a_missing_one_is_not():
     in_sandbox(check)
 
 
+def test_project_key_is_the_git_common_dir():
+    with tempfile.TemporaryDirectory() as tmp:
+        home = pathlib.Path(tmp)
+        repo = git_repo(home, {"a.txt": "hello\n"})
+        retrieve.reset_project_key_cache()
+        key = retrieve.project_key(repo)
+        assert key.endswith(".git"), key
+        assert str(repo.resolve()) in key, key
+
+
+def test_worktrees_of_one_repo_share_a_project_key():
+    """The whole point of V16: five worktrees are one repo's worth of evidence."""
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        home = pathlib.Path(tmp)
+        repo = git_repo(home, {"a.txt": "hello\n"})
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t",
+                        "commit", "-qm", "init"], cwd=str(repo), check=True)
+        wt = home / "wt"
+        subprocess.run(["git", "worktree", "add", "-q", str(wt)],
+                       cwd=str(repo), check=True)
+        retrieve.reset_project_key_cache()
+        a = retrieve.project_key(repo)
+        retrieve.reset_project_key_cache()
+        b = retrieve.project_key(wt)
+        assert a == b, (a, b)
+
+
+def test_project_key_falls_back_to_the_path_outside_git():
+    with tempfile.TemporaryDirectory() as tmp:
+        plain = pathlib.Path(tmp) / "plain"
+        plain.mkdir()
+        retrieve.reset_project_key_cache()
+        assert retrieve.project_key(plain) == str(plain.resolve())
+
+
+def test_project_key_is_cached_per_process():
+    """It runs inside PostToolUse, which fires on every tool call."""
+    with tempfile.TemporaryDirectory() as tmp:
+        plain = pathlib.Path(tmp) / "plain"
+        plain.mkdir()
+        retrieve.reset_project_key_cache()
+        first = retrieve.project_key(plain)
+        calls = []
+        real = retrieve.subprocess.run
+        retrieve.subprocess.run = lambda *a, **k: calls.append(1) or real(*a, **k)
+        try:
+            assert retrieve.project_key(plain) == first
+            assert calls == [], "a cached key must not shell out again"
+        finally:
+            retrieve.subprocess.run = real
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

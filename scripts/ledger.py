@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS events (
   detection TEXT,
   preexisting_fingerprint INTEGER,
   outcome TEXT,
+  -- Where this happened, for corroboration (V16). NULL means unknown, which
+  -- is NOT a project: legacy rows must not promote anything.
+  project TEXT,
   ts TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_events_session ON events(session);
@@ -53,22 +56,28 @@ FROM events GROUP BY skill;
 -- Computed once here and consumed twice, so the window cannot drift between
 -- the SQL and the Python.
 CREATE VIEW IF NOT EXISTS skill_confidence AS
+-- V16: corroboration is keyed on PROJECT, not session. Ten clean sessions in
+-- one repo are one repo's worth of evidence, and counting them as ten is a
+-- back door around the evidence gate -- the dogfooding case walks through it
+-- by construction. `project IS NOT NULL` rather than COALESCE(project,''):
+-- an unknown project is not a distinct one, and folding every legacy row into
+-- a single '' bucket would let one unknown plus one known read as two.
 WITH t AS (
   SELECT skill,
-    COUNT(DISTINCT CASE WHEN outcome = 'success' THEN COALESCE(session, '') END)
-      AS success_sessions,
-    COUNT(DISTINCT CASE WHEN outcome = 'failure' THEN COALESCE(session, '') END)
-      AS failure_sessions,
+    COUNT(DISTINCT CASE WHEN outcome = 'success' AND project IS NOT NULL
+                        THEN project END) AS success_projects,
+    COUNT(DISTINCT CASE WHEN outcome = 'failure' AND project IS NOT NULL
+                        THEN project END) AS failure_projects,
     MAX(CASE WHEN event_type = 'detection' THEN ts END) AS last_used
   FROM events GROUP BY skill),
 f AS (
   SELECT *, (last_used IS NULL
              OR julianday('now') - julianday(last_used) <= 90) AS fresh
   FROM t)
-SELECT skill, success_sessions, failure_sessions, last_used, fresh,
+SELECT skill, success_projects, failure_projects, last_used, fresh,
   CASE
-    WHEN success_sessions >= 2 AND failure_sessions = 0 AND fresh THEN 'trusted'
-    WHEN success_sessions >= 1 AND success_sessions > failure_sessions THEN 'working'
+    WHEN success_projects >= 2 AND failure_projects = 0 AND fresh THEN 'trusted'
+    WHEN success_projects >= 1 AND success_projects > failure_projects THEN 'working'
     ELSE 'unproven'
   END AS organic_bucket
 FROM f;
@@ -145,12 +154,25 @@ CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session);
 # EXISTS silently leaves an old view in place, so a rename needs an explicit
 # DROP. Read once per connect (one indexed SELECT); DDL runs only when behind,
 # because detect.py connects on every tool call.
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 MIGRATIONS = {
     2: ("DROP VIEW IF EXISTS skill_confidence",),
     3: ("DROP VIEW IF EXISTS skill_confidence",),
+    # V16 re-keys corroboration onto `project`. The DROP is what makes it
+    # reach existing ledgers at all -- CREATE VIEW IF NOT EXISTS would leave
+    # the session-keyed definition in place on exactly the databases that
+    # have the history worth re-scoring.
+    4: ("DROP VIEW IF EXISTS skill_confidence",),
 }
+
+# Columns added to an existing table after the fact. Not expressible in
+# MIGRATIONS: SCHEMA already creates them on a fresh database, so a bare
+# ALTER would raise "duplicate column" there -- and since Python's sqlite3
+# runs DDL in autocommit, the DROP VIEW ahead of it in the same migration is
+# already committed and does NOT roll back, leaving the ledger with no
+# confidence view at all. Applied conditionally instead.
+ADDED_COLUMNS = (("events", "project", "TEXT"),)
 
 
 def default_path():
@@ -223,6 +245,12 @@ def _migrate(con):
                 if v > have:
                     for stmt in MIGRATIONS[v]:
                         con.execute(stmt)
+            for table, col, decl in ADDED_COLUMNS:
+                cols = {r[1] for r in
+                        con.execute("PRAGMA table_info(%s)" % table)}
+                if col not in cols:
+                    con.execute("ALTER TABLE %s ADD COLUMN %s %s"
+                                % (table, col, decl))
             # DROP removed the view; SCHEMA recreates it on the next
             # executescript, so run it here rather than waiting a connect.
             con.executescript(SCHEMA)
@@ -236,17 +264,17 @@ def _migrate(con):
 
 def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
               tier=None, trigger=None, detection=None,
-              preexisting_fingerprint=None, ts=None, path=None):
+              preexisting_fingerprint=None, project=None, ts=None, path=None):
     ts = ts or datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
     con = connect(path)
     try:
         with con:
             con.execute(
                 'INSERT INTO events (event_type, skill, session, turn, tier,'
-                ' "trigger", detection, preexisting_fingerprint, outcome, ts)'
-                " VALUES (?,?,?,?,?,?,?,?,?,?)",
+                ' "trigger", detection, preexisting_fingerprint, outcome,'
+                " project, ts) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (event_type, skill, session, turn, tier, trigger, detection,
-                 preexisting_fingerprint, outcome, ts))
+                 preexisting_fingerprint, outcome, project, ts))
     finally:
         con.close()
 
@@ -360,7 +388,7 @@ def confidence(path=None, hashes=None):
         con = connect(path)
         try:
             for skill, wins, losses, last_used, fresh, organic in con.execute(
-                    "SELECT skill, success_sessions, failure_sessions,"
+                    "SELECT skill, success_projects, failure_projects,"
                     " last_used, fresh, organic_bucket FROM skill_confidence"):
                 stats[skill] = {"organic_bucket": organic or "unproven",
                                 "successes": wins or 0, "failures": losses or 0,
@@ -821,7 +849,8 @@ def main(argv=None):
     lg = sub.add_parser("log")
     lg.add_argument("--event-type", required=True)
     lg.add_argument("--skill", required=True)
-    for opt in ("outcome", "session", "tier", "trigger", "detection"):
+    for opt in ("outcome", "session", "tier", "trigger", "detection",
+                "project"):
         lg.add_argument("--" + opt)
     lg.add_argument("--turn", type=int)
     lg.add_argument("--path")
@@ -841,7 +870,7 @@ def main(argv=None):
         log_event(args.event_type, args.skill, outcome=args.outcome,
                   session=args.session, turn=args.turn, tier=args.tier,
                   trigger=args.trigger, detection=args.detection,
-                  path=args.path)
+                  project=args.project, path=args.path)
         return 0
 
     if args.cmd == "log-decision":

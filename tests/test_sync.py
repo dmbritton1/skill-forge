@@ -426,8 +426,11 @@ def test_index_carries_tokenized_fingerprints():
 def earn_success(name, session="s1", ts=None):
     """Give a skill one successful session, the bar for `working`."""
     import ledger
+    # V16: corroboration is per project, and each caller's distinct session
+    # stands for a distinct repo -- which is what these tests always meant.
     ledger.log_event("detection", name, detection="verification",
-                     outcome="success", session=session, ts=ts)
+                     outcome="success", session=session, ts=ts,
+                     project="/repo/%s/.git" % session)
 
 
 def test_index_entries_carry_a_bucket():
@@ -642,7 +645,7 @@ def test_sync_applies_the_tier_a_conjunct_to_tiering():
         trust.record("widget-flush", text, "self")
         for i in range(2):
             ledger.log_event("detection", "widget-flush", outcome="success",
-                             session="s%d" % i)
+                             session="s%d" % i, project="/repo/%d/.git" % i)
         sync.sync()
         entry = [e for e in read_index(home)["entries"]
                  if e["name"] == "widget-flush"][0]
