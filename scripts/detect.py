@@ -58,9 +58,11 @@ def load_triggers():
 
 
 # A failed Bash call arrives as a plain string whose first line is
-# "Error: Exit code N". Anchored so it cannot match the phrase appearing
-# later inside ordinary command output.
-EXIT_CODE_RE = re.compile(r"^Error: Exit code \d+")
+# "Exit code N", which PostToolUse prefixes with "Error: " and the
+# PostToolUseFailure event may not. Both are the same fact, so the prefix is
+# optional. Still anchored, so the phrase appearing later inside ordinary
+# command output cannot match.
+EXIT_CODE_RE = re.compile(r"^(?:Error: )?Exit code \d+")
 
 
 def bash_outcome(resp):
@@ -182,7 +184,18 @@ def run(data):
         if edited:
             _log_edit(session, str(edited), data.get("prompt_id"))
 
+    # PostToolUse carries `tool_response`; PostToolUseFailure carries
+    # `error` and no tool_response at all. Reading both is what lets one
+    # script serve both events -- and registering the failure event is what
+    # makes a `failure` outcome reachable at all: PostToolUse fires only on
+    # success, so before this every verification could only ever be recorded
+    # as a success or not at all, and a skill could be promoted but never
+    # held back. It also points the symptom matcher at error text for the
+    # first time; an error signature cannot appear in successful output.
     resp = data.get("tool_response")
+    if resp is None:
+        resp = data.get("error")
+    event = data.get("hook_event_name")
     is_bash = data.get("tool_name") == "Bash"
 
     idx = load_triggers()
@@ -249,7 +262,10 @@ def run(data):
              % (name, body) for name, body, _ in picked]
     parts.append(retrieve.MARKER_NOTE)
     print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "PostToolUse",
+        # The event actually fired, not a hardcoded one: an injection
+        # labelled PostToolUse while running on PostToolUseFailure is
+        # mislabelled, and the harness has no way to know better.
+        "hookEventName": event or "PostToolUse",
         "additionalContext": "\n\n".join(parts)}}))
     try:
         retrieve.save_state(session, seen)

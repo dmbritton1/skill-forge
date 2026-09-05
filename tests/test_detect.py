@@ -302,6 +302,98 @@ def test_an_interrupted_command_is_not_a_success():
     assert detect.bash_outcome(dict(REAL_SUCCESS, interrupted=True)) is None
 
 
+def failure_data(home, error, tool="Bash", command="", session="sess1"):
+    """A PostToolUseFailure payload.
+
+    It carries `error` and NO `tool_response` -- the field the success event
+    uses does not exist here, which is why detect.py has to read both.
+    """
+    return {"session_id": session, "cwd": str(home), "tool_name": tool,
+            "hook_event_name": "PostToolUseFailure",
+            "tool_input": {"command": command}, "error": error}
+
+
+def test_exit_code_is_a_failure_with_or_without_the_error_prefix():
+    """PostToolUse wraps a failure as "Error: Exit code N". The failure event
+    may hand over the bare text. Both are the same fact, and which prefix
+    arrives is not something worth betting the mapping on."""
+    assert detect.bash_outcome("Error: Exit code 1\nboom") == "failure"
+    assert detect.bash_outcome("Exit code 1\nboom") == "failure"
+    assert detect.bash_outcome("Exit code 143\nCommand timed out") == "failure"
+
+
+def test_a_refusal_is_still_unknown_however_it_arrives():
+    """37% of real failure-shaped results are the harness refusing, not the
+    skill failing. Promotion gates on failure_sessions = 0, so a single false
+    failure is permanent -- unknown is the honest answer."""
+    for txt in ("User rejected tool use",
+                "Error: User rejected tool use",
+                "Permission for this action was denied by the auto mode"
+                " classifier",
+                "Blocked: sleep 90 followed by: cat /tmp/x",
+                "claude-sonnet-5[1m] is temporarily unavailable"):
+        assert detect.bash_outcome(txt) is None, txt
+
+
+def test_verification_failure_lands_from_the_error_field():
+    """The whole point of registering the failure event.
+
+    Before it, PostToolUse fired only on success, so no verification could
+    ever record a failure and a skill could be promoted but never held back.
+    """
+    def check(home):
+        write_triggers(home, verifications=[
+            {"skill": "stripe-hook", "root": str(home), "tier": "hot",
+             "tokens": ["npx", "stripe", "trigger"]}])
+        rc, out = run_capture(failure_data(
+            home, "Error: Exit code 1\nboom", command="npx stripe trigger"))
+        assert rc == 0
+        assert out == "", out
+        assert ("detection", "stripe-hook", "verification", None,
+                "failure") in rows("skill='stripe-hook'")
+    in_sandbox(check)
+
+
+def test_symptoms_match_against_a_failure_payload():
+    """Error signatures live in failures.
+
+    While only PostToolUse was registered, the symptom matcher scanned
+    successful output alone -- the one place an error signature cannot
+    appear. This is the anti-skill fast path finally pointed at real errors.
+    """
+    def check(home):
+        path = put_antiskill(home, "widget-trap")
+        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
+        rc, out = run_capture(failure_data(
+            home,
+            "Error: Exit code 1\nWidgetFlushedError: the widget was already"
+            " flushed at line 3"))
+        assert rc == 0
+        assert injected_names(out) == ["widget-trap"], out
+    in_sandbox(check)
+
+
+def test_the_injection_names_the_event_it_was_fired_on():
+    """A hardcoded "PostToolUse" would mislabel every failure-event injection."""
+    def check(home):
+        path = put_antiskill(home, "widget-trap")
+        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
+        _rc, out = run_capture(failure_data(
+            home, "WidgetFlushedError: the widget was already flushed"))
+        assert json.loads(out)["hookSpecificOutput"]["hookEventName"] == \
+            "PostToolUseFailure", out
+    in_sandbox(check)
+
+
+def test_hooks_json_registers_the_failure_event():
+    """Registration is the half of this change that lives outside Python."""
+    root = pathlib.Path(__file__).resolve().parent.parent
+    hooks = json.loads((root / "hooks" / "hooks.json").read_text())["hooks"]
+    assert "PostToolUseFailure" in hooks, sorted(hooks)
+    cmd = hooks["PostToolUseFailure"][0]["hooks"][0]["command"]
+    assert "detect.py" in cmd, cmd
+
+
 def test_verification_hit_logs_outcome():
     def check(home):
         write_triggers(home, verifications=[
