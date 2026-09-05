@@ -194,10 +194,50 @@ one real session has, but `trusted`'s other requirements aren't both met
 yet), `trusted` (a passing critique, plus either two clean real sessions
 or a passing executable run, used within 90 days — see "Tier A validation"
 above). It also shows the two Tier A verdicts (`pass`, `fail`, or blank if
-never run) per skill. It will show any skill in full, and delete one on
-request. Deleting a skill leaves its ledger history intact, so re-saving
+never run) per skill. It will show any skill in full, and retire one on
+request. Retiring a skill leaves its ledger history intact, so re-saving
 the same name starts from `unproven` rather than silently inheriting an
 old bucket.
+
+### Retiring a skill
+
+Two verbs, because they are two different acts:
+
+    python3 scripts/library.py archive <name>    # reversible
+    python3 scripts/library.py restore <name>    # bring it back
+    python3 scripts/library.py archived          # what is in the archive
+    python3 scripts/library.py delete <name>     # destructive, no undo
+
+`archive` moves the skill's store directory into
+`.claude/skillforge/archive/<kind>/<name>@<stamp>/`, drops its trust entry
+and evicts its native copy. The stamp is always present, so archiving the
+same name twice never overwrites the earlier copy; `restore --at <stamp>`
+picks between them when it has to.
+
+**A restored skill comes back quarantined, not trusted.** An archived
+directory is plain text you can edit, so re-trusting on the way back in
+would make archive → edit → restore a way to land unreviewed content as
+trusted — which is what the content hash exists to prevent. Run
+`/skillforge:review` to approve it.
+
+The archive is never pruned and is covered by `.gitignore`, like the rest
+of the knowledge store.
+
+### What was decided on the way in
+
+    python3 scripts/library.py decisions [--actor human|system]
+                                         [--verdict V] [--skill N] [--limit N]
+
+The library shows what is *in* it. This shows what was decided at the
+door, including proposals that never made it — a rejected save used to
+print to a detached drafter's stderr and leave no trace anywhere.
+
+Rows split by actor. `system` rows are the write path refusing something
+(`rejected`, `secret_blocked`, `name_collision`) and are observations.
+`human` rows (`approved`, `edited`, `scope_overridden`, `discarded`) are
+self-reported by the model at save time, so treat them as the softer of
+the two. `/skillforge:stats` carries the tally; SessionStart prints a
+one-line summary of anything decided since the last one.
 
 `/skillforge:library show <name>` breaks usage down by session into the
 marker protocol's truth table: sessions where a marker and a fingerprint or

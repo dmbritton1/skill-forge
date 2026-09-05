@@ -270,6 +270,48 @@ def test_main_exits_zero_and_prints_the_report():
     in_sandbox(check)
 
 
+def test_decisions_section_says_so_when_nothing_was_decided():
+    old = os.environ["HOME"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        try:
+            text = "\n".join(stats.section_decisions())
+            assert "DECISIONS" in text, text
+            assert "none recorded" in text, text
+        finally:
+            os.environ["HOME"] = old
+
+
+def test_decisions_section_splits_human_from_system():
+    old = os.environ["HOME"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        try:
+            ledger.log_decision("human", "approved", "a")
+            ledger.log_decision("human", "edited", "b")
+            ledger.log_decision("system", "rejected", "c")
+            text = "\n".join(stats.section_decisions())
+            assert "1 approved" in text and "1 edited" in text, text
+            assert "1 rejected" in text, text
+            # The two axes must not be summed into one meaningless total:
+            # a human judgement and a write-path refusal are different acts.
+            assert "reviewer" in text.lower(), text
+            assert "write path" in text.lower(), text
+        finally:
+            os.environ["HOME"] = old
+
+
+def test_decisions_section_is_in_the_report():
+    old = os.environ["HOME"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        try:
+            ledger.log_decision("system", "secret_blocked", "leaky")
+            assert "DECISIONS" in stats.report()
+        finally:
+            os.environ["HOME"] = old
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -196,6 +196,35 @@ def section_value(rows):
             " not measured)"]
 
 
+def section_decisions():
+    """What was decided on the way in, as opposed to what is in the library.
+
+    Kept as two tallies rather than one: a reviewer's judgement and the write
+    path's refusal are different acts, and summing them would produce a number
+    that answers no question. Counts only -- the same reason every other
+    section here refuses a rate at this n.
+
+    `edited` and `scope_overridden` are self-reported by the model that wrote
+    the draft, so they are softer than the write-path rows, which are
+    observations. Said here rather than left for a reader to infer.
+    """
+    rows = ledger.decisions()
+    if not rows:
+        return ["DECISIONS", "  none recorded yet"]
+    tally = {"human": {}, "system": {}}
+    for r in rows:
+        side = tally.get(r["actor"])
+        if side is not None:
+            side[r["verdict"]] = side.get(r["verdict"], 0) + 1
+    def fmt(d):
+        return ", ".join("%d %s" % (n, v) for v, n in sorted(d.items())) or "none"
+    return ["DECISIONS",
+            "  reviewer          %s" % fmt(tally["human"]),
+            "                    (self-reported at save time, not observed)",
+            "  write path        %s" % fmt(tally["system"]),
+            "  full history      `library.py decisions`"]
+
+
 def section_unmeasured():
     """Named, not omitted -- spec 14 requires the gaps stay visible."""
     return ["NOT MEASURED",
@@ -218,6 +247,7 @@ def report():
                   section_usage(rows, totals),
                   section_outcomes(rows, totals),
                   section_value(rows),
+                  section_decisions(),
                   section_unmeasured()):
         out.extend(block)
         out.append("")
