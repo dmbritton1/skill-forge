@@ -330,6 +330,9 @@ def sync(project_root=None):
     # Tier A is enforced here, not in the view: verdicts are keyed by content
     # hash, and only this loop knows each skill's current text.
     hashes = {s["name"]: trust.content_hash(s["text"]) for s in trusted}
+    # Handed back so main() can report standing Tier A caps without re-reading
+    # and re-hashing the whole store.
+    counts["hashes"] = hashes
     conf = ledger.confidence(hashes=hashes)
     for s in trusted:
         s["bucket"] = conf.get(s["name"], UNKNOWN)["bucket"]
@@ -439,6 +442,32 @@ def decision_summary():
         return None
 
 
+def validation_summary(hashes):
+    """One line naming skills a failed critique is capping, or None.
+
+    NOT watermarked, unlike the decision summary. A decision is an event that
+    happened once; a failed critique is a standing cap on a skill sitting in
+    the library right now, and it should keep saying so until the skill is
+    fixed or removed. Nine consecutive failures went unread because the only
+    place they surfaced was a detached process's ledger write.
+
+    Only `critique`. Per the conjunct truth table an executable `fail` vetoes
+    nothing, so reporting it as a cap would be false.
+    """
+    try:
+        verdicts = ledger.validations_for(hashes)
+        capped = sorted(n for n, v in verdicts.items()
+                        if v.get("critique") == "fail")
+        if not capped:
+            return None
+        return ("skillforge: %d skill(s) capped by a failed critique: %s\n"
+                "            `library.py show <name>` for the findings"
+                % (len(capped), ", ".join(capped)))
+    except Exception as err:
+        print("skillforge: validation summary failed: %s" % err, file=sys.stderr)
+        return None
+
+
 def main(argv=None):
     # A drafter (slice D1) is a Claude Code process spawned by these very
     # hooks. `claude -p --safe-mode` already disables hooks in the child;
@@ -465,6 +494,9 @@ def main(argv=None):
         if line:
             print(line)
         counts = sync(project_root=args.project_root)
+        line = validation_summary(counts.get("hashes") or {})
+        if line:
+            print(line)
         if counts["quarantined"]:
             print("skillforge: %d skill(s) quarantined pending /skillforge:review"
                   % counts["quarantined"])

@@ -1189,6 +1189,81 @@ def test_sessionstart_reports_only_the_newest_batch():
     in_sandbox(check)
 
 
+def _trusted_skill(home, name="alpha"):
+    """A skill in the store, trusted, and its content hash."""
+    md = put_skill(home, name)
+    text = md.read_text(encoding="utf-8")
+    trust.record(name, text, "self")
+    return trust.content_hash(text)
+
+
+def test_sessionstart_is_silent_when_no_critique_has_failed():
+    def check(home):
+        h = _trusted_skill(home)
+        ledger.record_validation("alpha", h, "critique", "pass")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        assert "critique" not in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
+def test_sessionstart_names_skills_capped_by_a_failed_critique():
+    def check(home):
+        h = _trusted_skill(home)
+        ledger.record_validation("alpha", h, "critique", "fail")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        text = out.getvalue()
+        assert "failed critique" in text, text
+        assert "alpha" in text, text
+        assert "library.py show" in text, text
+    in_sandbox(check)
+
+
+def test_sessionstart_repeats_the_cap_every_session():
+    """Unlike a decision, a failed critique is a STANDING cap, not an event."""
+    def check(home):
+        h = _trusted_skill(home)
+        ledger.record_validation("alpha", h, "critique", "fail")
+        for _ in range(2):
+            out = io.StringIO()
+            with redirect_stdout(out):
+                sync.main([])
+            assert "alpha" in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
+def test_a_failed_executable_is_not_reported_as_a_cap():
+    """Per the conjunct truth table, an executable `fail` vetoes nothing."""
+    def check(home):
+        h = _trusted_skill(home)
+        ledger.record_validation("alpha", h, "critique", "pass")
+        ledger.record_validation("alpha", h, "executable", "fail")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        assert "alpha" not in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
+def test_a_verdict_against_stale_text_is_not_reported():
+    """Editing a skill voids its verdicts; a stale fail must not keep nagging."""
+    def check(home):
+        h = _trusted_skill(home)
+        ledger.record_validation("alpha", h, "critique", "fail")
+        md = home / ".claude" / "skillforge" / "skills" / "alpha" / "SKILL.md"
+        edited = md.read_text(encoding="utf-8") + "\n<!-- reworked -->\n"
+        md.write_text(edited, encoding="utf-8")
+        trust.record("alpha", edited, "self")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        assert "alpha" not in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
