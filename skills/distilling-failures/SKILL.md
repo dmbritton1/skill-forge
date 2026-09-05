@@ -98,4 +98,6 @@ Identical to distilling-skills: draft in the scratchpad, show the user,
 on approval run
 `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/save_skill.py" <draft-path> --scope <global|project> [--project-root <repo>]`
 and report the printed paths; on exit 1 fix the printed reasons and retry.
-Never write into the store directly.
+Never write into the store directly. Pass `--decision` (`approved` /
+`edited` / `scope_overridden`) and an optional `--decision-reason` exactly
+as distilling-skills describes.

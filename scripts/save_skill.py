@@ -211,12 +211,34 @@ def _spawn_validation(name, mode):
                      env=os.environ)
 
 
+def _subject(text, draft_path):
+    """Best name for a decision row's subject.
+
+    A rejection can fire before the frontmatter is known to parse, and a row
+    with no subject is worth less than a row naming the file it came from --
+    so fall back to the draft's filename rather than dropping the record.
+    """
+    try:
+        fm, _ = parse_frontmatter(text)
+        name = fm.get("name")
+        if isinstance(name, str) and name:
+            return name
+    except Exception:
+        pass
+    return Path(draft_path).name
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("draft", help="path to the drafted SKILL.md")
     ap.add_argument("--scope", choices=("global", "project"), required=True)
     ap.add_argument("--project-root", default=".",
                     help="repo root for --scope project (default: cwd)")
+    ap.add_argument("--decision", default="approved",
+                    choices=("approved", "edited", "scope_overridden"),
+                    help="what the human did to this draft before saving it")
+    ap.add_argument("--decision-reason", default=None,
+                    help="optional free text explaining --decision")
     args = ap.parse_args(argv)
 
     text = Path(args.draft).read_text(encoding="utf-8")
@@ -225,6 +247,8 @@ def main(argv=None):
     if errors:
         for e in errors:
             print("REJECTED: %s" % e)
+        ledger.log_decision("system", "rejected", _subject(text, args.draft),
+                            reason="; ".join(errors))
         return 1
 
     # Blocking scan at the write path (spec 11.1) -- runs unconditionally,
@@ -234,6 +258,12 @@ def main(argv=None):
         for lineno, rule, line in hits:
             print("SECRET BLOCKED %s:%d: %s: %s" % (args.draft, lineno, rule, line))
         print("Save blocked. Redact the lines above and retry.")
+        # The reason names the rules and lines that fired -- never the matched
+        # text, which is the secret this path exists to keep out of storage.
+        ledger.log_decision(
+            "system", "secret_blocked", _subject(text, args.draft),
+            reason="; ".join("%s at line %d" % (rule, lineno)
+                             for lineno, rule, _ in hits))
         return 1
 
     fm, _ = parse_frontmatter(text)
@@ -265,6 +295,9 @@ def main(argv=None):
                   "(%s; native copies or the shared trust registry entry "
                   "would collide); pick a different name"
                   % (fm["name"], kind, scope, candidate))
+            ledger.log_decision(
+                "system", "name_collision", fm["name"],
+                reason="name already used by a %s in the %s scope" % (kind, scope))
             return 1
 
     fps = fm.get("fingerprints")
@@ -287,6 +320,10 @@ def main(argv=None):
 
     trust.record(fm["name"], text, "self")
     ledger.log_event("save", fm["name"], outcome="saved")
+    # Self-reported by the model that just drafted this, so it is softer
+    # evidence than the 'system' rows above, which are observations.
+    ledger.log_decision("human", args.decision, fm["name"],
+                        reason=args.decision_reason)
 
     sync.sync(project_root=args.project_root)
 

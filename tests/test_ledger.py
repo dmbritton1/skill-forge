@@ -912,6 +912,140 @@ def test_event_totals_sums_null_and_empty_outcome_into_unknown():
             "success": 0, "failure": 0, "unknown": 3}, t
 
 
+def test_log_decision_writes_row():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_decision("system", "rejected", "foo",
+                            reason="missing verification", session="s1", path=db)
+        con = ledger.connect(db)
+        rows = con.execute("SELECT actor, verdict, subject, reason, session"
+                           " FROM decisions").fetchall()
+        con.close()
+        assert rows == [("system", "rejected", "foo",
+                         "missing verification", "s1")], rows
+
+
+def test_log_decision_reason_is_optional():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_decision("human", "approved", "foo", path=db)
+        con = ledger.connect(db)
+        rows = con.execute("SELECT reason FROM decisions").fetchall()
+        con.close()
+        assert rows == [(None,)], rows
+
+
+def test_log_decision_rejects_unknown_verdict():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        try:
+            ledger.log_decision("human", "vibes", "foo", path=db)
+        except sqlite3.IntegrityError:
+            return
+        raise AssertionError("unknown verdict was accepted")
+
+
+def test_log_decision_rejects_unknown_actor():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        try:
+            ledger.log_decision("committee", "approved", "foo", path=db)
+        except sqlite3.IntegrityError:
+            return
+        raise AssertionError("unknown actor was accepted")
+
+
+def test_decisions_filters_by_actor_and_session():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_decision("system", "rejected", "a", session="s1", path=db)
+        ledger.log_decision("human", "approved", "b", session="s1", path=db)
+        ledger.log_decision("human", "discarded", "c", session="s2", path=db)
+        human_s1 = ledger.decisions(actor="human", session="s1", path=db)
+        assert [d["subject"] for d in human_s1] == ["b"], human_s1
+        s1 = ledger.decisions(session="s1", path=db)
+        assert {d["subject"] for d in s1} == {"a", "b"}, s1
+        assert len(ledger.decisions(path=db)) == 3
+
+
+def test_decisions_newest_first():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_decision("human", "approved", "old", ts="2026-01-01T00:00:00+00:00", path=db)
+        ledger.log_decision("human", "approved", "new", ts="2026-06-01T00:00:00+00:00", path=db)
+        got = [d["subject"] for d in ledger.decisions(path=db)]
+        assert got == ["new", "old"], got
+
+
+def test_meta_roundtrips():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        assert ledger.meta_get("watermark", path=db) is None
+        ledger.meta_set("watermark", "2026-01-01T00:00:00+00:00", path=db)
+        assert ledger.meta_get("watermark", path=db) == "2026-01-01T00:00:00+00:00"
+        ledger.meta_set("watermark", "2026-02-01T00:00:00+00:00", path=db)
+        assert ledger.meta_get("watermark", path=db) == "2026-02-01T00:00:00+00:00"
+
+
+def test_meta_get_returns_default_on_a_broken_db():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        db.write_bytes(b"not a database")
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            assert ledger.meta_get("watermark", default="x", path=db) == "x"
+
+
+def test_decisions_since_filters_by_timestamp():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_decision("human", "approved", "old",
+                            ts="2026-01-01T00:00:00+00:00", path=db)
+        ledger.log_decision("human", "approved", "new",
+                            ts="2026-06-01T00:00:00+00:00", path=db)
+        got = [d["subject"] for d in
+               ledger.decisions(since="2026-03-01T00:00:00+00:00", path=db)]
+        assert got == ["new"], got
+
+
+def test_decisions_since_id_is_exact_within_one_second():
+    """Two rows in the same second must not let a watermark skip one."""
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ts = "2026-01-01T00:00:00+00:00"
+        for name in ("a", "b", "c"):
+            ledger.log_decision("human", "approved", name, ts=ts, path=db)
+        first = ledger.decisions(path=db)
+        assert [d["subject"] for d in first] == ["c", "b", "a"], first
+        after_a = ledger.decisions(since_id=first[-1]["id"], path=db)
+        assert [d["subject"] for d in after_a] == ["c", "b"], after_a
+
+
+def test_cli_log_decision_writes_a_row():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        rc = ledger.main(["log-decision", "--actor", "human",
+                          "--verdict", "approved", "--subject", "foo",
+                          "--reason", "looked right", "--path", str(db)])
+        assert rc == 0
+        rows = ledger.decisions(path=db)
+        assert [(r["actor"], r["verdict"], r["subject"], r["reason"])
+                for r in rows] == [("human", "approved", "foo", "looked right")]
+
+
+def test_cli_log_decision_reports_a_bad_verdict_without_traceback():
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        buf = io.StringIO()
+        with redirect_stderr(buf):
+            rc = ledger.main(["log-decision", "--actor", "human",
+                              "--verdict", "vibes", "--subject", "foo",
+                              "--path", str(db)])
+        assert rc == 1, rc
+        assert "vibes" in buf.getvalue(), buf.getvalue()
+        assert ledger.decisions(path=db) == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -185,6 +185,25 @@ def cmd_delete(name):
     return 0
 
 
+def cmd_decisions(actor=None, verdict=None, skill=None, session=None, limit=None):
+    """What the reviewer and the write path decided, newest first.
+
+    `list` shows what is IN the library; this shows what was decided on the
+    way in, including the proposals that never made it -- a rejected save
+    used to print to a detached drafter's stderr and leave no trace.
+    """
+    rows = ledger.decisions(actor=actor, verdict=verdict, subject=skill,
+                            session=session, limit=limit)
+    if not rows:
+        print("no decisions recorded")
+        return 0
+    print("\t".join(("ts", "actor", "verdict", "subject", "reason")))
+    for r in rows:
+        print("\t".join((r["ts"], r["actor"], r["verdict"], r["subject"],
+                          r["reason"] or "")))
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -193,11 +212,21 @@ def main(argv=None):
     s.add_argument("name")
     d = sub.add_parser("delete")
     d.add_argument("name")
+    dec = sub.add_parser("decisions")
+    dec.add_argument("--actor", choices=("human", "system"))
+    dec.add_argument("--verdict")
+    dec.add_argument("--skill", help="filter to one subject name")
+    dec.add_argument("--session")
+    dec.add_argument("--limit", type=int)
     args = ap.parse_args(argv)
     if args.cmd == "list":
         return cmd_list()
     if args.cmd == "show":
         return cmd_show(args.name)
+    if args.cmd == "decisions":
+        return cmd_decisions(actor=args.actor, verdict=args.verdict,
+                             skill=args.skill, session=args.session,
+                             limit=args.limit)
     return cmd_delete(args.name)
 
 

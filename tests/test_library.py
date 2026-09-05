@@ -348,6 +348,66 @@ def test_show_reaches_no_usage_data_past_a_real_save_row():
         assert "no usage" in out.lower(), out
     in_sandbox(check)
 
+def test_decisions_reports_empty_library():
+    def check(home):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = library.main(["decisions"])
+        assert rc == 0
+        assert "no decisions recorded" in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
+def test_decisions_prints_actor_verdict_subject_and_reason():
+    def check(home):
+        ledger.log_decision("system", "rejected", "foo", reason="missing verification")
+        ledger.log_decision("human", "approved", "bar")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = library.main(["decisions"])
+        assert rc == 0
+        text = out.getvalue()
+        for want in ("system", "rejected", "foo", "missing verification",
+                     "human", "approved", "bar"):
+            assert want in text, (want, text)
+    in_sandbox(check)
+
+
+def test_decisions_filters_by_verdict():
+    def check(home):
+        ledger.log_decision("system", "rejected", "foo")
+        ledger.log_decision("human", "approved", "bar")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            library.main(["decisions", "--verdict", "rejected"])
+        text = out.getvalue()
+        assert "foo" in text and "bar" not in text, text
+    in_sandbox(check)
+
+
+def test_decisions_filters_by_skill():
+    def check(home):
+        ledger.log_decision("human", "approved", "foo")
+        ledger.log_decision("human", "approved", "bar")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            library.main(["decisions", "--skill", "bar"])
+        text = out.getvalue()
+        assert "bar" in text and "foo" not in text, text
+    in_sandbox(check)
+
+
+def test_decisions_filter_with_no_match_says_so():
+    def check(home):
+        ledger.log_decision("human", "approved", "foo")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = library.main(["decisions", "--verdict", "discarded"])
+        assert rc == 0
+        assert "no decisions recorded" in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     for name, fn in sorted(list(globals().items())):
         if name.startswith("test_") and callable(fn):

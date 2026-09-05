@@ -1136,6 +1136,56 @@ def test_the_note_stays_within_budget():
     assert len(sync.CORRECTION_NOTE) <= 800, len(sync.CORRECTION_NOTE)
 
 
+def test_sessionstart_is_silent_when_nothing_was_decided():
+    def check(home):
+        out = io.StringIO()
+        with redirect_stdout(out):
+            assert sync.main([]) == 0
+        assert "last session" not in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
+def test_sessionstart_reports_decisions_made_since_the_last_run():
+    def check(home):
+        ledger.log_decision("human", "approved", "alpha")
+        ledger.log_decision("system", "rejected", "beta", reason="no verification")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        text = out.getvalue()
+        assert "last session" in text, text
+        assert "1 approved" in text, text
+        assert "1 rejected" in text, text
+    in_sandbox(check)
+
+
+def test_sessionstart_does_not_repeat_decisions_already_reported():
+    def check(home):
+        ledger.log_decision("human", "approved", "alpha")
+        with redirect_stdout(io.StringIO()):
+            sync.main([])
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        assert "last session" not in out.getvalue(), out.getvalue()
+    in_sandbox(check)
+
+
+def test_sessionstart_reports_only_the_newest_batch():
+    def check(home):
+        ledger.log_decision("human", "approved", "alpha")
+        with redirect_stdout(io.StringIO()):
+            sync.main([])
+        ledger.log_decision("system", "secret_blocked", "gamma")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        text = out.getvalue()
+        assert "1 secret_blocked" in text, text
+        assert "approved" not in text, text
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

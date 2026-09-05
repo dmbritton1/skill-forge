@@ -106,6 +106,14 @@ provenance:
 3. On approval:
    `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/save_skill.py" <draft-path> --scope <global|project> [--project-root <repo>]`
    (`--project-root` is the repo root; required in practice for project scope.)
+   Add `--decision` naming what the user actually did to the draft, because
+   the difference between "took it as written" and "rewrote half of it" is
+   the only signal this framework gets about its own distilling:
+   - `approved` — saved as you drafted it (the default; omit the flag)
+   - `edited` — the user changed the content before approving
+   - `scope_overridden` — the user changed `--scope` from what you proposed
+   Pass `--decision-reason "<short phrase>"` whenever the user said why.
+   Record what happened, not what flatters the draft.
 4. Exit 0 → report the two printed paths. Exit 1 → fix the printed
    `REJECTED`/`SECRET BLOCKED` reasons and retry; never hand-copy the file
    into the store to work around a rejection.

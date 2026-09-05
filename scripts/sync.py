@@ -411,6 +411,34 @@ def sync(project_root=None):
     return counts
 
 
+DECISION_WATERMARK = "decisions_reported_through_id"
+
+
+def decision_summary():
+    """One line naming what was decided since the last SessionStart, or None.
+
+    Watermarked on row id, not timestamp: decision ts is written at second
+    resolution, so a ts watermark would silently drop one of two decisions
+    that landed in the same second. Advancing the mark is best-effort -- a
+    failed write repeats a line, which is strictly better than losing it.
+    """
+    try:
+        seen = ledger.meta_get(DECISION_WATERMARK)
+        rows = ledger.decisions(since_id=int(seen) if seen else None)
+        if not rows:
+            return None
+        tally = {}
+        for r in rows:
+            tally[r["verdict"]] = tally.get(r["verdict"], 0) + 1
+        ledger.meta_set(DECISION_WATERMARK, max(r["id"] for r in rows))
+        parts = ", ".join("%d %s" % (n, v) for v, n in sorted(tally.items()))
+        return ("skillforge: last session -- %s"
+                " (see `library.py decisions`)" % parts)
+    except Exception as err:
+        print("skillforge: decision summary failed: %s" % err, file=sys.stderr)
+        return None
+
+
 def main(argv=None):
     # A drafter (slice D1) is a Claude Code process spawned by these very
     # hooks. `claude -p --safe-mode` already disables hooks in the child;
@@ -433,6 +461,9 @@ def main(argv=None):
         pass    # its own guard, not sync's: a hook exits 0 even when the
                 # harness has closed the pipe out from under it
     try:
+        line = decision_summary()
+        if line:
+            print(line)
         counts = sync(project_root=args.project_root)
         if counts["quarantined"]:
             print("skillforge: %d skill(s) quarantined pending /skillforge:review"

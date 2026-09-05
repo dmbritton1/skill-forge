@@ -121,6 +121,24 @@ CREATE TABLE IF NOT EXISTS validation_attempts (
   ts TEXT NOT NULL,
   PRIMARY KEY (skill, content_hash, mode)
 );
+-- What the reviewer (or the write path) DECIDED about a proposal, as opposed
+-- to `events`, which records what happened to a skill already in the library.
+-- `actor` splits the two: 'human' rows are judgements -- where the distiller
+-- diverged from the person -- and 'system' rows are the write path refusing
+-- something. Both were previously discarded: a rejected save printed to a
+-- detached drafter's stderr and left no trace at all.
+CREATE TABLE IF NOT EXISTS decisions (
+  id      INTEGER PRIMARY KEY,
+  actor   TEXT NOT NULL CHECK (actor IN ('human','system')),
+  verdict TEXT NOT NULL CHECK (verdict IN
+            ('approved','edited','scope_overridden','discarded',
+             'rejected','secret_blocked','name_collision')),
+  subject TEXT NOT NULL,
+  reason  TEXT,
+  session TEXT,
+  ts      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_decisions_session ON decisions(session);
 """
 
 # Bumped whenever an existing object's DEFINITION changes -- CREATE ... IF NOT
@@ -231,6 +249,97 @@ def log_event(event_type, skill, *, outcome=None, session=None, turn=None,
                  preexisting_fingerprint, outcome, ts))
     finally:
         con.close()
+
+
+def log_decision(actor, verdict, subject, *, reason=None, session=None,
+                 ts=None, path=None):
+    """Record one decision. Raises on an out-of-vocabulary actor/verdict.
+
+    Deliberately NOT best-effort: every caller is a decision point that just
+    resolved, so a bad vocabulary is a bug in the call site and should surface
+    while it is still cheap to fix. Readers below swallow; this does not.
+    """
+    ts = ts or now_utc().isoformat(timespec="seconds")
+    con = connect(path)
+    try:
+        with con:
+            con.execute(
+                "INSERT INTO decisions (actor, verdict, subject, reason,"
+                " session, ts) VALUES (?,?,?,?,?,?)",
+                (actor, verdict, subject, reason, session, ts))
+    finally:
+        con.close()
+
+
+def decisions(*, actor=None, verdict=None, subject=None, session=None,
+              since=None, since_id=None, limit=None, path=None):
+    """Decision rows newest first, as dicts; [] on any read failure.
+
+    Filters are ANDed and every one is bound -- the SQL is assembled from
+    string literals in this function only.
+    """
+    where, vals = [], []
+    for col, val in (("actor", actor), ("verdict", verdict),
+                     ("subject", subject), ("session", session)):
+        if val is not None:
+            where.append("%s = ?" % col)
+            vals.append(val)
+    if since is not None:
+        where.append("ts > ?")
+        vals.append(since)
+    # `since_id` rather than `since` is what a watermark should use: ts is
+    # written at second resolution, so two decisions in the same second are
+    # indistinguishable and a ts watermark drops one of them forever.
+    if since_id is not None:
+        where.append("id > ?")
+        vals.append(int(since_id))
+    sql = ("SELECT id, actor, verdict, subject, reason, session, ts FROM decisions"
+           + (" WHERE " + " AND ".join(where) if where else "")
+           + " ORDER BY ts DESC, id DESC")
+    if limit is not None:
+        sql += " LIMIT ?"
+        vals.append(int(limit))
+    try:
+        con = connect(path)
+        try:
+            cols = ("id", "actor", "verdict", "subject", "reason",
+                    "session", "ts")
+            return [dict(zip(cols, row)) for row in con.execute(sql, vals)]
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: decisions read failed: %s" % err, file=sys.stderr)
+        return []
+
+
+def meta_get(key, default=None, *, path=None):
+    """One `meta` row's value; `default` on a missing key or an unreadable db."""
+    try:
+        con = connect(path)
+        try:
+            row = con.execute("SELECT value FROM meta WHERE key = ?",
+                              (key,)).fetchone()
+            return row[0] if row else default
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: meta read failed: %s" % err, file=sys.stderr)
+        return default
+
+
+def meta_set(key, value, *, path=None):
+    """Upsert one `meta` row. Best-effort: a failed write must not fail a hook."""
+    try:
+        con = connect(path)
+        try:
+            with con:
+                con.execute("INSERT INTO meta (key, value) VALUES (?,?)"
+                            " ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                            (key, str(value)))
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: meta write failed: %s" % err, file=sys.stderr)
 
 
 def confidence(path=None, hashes=None):
@@ -716,6 +825,13 @@ def main(argv=None):
         lg.add_argument("--" + opt)
     lg.add_argument("--turn", type=int)
     lg.add_argument("--path")
+    ld = sub.add_parser("log-decision")
+    ld.add_argument("--actor", required=True, choices=("human", "system"))
+    ld.add_argument("--verdict", required=True)
+    ld.add_argument("--subject", required=True)
+    ld.add_argument("--reason")
+    ld.add_argument("--session")
+    ld.add_argument("--path")
     sh = sub.add_parser("show")
     sh.add_argument("skill")
     sh.add_argument("--path")
@@ -726,6 +842,21 @@ def main(argv=None):
                   session=args.session, turn=args.turn, tier=args.tier,
                   trigger=args.trigger, detection=args.detection,
                   path=args.path)
+        return 0
+
+    if args.cmd == "log-decision":
+        # The vocabulary is a CHECK constraint, so a bad verdict arrives here
+        # as an IntegrityError. Callers are slash-command procedures, not
+        # people -- report the rejected value and exit 1 rather than spilling
+        # a traceback into the transcript.
+        try:
+            log_decision(args.actor, args.verdict, args.subject,
+                         reason=args.reason, session=args.session,
+                         path=args.path)
+        except sqlite3.IntegrityError:
+            print("skillforge: not a known decision verdict: %r"
+                  % args.verdict, file=sys.stderr)
+            return 1
         return 0
 
     con = connect(args.path)

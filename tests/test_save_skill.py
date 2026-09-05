@@ -583,6 +583,87 @@ def test_spawn_inherits_the_drafting_flag_when_already_set():
             os.environ["SKILLFORGE_DRAFTING"] = old
 
 
+def test_invalid_draft_records_a_rejected_decision():
+    def check(home, tmp):
+        bad = VALID_SKILL.replace("verification.command: \"true\"\n", "")
+        rc = save_skill.main([write_draft(tmp, bad), "--scope", "global"])
+        assert rc == 1
+        rows = ledger.decisions(actor="system")
+        assert len(rows) == 1, rows
+        assert rows[0]["verdict"] == "rejected", rows
+        assert rows[0]["subject"] == "test-skill", rows
+        assert rows[0]["reason"], "a rejection must say why"
+    in_sandbox(check)
+
+
+def test_secret_block_records_a_decision():
+    def check(home, tmp):
+        bad = VALID_SKILL + '\n2. Set api_key = "sk_live_' + "a" * 24 + '"\n'
+        rc = save_skill.main([write_draft(tmp, bad), "--scope", "global"])
+        assert rc == 1
+        rows = ledger.decisions(actor="system")
+        assert [r["verdict"] for r in rows] == ["secret_blocked"], rows
+        assert rows[0]["subject"] == "test-skill", rows
+
+
+    in_sandbox(check)
+
+
+def test_name_collision_records_a_decision():
+    def check(home, tmp):
+        antiskill = VALID_ANTISKILL.replace("name: test-trap", "name: test-skill")
+        assert save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        assert save_skill.main([write_draft(tmp, antiskill), "--scope", "global"]) == 1
+        rows = ledger.decisions(actor="system")
+        assert [r["verdict"] for r in rows] == ["name_collision"], rows
+        assert rows[0]["subject"] == "test-skill", rows
+    in_sandbox(check)
+
+
+def test_reason_survives_when_frontmatter_is_unparseable():
+    def check(home, tmp):
+        rc = save_skill.main([write_draft(tmp, "## Procedure\njust a body\n"),
+                              "--scope", "global"])
+        assert rc == 1
+        rows = ledger.decisions(actor="system")
+        assert len(rows) == 1, rows
+        # No parseable name, so the draft's filename stands in as the subject
+        # rather than dropping the row entirely.
+        assert rows[0]["subject"] == "draft.md", rows
+    in_sandbox(check)
+
+
+def test_successful_save_records_the_humans_verdict():
+    def check(home, tmp):
+        rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global",
+                              "--decision", "edited",
+                              "--decision-reason", "tightened the gotcha"])
+        assert rc == 0
+        rows = ledger.decisions(actor="human")
+        assert len(rows) == 1, rows
+        assert rows[0]["verdict"] == "edited", rows
+        assert rows[0]["subject"] == "test-skill", rows
+        assert rows[0]["reason"] == "tightened the gotcha", rows
+    in_sandbox(check)
+
+
+def test_decision_defaults_to_approved_when_flag_omitted():
+    def check(home, tmp):
+        assert save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        rows = ledger.decisions(actor="human")
+        assert [r["verdict"] for r in rows] == ["approved"], rows
+    in_sandbox(check)
+
+
+def test_rejected_save_records_no_human_decision():
+    def check(home, tmp):
+        bad = VALID_SKILL.replace("verification.command: \"true\"\n", "")
+        assert save_skill.main([write_draft(tmp, bad), "--scope", "global",
+                                "--decision", "approved"]) == 1
+        assert ledger.decisions(actor="human") == []
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
