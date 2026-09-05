@@ -12,8 +12,15 @@ clone's project-scoped store. Same prompt, same model, same tree, same plugin.
 The global store stays empty, so nothing leaks into the control arm.
 
 Usage:
+    python3 bench/run.py --check          # verify the config before spending
     python3 bench/run.py --task arrow-968-tzinfo-kwarg --runs 1
     python3 bench/run.py --all --runs 3
+
+Paths in tasks.json are written `{root}` and expanded to the repository this
+file lives in. They were absolute, under a checkout that has since moved and
+a worktree that has since been deleted -- which left every task broken with
+no signal, because a failed clone or stub command reads as a failed task.
+--check exists so that is visible in a second rather than after a run.
 """
 import argparse
 import json
@@ -25,9 +32,50 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+# The repository this harness lives in. tasks.json writes `{root}` rather than
+# an absolute path: every path in it used to be hardcoded under a checkout
+# that has since moved AND a worktree that has since been deleted, which left
+# the whole harness dead without saying so -- `git clone` of a missing path is
+# just a failed task.
+REPO_ROOT = ROOT.parent
 WORK = ROOT / "work"
 RESULTS = ROOT / "results.jsonl"
 SESSION_TIMEOUT_S = 900
+
+
+def expand(value):
+    """Substitute `{root}` in any string, recursively through the config."""
+    if isinstance(value, str):
+        return value.replace("{root}", str(REPO_ROOT))
+    if isinstance(value, list):
+        return [expand(v) for v in value]
+    if isinstance(value, dict):
+        return {k: expand(v) for k, v in value.items()}
+    return value
+
+
+def check_config(cfg):
+    """Every path the config names, and whether it is actually there.
+
+    Returns a list of complaints. A stale path is otherwise invisible: the
+    clone or the stub command just fails inside a task and reads as a task
+    failure rather than a broken harness.
+    """
+    bad = []
+    if not (Path(cfg["plugin_dir"]) / "scripts").is_dir():
+        bad.append("plugin_dir has no scripts/: %s" % cfg["plugin_dir"])
+    for task in cfg["tasks"]:
+        if not (Path(task["repo"]) / ".git").exists():
+            bad.append("%s: repo is not a git checkout: %s" % (task["id"], task["repo"]))
+        for key in ("stub_cmd", "hidden_patch_cmd"):
+            cmd = task.get(key)
+            if not cmd:
+                continue
+            for tok in cmd.split():
+                if tok.endswith(".py") and not Path(tok).exists():
+                    bad.append("%s: %s names a missing script: %s"
+                               % (task["id"], key, tok))
+    return bad
 
 
 def sh(cmd, cwd=None, timeout=600, env=None):
@@ -161,10 +209,23 @@ def main(argv=None):
     ap.add_argument("--task")
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--runs", type=int, default=1)
+    ap.add_argument("--check", action="store_true",
+                    help="verify every path in tasks.json resolves, then exit")
     ap.add_argument("--arm", choices=("treatment", "control", "both"), default="both")
     args = ap.parse_args(argv)
 
-    cfg = json.loads((ROOT / "tasks.json").read_text(encoding="utf-8"))
+    cfg = expand(json.loads((ROOT / "tasks.json").read_text(encoding="utf-8")))
+    problems = check_config(cfg)
+    if problems:
+        for problem in problems:
+            print("config: %s" % problem, file=sys.stderr)
+        if args.check:
+            return 1
+        print("config: refusing to run against a broken config", file=sys.stderr)
+        return 1
+    if args.check:
+        print("config ok: %d task(s), all paths resolve" % len(cfg["tasks"]))
+        return 0
     plugin_dir = Path(cfg["plugin_dir"])
     tasks = [t for t in cfg["tasks"] if args.all or t["id"] == args.task]
     if not tasks:

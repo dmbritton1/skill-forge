@@ -1,15 +1,15 @@
 {
-  "plugin_dir": "/Users/dwightbritton/Desktop/skill-forge",
+  "plugin_dir": "{root}",
   "note": "Crossover design: each task's paired skill is distilled from a DIFFERENT finding in the same class, never its own. Both traps are real review findings against code written 2026-08-10, so neither can be in training data.",
   "tasks": [
     {
       "mode": "author",
-      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "repo": "{root}",
       "fix_commit": "ab4acfe",
       "test_path": "tests/test_retrieve.py",
       "test_cmd": "python3 tests/test_retrieve.py",
       "setup_cmd": "true",
-      "stub_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/stub_fingerprint_preexisting.py",
+      "stub_cmd": "python3 {root}/bench/stubs/stub_fingerprint_preexisting.py",
       "fail_to_pass": [
         "test_snapshot_unknown_when_match_past_file_cap",
         "test_snapshot_unknown_when_match_past_byte_cap"
@@ -19,16 +19,16 @@
       "skill": "lossy-transform-false-negative",
       "skill_source_commit": "ab4acfe-review-finding",
       "selection_rule": "REPLICATION of the response_text experiment on the second trap. MATCHED condition: the skill is distilled from this same trap, so this measures the ceiling, exactly as sf-author-response-text did.",
-      "hidden_patch_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/patch_file_cap_test.py"
+      "hidden_patch_cmd": "python3 {root}/bench/stubs/patch_file_cap_test.py"
     },
     {
       "mode": "author",
-      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "repo": "{root}",
       "fix_commit": "ab4acfe",
       "test_path": "tests/test_retrieve.py",
       "test_cmd": "python3 tests/test_retrieve.py",
       "setup_cmd": "true",
-      "stub_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/stub_fingerprint_preexisting.py",
+      "stub_cmd": "python3 {root}/bench/stubs/stub_fingerprint_preexisting.py",
       "fail_to_pass": [
         "test_snapshot_unknown_when_match_past_file_cap",
         "test_snapshot_unknown_when_match_past_byte_cap"
@@ -38,12 +38,12 @@
       "skill": "serialization-corrupts-matching",
       "skill_source_commit": "22ddf37",
       "selection_rule": "TRANSFER condition for the replication: same authoring task, paired with the skill distilled from the OTHER bug (json.dumps escaping). It never mentions truncation, caps, or three-valued returns. Compare against this task's own control arm.",
-      "hidden_patch_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/patch_file_cap_test.py"
+      "hidden_patch_cmd": "python3 {root}/bench/stubs/patch_file_cap_test.py"
     },
     {
       "id": "sf-author-response-text",
       "mode": "author",
-      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "repo": "{root}",
       "fix_commit": "22ddf37",
       "skill": "serialization-corrupts-matching",
       "skill_source_commit": "22ddf37-review-finding",
@@ -51,7 +51,7 @@
       "test_path": "tests/test_detect.py",
       "test_cmd": "python3 tests/test_detect.py",
       "setup_cmd": "true",
-      "stub_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/stub_response_text.py",
+      "stub_cmd": "python3 {root}/bench/stubs/stub_response_text.py",
       "fail_to_pass": [
         "test_symptom_on_second_line_of_dict_response_injects",
         "test_symptom_in_nested_dict_response_injects"
@@ -61,7 +61,7 @@
     {
       "id": "sf-author-response-text-transfer",
       "mode": "author",
-      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "repo": "{root}",
       "fix_commit": "22ddf37",
       "skill": "lossy-transform-false-negative",
       "skill_source_commit": "ab4acfe",
@@ -69,7 +69,7 @@
       "test_path": "tests/test_detect.py",
       "test_cmd": "python3 tests/test_detect.py",
       "setup_cmd": "true",
-      "stub_cmd": "python3 /Users/dwightbritton/Desktop/skill-forge/.claude/worktrees/project-status-roadmap-4c408a/bench/stubs/stub_response_text.py",
+      "stub_cmd": "python3 {root}/bench/stubs/stub_response_text.py",
       "fail_to_pass": [
         "test_symptom_on_second_line_of_dict_response_injects",
         "test_symptom_in_nested_dict_response_injects"
@@ -78,7 +78,7 @@
     },
     {
       "id": "sf-escaping-breaks-symptom-match",
-      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "repo": "{root}",
       "fix_commit": "22ddf37",
       "skill": "lossy-transform-false-negative",
       "skill_source_commit": "ab4acfe",
@@ -96,7 +96,7 @@
     },
     {
       "id": "sf-truncation-reports-absent",
-      "repo": "/Users/dwightbritton/Desktop/skill-forge",
+      "repo": "{root}",
       "fix_commit": "ab4acfe",
       "skill": "serialization-corrupts-matching",
       "skill_source_commit": "22ddf37",
