@@ -1021,6 +1021,39 @@ def test_an_empty_root_does_not_resolve_to_the_cwd():
         assert why and "git repo" in why, why
 
 
+def test_the_worker_resolves_the_repo_the_same_way_the_gate_does():
+    """unattemptable and executable must agree on which directory is the repo.
+
+    The gate saying ATTEMPTABLE while the worker looks somewhere else is the
+    same drift the shared-precondition comment warns about, pointing the other
+    way: the scheduler spends its one run-per-session slot on a skill the
+    worker then refuses with 'could not create a worktree'.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp)
+        repo = _git_repo(base)
+        entry = {"kind": "skill", "root": str(repo),
+                 "provenance": {"repo": "org/slug-that-is-not-a-path"}}
+        assert validate.unattemptable(RUNNABLE_SKILL, entry) is None
+        assert validate.repo_root(entry) == repo
+
+
+def test_repo_root_prefers_provenance_when_it_resolves():
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp)
+        repo = _git_repo(base, "prov")
+        other = _git_repo(base, "root")
+        entry = {"root": str(other), "provenance": {"repo": str(repo)}}
+        assert validate.repo_root(entry) == repo
+
+
+def test_repo_root_is_none_when_neither_resolves():
+    with tempfile.TemporaryDirectory() as tmp:
+        entry = {"root": str(pathlib.Path(tmp) / "nope"),
+                 "provenance": {"repo": "org/slug"}}
+        assert validate.repo_root(entry) is None
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

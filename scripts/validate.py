@@ -426,6 +426,23 @@ def build_follow_prompt(text, nonce=None):
     ])
 
 
+def repo_root(entry):
+    """The local checkout to validate in, or None. The ONE resolution.
+
+    `unattemptable` gates on this and `executable` works in it: two answers to
+    "which directory is the repo" would let the scheduler spend its one
+    run-per-session slot on a skill the worker then refuses.
+    """
+    for candidate in ((entry.get("provenance") or {}).get("repo"),
+                      entry.get("root")):
+        # `not candidate` before the exists(): Path("") is "." and would
+        # otherwise resolve to whatever directory happens to be current.
+        if isinstance(candidate, str) and candidate \
+                and (Path(candidate) / ".git").exists():
+            return Path(candidate)
+    return None
+
+
 def unattemptable(text, entry):
     """Why an executable run cannot produce a verdict, or None if it can.
 
@@ -458,25 +475,15 @@ def unattemptable(text, entry):
     # `fail`. An environment we cannot construct is "we could not test this".
     # isinstance: `provenance` comes from frontmatter, which §11.2 treats as
     # attacker-controlled -- Path({}) raises, and this runs inside a hook.
-    # Two candidates, provenance first. `provenance.repo` is what the author
-    # wrote, but distilling-skills documents the form `<org/repo or local dir
-    # name>` -- and an `org/repo` slug resolves to no path on this machine, so
-    # every skill authored to spec was refused an executable run and the
-    # count of executable verdicts in a real library was zero.
-    #
-    # The index entry's `root` is the checkout the skill is stored under,
-    # which for a project-scoped skill IS the repo it was distilled from. It
-    # is derived by sync from the store location rather than typed by a model,
-    # so it cannot be a slug.
-    #
-    # `not candidate` before the exists(): Path("") is "." and would otherwise
-    # test whatever directory happens to be current.
-    for candidate in ((entry.get("provenance") or {}).get("repo"),
-                      entry.get("root")):
-        if isinstance(candidate, str) and candidate \
-                and (Path(candidate) / ".git").exists():
-            return None
-    return "no provenance.repo or root resolving to a local git repo"
+    # `provenance.repo` is what the author wrote, but distilling-skills
+    # documents the form `<org/repo or local dir name>` -- and an `org/repo`
+    # slug resolves to no path on this machine, so every skill authored to
+    # spec was refused an executable run and the count of executable verdicts
+    # in a real library was zero. The entry's `root` is the checkout the skill
+    # is stored under, derived by sync from the store location rather than
+    # typed by a model, so it cannot be a slug.
+    if repo_root(entry) is None:
+        return "no provenance.repo or root resolving to a local git repo"
 
 
 def executable(text, entry):
@@ -500,7 +507,9 @@ def executable(text, entry):
         return "inconclusive", why
     argv = verification_argv(text)
 
-    root = Path(entry["provenance"]["repo"])
+    # Same resolution the gate above used -- never entry["provenance"]["repo"]
+    # directly, which would look somewhere the gate never checked.
+    root = repo_root(entry)
     dest = Path(tempfile.mkdtemp(prefix="skillforge-validate-"))
     try:
         if not make_worktree(root, dest):
