@@ -38,16 +38,43 @@ DEFAULT_MODEL = "sonnet"
 SHELL_METACHARACTERS = set(";&|<>`$(){}[]*?!\n\\\"'")
 
 
-def run_model(prompt, cwd, model=None, timeout=MODEL_TIMEOUT_S):
+# What the follow-run may do inside its throwaway worktree, and nothing more.
+# `acceptEdits` alone leaves Bash blocked, so a skill whose procedure ends in
+# a command -- commit-trailer runs `git commit` -- still could not be
+# followed; measured directly, the child replied that "both commands were
+# blocked by the permission layer". Enumerated rather than
+# `bypassPermissions`: the worktree is disposable, but validate.py is not a
+# network sandbox and a trusted skill's command can reach the network, so an
+# unrestricted autonomous child is a different proposition from one that may
+# edit files and make a commit.
+FOLLOW_PERMISSION_MODE = "acceptEdits"
+FOLLOW_ALLOWED_TOOLS = ["Bash(git commit:*)"]
+
+
+def run_model(prompt, cwd, model=None, timeout=MODEL_TIMEOUT_S,
+              permission_mode=None, allowed_tools=None):
     """One `claude -p` turn; the text, or None on any failure.
 
     --safe-mode is both the recursion guard and the auth choice: it disables
     hooks in the child while leaving subscription OAuth intact. --bare would
     force ANTHROPIC_API_KEY and turn every validation into an API bill.
+
+    Permissions default to NONE, which is what critique wants: it judges the
+    text and needs no tools, so granting it write access would widen the blast
+    radius of every legibility pass for nothing. Only the follow-run asks, and
+    it asks for exactly FOLLOW_PERMISSION_MODE and FOLLOW_ALLOWED_TOOLS.
+
+    Print mode has no interactive approver, so WITHOUT these a tool call that
+    needs permission is declined outright -- the child says so and changes
+    nothing, which is why executable validation never produced a verdict.
     """
     argv = ["claude", "-p", "--safe-mode", "--no-session-persistence",
             "--output-format", "text", "--model",
             model or os.environ.get("SKILLFORGE_VALIDATE_MODEL", DEFAULT_MODEL)]
+    if permission_mode:
+        argv += ["--permission-mode", permission_mode]
+    if allowed_tools:
+        argv += ["--allowedTools"] + list(allowed_tools)
     try:
         proc = subprocess.run(
             argv, cwd=str(cwd), input=prompt.encode("utf-8"),
@@ -717,7 +744,9 @@ def executable(text, entry):
         # Everything setup did -- the carry-forward and the precondition -- is
         # already in the tree, so this is the line the child has to move.
         baseline = worktree_state(dest)
-        reply = run_model(build_follow_prompt(text), dest)
+        reply = run_model(build_follow_prompt(text), dest,
+                          permission_mode=FOLLOW_PERMISSION_MODE,
+                          allowed_tools=FOLLOW_ALLOWED_TOOLS)
         # Emptiness, not `is None`: run_model returns "" for an exit-0 turn
         # that produced nothing. Letting that through would re-run the
         # verification against an untouched worktree and record `fail` -- a

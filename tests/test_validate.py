@@ -1236,6 +1236,63 @@ def test_an_unreadable_worktree_still_counts_as_changed():
     assert validate.worktree_dirty(missing, "anything") is True
 
 
+def _argv_of(**kwargs):
+    """The argv run_model would build, without spawning anything."""
+    seen = {}
+    real = validate.subprocess.run
+    class _P:
+        returncode = 0
+        stdout = b"ok"
+    validate.subprocess.run = lambda argv, **k: (seen.update(argv=argv), _P())[1]
+    try:
+        validate.run_model("prompt", ".", **kwargs)
+    finally:
+        validate.subprocess.run = real
+    return seen["argv"]
+
+
+def test_run_model_grants_no_permissions_by_default():
+    """critique reads text and needs no tools at all; only the follow-run
+    should ever be handed write access."""
+    argv = _argv_of()
+    assert "--permission-mode" not in argv, argv
+    assert "--allowedTools" not in argv, argv
+
+
+def test_run_model_can_be_granted_edits_and_one_command():
+    argv = _argv_of(permission_mode="acceptEdits",
+                    allowed_tools=["Bash(git commit:*)"])
+    assert argv[argv.index("--permission-mode") + 1] == "acceptEdits", argv
+    assert argv[argv.index("--allowedTools") + 1] == "Bash(git commit:*)", argv
+
+
+def test_the_critique_call_asks_for_nothing():
+    seen = {}
+    real = validate.run_model
+    validate.run_model = lambda *a, **k: seen.update(kw=k) or ""
+    try:
+        validate.critique(SKILL_TEXT, {"kind": "skill"}, ".")
+    finally:
+        validate.run_model = real
+    assert seen.get("kw") == {}, seen
+
+
+def test_the_follow_run_asks_for_edits_and_the_commit_command():
+    """The one call that needs tools is the one that gets them."""
+    def check(home):
+        seen = {}
+        def spy(*a, **k):
+            seen.update(kw=k)
+            return "did it"
+        text = approve(skill_with_command("python3 -m widget selfcheck"))
+        with_stubs(lambda: validate.executable(text, repo_entry(home)),
+                   verify=[1, 0], model=spy)
+        kw = seen.get("kw", {})
+        assert kw.get("permission_mode") == "acceptEdits", kw
+        assert "Bash(git commit:*)" in (kw.get("allowed_tools") or []), kw
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
