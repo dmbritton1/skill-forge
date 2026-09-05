@@ -93,6 +93,32 @@ def test_sync_is_inert():
     in_drafter(check)
 
 
+def test_every_registered_hook_has_a_guard_test():
+    """The suite only runs tests it names, so a NEW hook added without a
+    `test_<script>_is_inert` used to leave this file green while shipping an
+    unguarded hook -- the verification passed with the procedure skipped,
+    which is not a verification. Enumerate the registration instead.
+    """
+    import json
+    import re
+    root = pathlib.Path(__file__).resolve().parent.parent
+    spec = json.loads((root / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+    scripts = set()
+    for groups in spec.get("hooks", {}).values():
+        for group in groups:
+            for hook in group.get("hooks", []):
+                m = re.search(r"scripts/(\w+)\.py", hook.get("command", ""))
+                if m:
+                    scripts.add(m.group(1))
+    assert scripts, "no hook scripts found in hooks/hooks.json"
+    missing = sorted(n for n in scripts
+                     if "test_%s_is_inert" % n not in globals())
+    assert not missing, (
+        "hooks/hooks.json registers %s with no guard test; add"
+        " test_<script>_is_inert for each (see the hook-inert-guard skill)"
+        % ", ".join(missing))
+
+
 def test_hooks_still_work_without_the_variable():
     old_stdin = sys.stdin
     sys.stdin = io.StringIO("{}")

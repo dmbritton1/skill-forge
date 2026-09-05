@@ -14,6 +14,7 @@ import contextlib
 import fcntl
 import json
 import os
+import re
 import secrets
 import shlex
 import shutil
@@ -263,12 +264,28 @@ def blocks(f):
             and f.get("basis", "textual") != "empirical")
 
 
+def _unwrapped(s):
+    """Collapse whitespace runs, so a quote survives being re-wrapped.
+
+    Skill bodies are hard-wrapped prose and critique quotes across the wrap,
+    normalising the newline and indent to a single space -- inconsistently,
+    within one reply. Byte-exact matching therefore failed a skill whose three
+    criteria all passed on substance, over one newline.
+
+    This weakens nothing that matters: the words and their order must still
+    come from the skill, which is what "looks good" cannot fabricate. Only the
+    line breaks stop counting.
+    """
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def verdict_from(findings, text):
     """pass only if every blocking criterion is ok AND quotes the skill text.
 
     The evidence check is the anti-sycophancy mechanism: "looks good" cannot
     produce a verbatim span, so a criterion cannot pass on assertion alone.
     """
+    haystack = _unwrapped(text)
     for f in findings:
         # `is not True`, not `not ...`: the reply is model-written JSON, and
         # "false"/"False"/"no"/"0" are all routine malformations that are
@@ -282,7 +299,9 @@ def verdict_from(findings, text):
                 return "fail"
             continue        # reported by `library show`, does not gate
         ev = (f.get("evidence") or "").strip()
-        if len(ev) < MIN_EVIDENCE_CHARS or ev not in text:
+        # Length is measured on the raw span, so re-wrapping cannot shrink a
+        # quote under the floor or pad one over it.
+        if len(ev) < MIN_EVIDENCE_CHARS or _unwrapped(ev) not in haystack:
             # An unquotable PASS is the sycophancy case, and it is gated
             # regardless of how the model graded it -- severity and basis
             # describe an objection, and this finding is not objecting.

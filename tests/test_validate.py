@@ -912,6 +912,51 @@ def test_the_prompt_asks_for_both_grades_and_defines_them():
                   "minor"):
         assert token in p, token
 
+# A span of SKILL_TEXT that is HARD-WRAPPED in the source. Quoting it is the
+# ordinary case for prose, and a model naturally un-wraps it.
+WRAPPED_SPAN = "1. Call flush() before close()."
+
+
+def _all_ok(evidence):
+    return [{"criterion": c, "ok": True, "evidence": evidence, "note": "n"}
+            for c in validate.SKILL_CRITERIA]
+
+
+def test_a_rewrapped_quote_still_counts_as_evidence():
+    """The gate demands the skill's own words, not its line breaks.
+
+    Critique quotes hard-wrapped prose and normalises the whitespace doing it
+    -- inconsistently, within a single reply. Byte-exact matching therefore
+    failed a skill whose three criteria all passed on substance, for a
+    difference of one newline.
+    """
+    wrapped = "flush() before\n   close()."
+    text = "## Procedure\n1. Call " + wrapped + "\n"
+    unwrapped = "flush() before close()."
+    assert unwrapped not in text, "precondition: the exact match must miss"
+    assert validate.verdict_from(_all_ok(unwrapped), text) == "pass"
+
+
+def test_evidence_absent_from_the_text_still_fails():
+    """Normalising whitespace must not turn the gate off."""
+    assert validate.verdict_from(
+        _all_ok("a span that appears nowhere in the skill"),
+        SKILL_TEXT) == "fail"
+
+
+def test_evidence_shorter_than_the_floor_still_fails():
+    short = SKILL_TEXT[SKILL_TEXT.index("Call"):][:4]
+    assert len(short) < validate.MIN_EVIDENCE_CHARS
+    assert validate.verdict_from(_all_ok(short), SKILL_TEXT) == "fail"
+
+
+def test_reordered_words_are_not_accepted_as_a_quote():
+    """Whitespace-insensitive, not word-order-insensitive: the anti-sycophancy
+    property is that a real quote cannot be produced without reading."""
+    assert validate.verdict_from(
+        _all_ok("close() before Call flush()."), SKILL_TEXT) == "fail"
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
