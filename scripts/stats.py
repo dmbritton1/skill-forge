@@ -131,6 +131,18 @@ def section_usage(rows, totals):
         miss += u["corroborated_only"]
         seen += u["both"] + u["corroborated_only"] + u["marker_only"]
     lines.append("  marker miss       %s" % rate(miss, seen, "used sessions"))
+
+    # Its own line, below the ratio and outside it. A Read is the consumption
+    # path detect.py could not see before, but reading is not applying: these
+    # rows carry no outcome, nothing consumes them, and folding them into
+    # `detections` above would let scrolling look like evidence.
+    reads = ledger.read_sessions()
+    if reads:
+        total = sum(reads.values())
+        lines.append("  text read in      %d session(s) across %d skill(s)"
+                     % (total, len(reads)))
+        lines.append("                    (opened the skill's own file -- not"
+                     " evidence it was applied)")
     return lines
 
 

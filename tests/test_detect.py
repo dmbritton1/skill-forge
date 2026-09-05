@@ -756,6 +756,97 @@ def test_edit_recording_never_writes_to_stdout():
     in_sandbox(check)
 
 
+def read_data(path, session="sess1"):
+    """The payload a Read tool call actually produces."""
+    return {"session_id": session, "tool_name": "Read",
+            "tool_input": {"file_path": str(path)},
+            "tool_response": {"type": "text", "file": {"filePath": str(path)}},
+            "hook_event_name": "PostToolUse"}
+
+
+def read_rows(skill=None):
+    con = ledger.connect()
+    try:
+        if skill:
+            return con.execute("SELECT skill, session FROM events WHERE"
+                               " event_type='read' AND skill=?", (skill,)).fetchall()
+        return con.execute("SELECT skill, session FROM events WHERE"
+                           " event_type='read'").fetchall()
+    finally:
+        con.close()
+
+
+def test_reading_a_skill_file_is_recorded_as_a_read():
+    """autoharness's E8 claim is that a direct Read is the dominant
+    consumption path, and detect.py instruments edit tools and Bash only --
+    so this signal was free and uncounted in a hook that already runs."""
+    def check(home):
+        path = home / ".claude/skillforge/skills/alpha/SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("body\n", encoding="utf-8")
+        write_triggers(home, verifications=[
+            {"skill": "alpha", "root": str(home), "tier": "warm", "tokens": ["x", "y"]}])
+        run_capture(read_data(path))
+        assert read_rows("alpha") == [("alpha", "sess1")], read_rows()
+    in_sandbox(check)
+
+
+def test_reading_the_native_hot_copy_counts_too():
+    def check(home):
+        path = home / ".claude/skills/skillforge-hot/alpha/SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("body\n", encoding="utf-8")
+        write_triggers(home, verifications=[
+            {"skill": "alpha", "root": str(home), "tier": "hot", "tokens": ["x", "y"]}])
+        run_capture(read_data(path))
+        assert read_rows("alpha"), read_rows()
+    in_sandbox(check)
+
+
+def test_reading_an_unrelated_file_records_nothing():
+    def check(home):
+        write_triggers(home, verifications=[
+            {"skill": "alpha", "root": str(home), "tier": "warm", "tokens": ["x", "y"]}])
+        run_capture(read_data(home / "notes" / "SKILL.md"))
+        run_capture(read_data(home / "src" / "main.py"))
+        assert read_rows() == [], read_rows()
+    in_sandbox(check)
+
+
+def test_a_skill_shaped_path_with_an_unknown_name_records_nothing():
+    """The name comes from the path, so it has to be checked against the
+    skills this system actually knows about."""
+    def check(home):
+        path = home / ".claude/skillforge/skills/not-a-real-skill/SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("body\n", encoding="utf-8")
+        write_triggers(home, verifications=[
+            {"skill": "alpha", "root": str(home), "tier": "warm", "tokens": ["x", "y"]}])
+        run_capture(read_data(path))
+        assert read_rows() == [], read_rows()
+    in_sandbox(check)
+
+
+def test_a_read_does_not_move_confidence():
+    """Reading is not applying. This is an observation channel and must stay
+    one -- it carries no outcome, so it can never promote a skill."""
+    def check(home):
+        path = home / ".claude/skillforge/skills/alpha/SKILL.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("body\n", encoding="utf-8")
+        write_triggers(home, verifications=[
+            {"skill": "alpha", "root": str(home), "tier": "warm", "tokens": ["x", "y"]}])
+        for i in range(4):
+            run_capture(read_data(path, session="s%d" % i))
+        conf = ledger.confidence()
+        assert conf.get("alpha", {}).get("organic_bucket", "unproven") == "unproven", conf
+        con = ledger.connect()
+        uses = con.execute("SELECT uses FROM skill_aggregates WHERE skill='alpha'").fetchone()
+        con.close()
+        assert uses is None or uses[0] == 0, uses
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

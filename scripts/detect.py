@@ -32,6 +32,30 @@ INJECT_BUDGET_TOKENS = 1200
 EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path",
               "NotebookEdit": "notebook_path"}
 
+# The directories a skill's own text can be read from: the knowledge store's
+# two kind dirs, and the native copy sync materializes for hot skills.
+SKILL_DIRS = ("skills", "antiskills", "skillforge-hot")
+
+
+def read_skill(file_path, known):
+    """The skill whose text this Read opened, or None.
+
+    The name is taken from the path -- `<...>/<kind dir>/<name>/SKILL.md` --
+    and then checked against the skills this system actually knows about, so
+    an unrelated SKILL.md somewhere in the user's tree cannot mint a row for
+    a skill that does not exist.
+    """
+    try:
+        p = Path(str(file_path))
+    except (TypeError, ValueError):
+        return None
+    if p.name != "SKILL.md":
+        return None
+    name = p.parent.name
+    if p.parent.parent.name not in SKILL_DIRS:
+        return None
+    return name if name in known else None
+
 
 def triggers_path():
     return Path.home() / ".claude" / "skillforge" / "triggers.json"
@@ -202,6 +226,26 @@ def run(data):
     if not idx:
         return 0
     cwd = data.get("cwd") or os.getcwd()
+
+    # A direct Read of a skill's text is the consumption path this hook could
+    # not see: it instruments edit tools and Bash, so a skill the model read
+    # and applied by hand left no trace unless its verification ran.
+    #
+    # Deliberately its own event_type, carrying NO outcome. Reading is not
+    # applying, and this must not be able to promote anything:
+    # skill_confidence counts outcomes and skill_aggregates.uses counts
+    # `detection` rows, so neither can see these. Duplicates are left in
+    # rather than deduped by index -- re-reading a file is ordinary, and the
+    # honest report is DISTINCT session, which the reader can take.
+    if data.get("tool_name") == "Read":
+        tool_input = data.get("tool_input")
+        target = tool_input.get("file_path", "") if isinstance(tool_input, dict) else ""
+        known = {e.get("skill") for e in idx.get("verifications", [])}
+        known |= {e.get("skill") for e in idx.get("symptoms", [])}
+        name = read_skill(target, known) if target else None
+        if name:
+            _log("read", name, session=session,
+                 project=retrieve.project_key(cwd))
 
     # Read once, above the verification loop as well as the symptom loop
     # below: it is the set of skills whose text actually reached the model

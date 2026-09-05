@@ -564,6 +564,25 @@ def usage_for(skill, *, path=None):
     return out
 
 
+def read_sessions(*, path=None):
+    """{skill: distinct sessions that READ its text}; {} on failure.
+
+    Sessions rather than rows: re-opening a file is ordinary, and a row count
+    would read as intensity when it only measures scrolling.
+    """
+    try:
+        con = connect(path)
+        try:
+            return {r[0]: r[1] for r in con.execute(
+                "SELECT skill, COUNT(DISTINCT COALESCE(session, '')) FROM events"
+                " WHERE event_type = 'read' GROUP BY skill")}
+        finally:
+            con.close()
+    except Exception as err:
+        print("skillforge: read tally failed: %s" % err, file=sys.stderr)
+        return {}
+
+
 def event_totals(*, path=None):
     """Library-wide event counts; every other accessor here is per-skill.
 

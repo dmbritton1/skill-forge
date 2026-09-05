@@ -314,6 +314,21 @@ def test_decisions_section_is_in_the_report():
             os.environ["HOME"] = old
 
 
+def test_reads_are_reported_as_sessions_and_named_as_not_usage():
+    old = os.environ["HOME"]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        try:
+            for i in range(3):
+                ledger.log_event("read", "a", session="s%d" % i)
+            ledger.log_event("read", "a", session="s0")   # a re-read
+            text = "\n".join(stats.section_usage([], ledger.event_totals()))
+            assert "3 session" in text, text          # DISTINCT sessions, not 4 rows
+            assert "not evidence" in text.lower(), text
+        finally:
+            os.environ["HOME"] = old
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
