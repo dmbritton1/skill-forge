@@ -1235,8 +1235,10 @@ def test_sessionstart_repeats_the_cap_every_session():
     in_sandbox(check)
 
 
-def test_a_failed_executable_is_not_reported_as_a_cap():
-    """Per the conjunct truth table, an executable `fail` vetoes nothing."""
+def test_a_failed_executable_is_reported_but_not_as_a_cap():
+    """Per the conjunct truth table an executable `fail` vetoes nothing, so it
+    must not be called a cap -- but it is still the verification failing in a
+    clean checkout, which is worth saying."""
     def check(home):
         h = _trusted_skill(home)
         ledger.record_validation("alpha", h, "critique", "pass")
@@ -1244,12 +1246,16 @@ def test_a_failed_executable_is_not_reported_as_a_cap():
         out = io.StringIO()
         with redirect_stdout(out):
             sync.main([])
-        assert "alpha" not in out.getvalue(), out.getvalue()
+        text = out.getvalue()
+        assert "alpha" in text, text
+        assert "clean checkout" in text, text
+        assert "capped" not in text, text
     in_sandbox(check)
 
 
-def test_a_verdict_against_stale_text_is_not_reported():
-    """Editing a skill voids its verdicts; a stale fail must not keep nagging."""
+def test_an_edited_skill_moves_from_capped_to_awaiting():
+    """Editing voids the verdict, so the stale fail must stop nagging -- but
+    the skill is now un-critiqued, which caps it just as hard."""
     def check(home):
         h = _trusted_skill(home)
         ledger.record_validation("alpha", h, "critique", "fail")
@@ -1260,7 +1266,54 @@ def test_a_verdict_against_stale_text_is_not_reported():
         out = io.StringIO()
         with redirect_stdout(out):
             sync.main([])
-        assert "alpha" not in out.getvalue(), out.getvalue()
+        text = out.getvalue()
+        assert "capped" not in text, text
+        assert "awaiting critique" in text and "alpha" in text, text
+    in_sandbox(check)
+
+
+def test_a_never_critiqued_skill_is_reported_as_awaiting():
+    """It is capped exactly as hard as a failed one, so silence would hide it."""
+    def check(home):
+        _trusted_skill(home)
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        text = out.getvalue()
+        assert "awaiting critique" in text and "alpha" in text, text
+        assert "capped" not in text, "awaiting is not a failure"
+    in_sandbox(check)
+
+
+def test_capped_and_awaiting_are_reported_separately():
+    def check(home):
+        hb = _trusted_skill(home, "bravo")
+        _trusted_skill(home, "alpha")
+        ledger.record_validation("bravo", hb, "critique", "fail")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        text = out.getvalue()
+        cap = [l for l in text.splitlines() if "capped" in l][0]
+        awa = [l for l in text.splitlines() if "awaiting" in l][0]
+        assert "bravo" in cap and "alpha" not in cap, cap
+        assert "alpha" in awa and "bravo" not in awa, awa
+    in_sandbox(check)
+
+
+def test_long_name_lists_are_truncated():
+    """A wall of names every session trains the reader to skip the line --
+    which is the invisibility this whole notice exists to fix."""
+    def check(home):
+        for n in ("s1", "s2", "s3", "s4", "s5"):
+            h = _trusted_skill(home, n)
+            ledger.record_validation(n, h, "critique", "fail")
+        out = io.StringIO()
+        with redirect_stdout(out):
+            sync.main([])
+        cap = [l for l in out.getvalue().splitlines() if "capped" in l][0]
+        assert "5 skill(s)" in cap, cap
+        assert "+2 more" in cap, cap
     in_sandbox(check)
 
 

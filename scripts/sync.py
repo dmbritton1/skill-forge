@@ -442,30 +442,68 @@ def decision_summary():
         return None
 
 
+MAX_NAMED = 3
+
+
+def _named(names):
+    """`a, b, c (+2 more)` -- a wall of names trains the reader to skip the
+    line, which is the invisibility this whole notice exists to fix."""
+    shown = ", ".join(names[:MAX_NAMED])
+    extra = len(names) - MAX_NAMED
+    return "%s (+%d more)" % (shown, extra) if extra > 0 else shown
+
+
 def validation_summary(hashes):
-    """One line naming skills a failed critique is capping, or None.
+    """Lines naming what Tier A is saying about the library, or [].
 
     NOT watermarked, unlike the decision summary. A decision is an event that
-    happened once; a failed critique is a standing cap on a skill sitting in
-    the library right now, and it should keep saying so until the skill is
-    fixed or removed. Nine consecutive failures went unread because the only
-    place they surfaced was a detached process's ledger write.
+    happened once; these describe the library's present state and should keep
+    saying so until the skill is fixed or removed. Nine consecutive critique
+    failures went unread because the only place they surfaced was a detached
+    process's ledger write.
 
-    Only `critique`. Per the conjunct truth table an executable `fail` vetoes
-    nothing, so reporting it as a cap would be false.
+    Three categories, deliberately not merged:
+
+    - `critique == fail` CAPS the skill: the conjunct requires a pass, so it
+      can never reach `trusted`. Read the findings and fix it.
+    - No critique verdict at all caps it exactly as hard, but calls for
+      waiting or for asking why the spawn never landed -- a different action,
+      so a different line. sync schedules only one critique per session, and
+      re-offering is the only retry path for a lost spawn, so "temporary" can
+      last a long time.
+    - `executable == fail` caps NOTHING (the truth table promotes
+      "pass"/"fail"), but it is the skill's own verification failing in a
+      clean checkout, which is worth saying as long as it is not called a cap.
     """
+    out = []
     try:
         verdicts = ledger.validations_for(hashes)
-        capped = sorted(n for n, v in verdicts.items()
-                        if v.get("critique") == "fail")
-        if not capped:
-            return None
-        return ("skillforge: %d skill(s) capped by a failed critique: %s\n"
-                "            `library.py show <name>` for the findings"
-                % (len(capped), ", ".join(capped)))
+        capped, awaiting, unverified = [], [], []
+        for name in sorted(hashes):
+            v = verdicts.get(name, {})
+            crit = v.get("critique")
+            if crit == "fail":
+                capped.append(name)
+            elif crit != "pass":
+                awaiting.append(name)
+            if v.get("executable") == "fail":
+                unverified.append(name)
+        if capped:
+            out.append("skillforge: %d skill(s) capped by a failed critique: %s"
+                       % (len(capped), _named(capped)))
+            out.append("            `library.py show <name>` for the findings")
+        if awaiting:
+            out.append("skillforge: %d skill(s) awaiting critique: %s"
+                       % (len(awaiting), _named(awaiting)))
+        if unverified:
+            out.append("skillforge: %d skill(s) whose verification failed in a"
+                       " clean checkout" % len(unverified))
+            out.append("            (does not block promotion): %s"
+                       % _named(unverified))
     except Exception as err:
         print("skillforge: validation summary failed: %s" % err, file=sys.stderr)
-        return None
+        return []
+    return out
 
 
 def main(argv=None):
@@ -494,8 +532,7 @@ def main(argv=None):
         if line:
             print(line)
         counts = sync(project_root=args.project_root)
-        line = validation_summary(counts.get("hashes") or {})
-        if line:
+        for line in validation_summary(counts.get("hashes") or {}):
             print(line)
         if counts["quarantined"]:
             print("skillforge: %d skill(s) quarantined pending /skillforge:review"
