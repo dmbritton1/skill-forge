@@ -122,6 +122,29 @@ def _main_block(source):
     return None
 
 
+def test_no_hook_touches_argv_at_module_scope():
+    """The reload test counts stdin reads and cannot see argv at all.
+
+    sys.argv is a list, not a stream, so there is nothing to instrument -- but
+    reading it at module scope is statically visible, and it is the other half
+    of the import-time breakage step 4 warns about: a hook that parses argv
+    when the module loads has already acted before main()'s guard runs.
+    """
+    import ast
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for name in registered_hooks():
+        tree = ast.parse((root / "scripts" / ("%s.py" % name)).read_text(encoding="utf-8"))
+        for node in tree.body:                     # module scope only
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for sub in ast.walk(node):
+                bad = (isinstance(sub, ast.Attribute) and sub.attr == "argv"
+                       and isinstance(sub.value, ast.Name) and sub.value.id == "sys")
+                assert not bad, (
+                    "%s reads sys.argv at module scope, before main()'s guard"
+                    " can run" % name)
+
+
 def test_no_hook_does_work_before_main():
     """A helper called at INVOCATION time escapes the guard just as an
     import-time one does, and the reload test cannot see it: reloading a
@@ -148,7 +171,7 @@ def test_no_hook_does_work_before_main():
             "%s's entry point does not call main(): %s" % (name, ast.dump(stmt)[:120]))
 
 
-def test_no_hook_touches_stdin_or_argv_at_import_time():
+def test_no_hook_reads_stdin_at_import_time():
     """The guard lives in main(), so anything read BEFORE main() escapes it.
 
     The other tests import these modules once at the top of this file and only
