@@ -126,7 +126,8 @@
         "test_symptom_on_second_line_of_dict_response_injects",
         "test_symptom_in_nested_dict_response_injects"
       ],
-      "prompt": "scripts/detect.py has a function `response_text(resp)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_detect.py` and make sure you have not broken any test that was passing before your change."
+      "prompt": "scripts/detect.py has a function `response_text(resp)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_detect.py` and make sure you have not broken any test that was passing before your change.",
+      "skill_source_commit": "arrow-tzinfo-string-trap (pre-existing, unrelated repo)"
     },
     {
       "id": "sf-author-response-text-umbrella",
@@ -143,7 +144,8 @@
         "test_symptom_on_second_line_of_dict_response_injects",
         "test_symptom_in_nested_dict_response_injects"
       ],
-      "prompt": "scripts/detect.py has a function `response_text(resp)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_detect.py` and make sure you have not broken any test that was passing before your change."
+      "prompt": "scripts/detect.py has a function `response_text(resp)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_detect.py` and make sure you have not broken any test that was passing before your change.",
+      "skill_source_commit": "authored 2026-09-05 for E1"
     },
     {
       "mode": "author",
@@ -161,7 +163,8 @@
       "id": "sf-author-fingerprint-preexisting-irrelevant",
       "skill": "arrow-tzinfo-string-trap",
       "selection_rule": "E4: injects a skill with no bearing on this task at all (timezone handling). If control beats this arm, an irrelevant injection is actively harmful and retrieval precision is load-bearing, not merely more important than recall.",
-      "hidden_patch_cmd": "python3 {root}/bench/stubs/patch_file_cap_test.py"
+      "hidden_patch_cmd": "python3 {root}/bench/stubs/patch_file_cap_test.py",
+      "skill_source_commit": "arrow-tzinfo-string-trap (pre-existing, unrelated repo)"
     },
     {
       "mode": "author",
@@ -179,7 +182,8 @@
       "id": "sf-author-fingerprint-preexisting-umbrella",
       "skill": "matcher-input-traps",
       "selection_rule": "E1: injects one umbrella skill covering BOTH specific traps as a class, against the matched arm's single specific skill. If the umbrella holds matched-arm performance, consolidation is safe; if it decays toward the transfer null, generalization destroys the effect and the v0.3 /consolidate roadmap item should be killed.",
-      "hidden_patch_cmd": "python3 {root}/bench/stubs/patch_file_cap_test.py"
+      "hidden_patch_cmd": "python3 {root}/bench/stubs/patch_file_cap_test.py",
+      "skill_source_commit": "authored 2026-09-05 for E1"
     }
   ]
 }
