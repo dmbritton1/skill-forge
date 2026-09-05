@@ -458,12 +458,25 @@ def unattemptable(text, entry):
     # `fail`. An environment we cannot construct is "we could not test this".
     # isinstance: `provenance` comes from frontmatter, which §11.2 treats as
     # attacker-controlled -- Path({}) raises, and this runs inside a hook.
-    # `not repo` before the exists(): Path("") is "." and would otherwise test
-    # the CWD's own .git.
-    repo = (entry.get("provenance") or {}).get("repo") or ""
-    if not isinstance(repo, str) or not repo or not (Path(repo) / ".git").exists():
-        return "no provenance.repo resolving to a local git repo"
-    return None
+    # Two candidates, provenance first. `provenance.repo` is what the author
+    # wrote, but distilling-skills documents the form `<org/repo or local dir
+    # name>` -- and an `org/repo` slug resolves to no path on this machine, so
+    # every skill authored to spec was refused an executable run and the
+    # count of executable verdicts in a real library was zero.
+    #
+    # The index entry's `root` is the checkout the skill is stored under,
+    # which for a project-scoped skill IS the repo it was distilled from. It
+    # is derived by sync from the store location rather than typed by a model,
+    # so it cannot be a slug.
+    #
+    # `not candidate` before the exists(): Path("") is "." and would otherwise
+    # test whatever directory happens to be current.
+    for candidate in ((entry.get("provenance") or {}).get("repo"),
+                      entry.get("root")):
+        if isinstance(candidate, str) and candidate \
+                and (Path(candidate) / ".git").exists():
+            return None
+    return "no provenance.repo or root resolving to a local git repo"
 
 
 def executable(text, entry):

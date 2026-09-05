@@ -78,6 +78,13 @@ one line and stop.
    NOT followed. If you cannot make it discriminate, say so there plainly
    rather than shipping a check that always passes.
 
+   **`provenance.repo` should resolve to a local checkout when it can.**
+   Tier A's executable run needs a real repository to work in, and an
+   `org/repo` slug is not a path — for a global skill that is the only
+   candidate, so a slug leaves it critique-only forever. A project-scoped
+   skill is safe either way: its store root is the checkout, and validation
+   falls back to that.
+
    **A fingerprint must be text that ends up IN A FILE.** Matching runs
    against the added lines of `git diff HEAD` plus untracked file contents.
    Anything else is invisible no matter how well the skill was applied:
@@ -109,7 +116,7 @@ fingerprints:
   - "<distinctive fragment 1>"
   - "<distinctive fragment 2>"
 provenance:
-  repo: <org/repo or local dir name>
+  repo: <path that resolves on this machine, else org/repo>
   commit: <short sha if in git, else omit>
   distilled: <YYYY-MM-DD>
 ---

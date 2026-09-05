@@ -957,6 +957,70 @@ def test_reordered_words_are_not_accepted_as_a_quote():
         _all_ok("close() before Call flush()."), SKILL_TEXT) == "fail"
 
 
+RUNNABLE_SKILL = """---
+name: w
+kind: skill
+description: Do a thing. Use when testing. Do NOT use otherwise.
+verification.command: "python3 tests/test_thing.py"
+---
+## Procedure
+1. Call flush() before close().
+
+## Verification
+- `python3 tests/test_thing.py` exits 0.
+"""
+
+
+def _git_repo(base, name="repo"):
+    import subprocess
+    r = base / name
+    (r / "sub").mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "init", "-q"], cwd=str(r), check=True)
+    return r
+
+
+def test_a_project_skills_own_root_stands_in_for_provenance_repo():
+    """provenance.repo is written `org/repo` -- the form distilling-skills
+    documents -- which resolves to no local path, so every skill authored to
+    spec was refused an executable run. For a project skill the checkout it
+    came from is the root it is stored under, and the index already carries it.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp)
+        repo = _git_repo(base)
+        entry = {"kind": "skill", "root": str(repo),
+                 "provenance": {"repo": "dmbritton1/skill-forge"}}
+        assert validate.unattemptable(RUNNABLE_SKILL, entry) is None
+
+
+def test_provenance_repo_is_still_used_when_it_resolves():
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp)
+        repo = _git_repo(base)
+        entry = {"kind": "skill", "root": str(base / "not-a-repo"),
+                 "provenance": {"repo": str(repo)}}
+        assert validate.unattemptable(RUNNABLE_SKILL, entry) is None
+
+
+def test_a_root_that_is_not_a_git_repo_is_still_refused():
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp)
+        (base / "plain").mkdir()
+        entry = {"kind": "skill", "root": str(base / "plain"),
+                 "provenance": {"repo": "dmbritton1/skill-forge"}}
+        why = validate.unattemptable(RUNNABLE_SKILL, entry)
+        assert why and "git repo" in why, why
+
+
+def test_an_empty_root_does_not_resolve_to_the_cwd():
+    """Path("") is ".", which would test whatever directory happens to be
+    current -- the same trap the provenance check already guards against."""
+    with tempfile.TemporaryDirectory() as tmp:
+        entry = {"kind": "skill", "root": "", "provenance": {"repo": ""}}
+        why = validate.unattemptable(RUNNABLE_SKILL, entry)
+        assert why and "git repo" in why, why
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
