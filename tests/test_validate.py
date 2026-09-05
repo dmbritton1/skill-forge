@@ -1054,6 +1054,84 @@ def test_repo_root_is_none_when_neither_resolves():
         assert validate.repo_root(entry) is None
 
 
+def _repo_with_history(base):
+    """A repo with two commits; returns (repo, first_sha, second_sha).
+
+    `check.py` lands in the SECOND commit, so `second^` is a genuine
+    before-state for whatever that commit introduced.
+    """
+    import subprocess
+    r = base / "hist"
+    r.mkdir(parents=True, exist_ok=True)
+    def sh(*a):
+        subprocess.run(list(a), cwd=str(r), check=True,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    sh("git", "init", "-q")
+    sh("git", "config", "user.email", "t@t")
+    sh("git", "config", "user.name", "t")
+    (r / "a.txt").write_text("one\n")
+    sh("git", "add", "-A"); sh("git", "commit", "-qm", "first")
+    first = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(r),
+                           stdout=subprocess.PIPE, text=True).stdout.strip()
+    (r / "check.py").write_text("import sys; sys.exit(0)\n")
+    sh("git", "add", "-A"); sh("git", "commit", "-qm", "second")
+    second = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(r),
+                            stdout=subprocess.PIPE, text=True).stdout.strip()
+    return r, first, second
+
+
+def test_before_ref_is_the_parent_of_introduced_by():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, first, second = _repo_with_history(pathlib.Path(tmp))
+        entry = {"provenance": {"introduced_by": second}}
+        assert validate.before_ref(entry, repo) == first
+
+
+def test_before_ref_is_none_without_the_field():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _repo_with_history(pathlib.Path(tmp))
+        assert validate.before_ref({"provenance": {}}, repo) is None
+        assert validate.before_ref({}, repo) is None
+
+
+def test_before_ref_is_none_when_the_commit_does_not_resolve():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _repo_with_history(pathlib.Path(tmp))
+        entry = {"provenance": {"introduced_by": "deadbeef"}}
+        assert validate.before_ref(entry, repo) is None
+
+
+def test_before_ref_is_none_for_a_root_commit():
+    """A root commit has no parent, so there is no before-state to rewind to."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, first, _ = _repo_with_history(pathlib.Path(tmp))
+        entry = {"provenance": {"introduced_by": first}}
+        assert validate.before_ref(entry, repo) is None
+
+
+def test_verification_paths_picks_out_repo_files_only():
+    """The interpreter is not a path to check forward; the script is."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, _, _ = _repo_with_history(pathlib.Path(tmp))
+        assert validate.verification_paths(["python3", "check.py"], repo) == ["check.py"]
+        assert validate.verification_paths(["python3", "-c", "pass"], repo) == []
+
+
+def test_make_worktree_honours_an_explicit_ref():
+    with tempfile.TemporaryDirectory() as tmp:
+        base = pathlib.Path(tmp)
+        repo, first, second = _repo_with_history(base)
+        dest = base / "wt"
+        try:
+            assert validate.make_worktree(repo, dest, ref=first)
+            assert not (dest / "check.py").exists(), "should be the BEFORE state"
+        finally:
+            import subprocess
+            subprocess.run(["git", "worktree", "remove", "--force", str(dest)],
+                           cwd=str(repo), stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

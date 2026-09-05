@@ -76,15 +76,73 @@ def run_verification(argv, cwd, timeout=VERIFY_TIMEOUT_S):
     return proc.returncode
 
 
-def make_worktree(repo, dest):
-    """Detached worktree of `repo` at HEAD. True on success."""
+def make_worktree(repo, dest, ref="HEAD"):
+    """Detached worktree of `repo` at `ref`. True on success."""
     try:
-        subprocess.run(["git", "worktree", "add", "--detach", str(dest), "HEAD"],
+        subprocess.run(["git", "worktree", "add", "--detach", str(dest), ref],
                        cwd=str(repo), stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL, timeout=60, check=True)
     except (OSError, subprocess.SubprocessError):
         return False
     return True
+
+
+def _rev(repo, spec):
+    """Resolve one rev to a sha, or None. Never raises."""
+    try:
+        proc = subprocess.run(["git", "rev-parse", "--verify", "--quiet", spec],
+                              cwd=str(repo), stdout=subprocess.PIPE,
+                              stderr=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    out = proc.stdout.decode("utf-8", "replace").strip()
+    return out or None
+
+
+def before_ref(entry, repo):
+    """The commit BEFORE this skill's behaviour existed, or None for HEAD.
+
+    `provenance.commit` cannot answer this: distilling-skills defines it as
+    the sha the repo was at when the skill was distilled, which is AFTER the
+    behaviour landed -- and in practice is often a merge, whose first parent
+    is the mainline rather than a pre-skill state. Validating there means the
+    verification already passes, which the vacuity gate correctly refuses to
+    grade, so no skill about its own repo could ever earn an executable
+    verdict.
+
+    `provenance.introduced_by` is the commit that introduced the behaviour --
+    the bench's `fix_commit` by another name, and its parent is the same
+    before-state `bench/run.py` has always checked out.
+
+    None whenever the answer is not certain: absent, unresolvable, or a root
+    commit with no parent. The caller then works at HEAD exactly as before,
+    and the vacuity gate refuses -- failing closed, because a wrong
+    before-state grades a working skill `fail`.
+    """
+    sha = (entry.get("provenance") or {}).get("introduced_by")
+    if not isinstance(sha, str) or not sha.strip():
+        return None
+    if _rev(repo, sha.strip() + "^{commit}") is None:
+        return None
+    return _rev(repo, sha.strip() + "^")
+
+
+def verification_paths(argv, repo):
+    """argv entries that name a file tracked in `repo`. Possibly empty.
+
+    A rewound worktree predates the verification itself -- test_guard.py did
+    not exist before the commit that introduced the guard it tests -- so the
+    check has to be brought forward, exactly as bench/run.py checks out its
+    `test_path` after rewinding. Interpreters and flags are not paths and are
+    filtered out by simply asking whether the repo has such a file.
+    """
+    out = []
+    for token in argv[1:]:
+        if not token or token.startswith("-"):
+            continue
+        if (Path(repo) / token).exists():
+            out.append(token)
+    return out
 
 
 def worktree_dirty(dest):
@@ -510,10 +568,34 @@ def executable(text, entry):
     # Same resolution the gate above used -- never entry["provenance"]["repo"]
     # directly, which would look somewhere the gate never checked.
     root = repo_root(entry)
+    # Rewind to before the skill's behaviour existed, when the skill says
+    # where that is. At HEAD a skill about its own repo has already been
+    # applied, so its verification passes untouched and the vacuity gate below
+    # refuses to grade it -- which is why this library has never earned an
+    # executable verdict.
+    ref = before_ref(entry, root)
     dest = Path(tempfile.mkdtemp(prefix="skillforge-validate-"))
     try:
-        if not make_worktree(root, dest):
+        if not make_worktree(root, dest, ref=ref or "HEAD"):
             return "inconclusive", "could not create a worktree"
+        if ref:
+            # The rewound tree predates the verification itself, so bring it
+            # forward from the tip -- the version the skill's own Verification
+            # section describes. Not "HEAD": inside a detached worktree HEAD is
+            # the before-state, where the file does not exist.
+            tip = _rev(root, "HEAD")
+            paths = verification_paths(argv, root)
+            if not paths or not tip:
+                # Cannot reconstruct a runnable before-state. Fail closed:
+                # running the rewound tree without its check would grade a
+                # working skill `fail`.
+                return "inconclusive", "no verification path to carry back"
+            try:
+                subprocess.run(["git", "checkout", "-q", tip, "--"] + paths,
+                               cwd=str(dest), stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=60, check=True)
+            except (OSError, subprocess.SubprocessError):
+                return "inconclusive", "could not restore the verification"
         # ponytail: the envelope around a skill-authored argv is
         # trusted-only, a throwaway worktree at HEAD, VERIFY_TIMEOUT_S of wall
         # clock, output discarded rather than capped (run_verification sends

@@ -78,6 +78,16 @@ one line and stop.
    NOT followed. If you cannot make it discriminate, say so there plainly
    rather than shipping a check that always passes.
 
+   **Add `provenance.introduced_by` when you can name it.** The commit that
+   introduced the behaviour this skill teaches — not `provenance.commit`,
+   which is where the repo happened to be when you distilled, i.e. AFTER the
+   change. Tier A rewinds to its parent to get a state where the skill has
+   genuinely not been applied; without it, validation runs at HEAD, where the
+   skill's own verification already passes, and the vacuity gate correctly
+   refuses to grade it. `git log -S'<a distinctive fragment>' --reverse`
+   usually finds it. Omit it rather than guess: a wrong commit grades a
+   working skill `fail`.
+
    **`provenance.repo` should resolve to a local checkout when it can.**
    Tier A's executable run needs a real repository to work in, and an
    `org/repo` slug is not a path — for a global skill that is the only
@@ -117,6 +127,7 @@ fingerprints:
   - "<distinctive fragment 2>"
 provenance:
   repo: <path that resolves on this machine, else org/repo>
+  introduced_by: <sha where the behaviour landed, omit if unsure>
   commit: <short sha if in git, else omit>
   distilled: <YYYY-MM-DD>
 ---
