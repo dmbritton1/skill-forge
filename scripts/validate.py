@@ -76,6 +76,31 @@ def run_verification(argv, cwd, timeout=VERIFY_TIMEOUT_S):
     return proc.returncode
 
 
+def precondition_argv(text):
+    """argv for `precondition.command`, or None if absent OR unrunnable.
+
+    Same refusal discipline as verification.command, and for a sharper
+    reason: this one runs in the worktree BEFORE a model with tool access is
+    turned loose in it.
+    """
+    return _command_argv(text, "precondition.command")
+
+
+def has_precondition(text):
+    """Did the author DECLARE a precondition, runnable or not?
+
+    Absent and unrunnable both yield None from precondition_argv, and they
+    need opposite handling: absent is the ordinary case, while declared-but-
+    unrunnable means the skill says it needs a setup this system cannot
+    perform -- running the follow anyway would grade a skill on a state it
+    never asked for.
+    """
+    from save_skill import parse_frontmatter
+    fm, _ = parse_frontmatter(text)
+    value = (fm or {}).get("precondition.command")
+    return isinstance(value, str) and bool(value.strip().strip("`\"'"))
+
+
 def make_worktree(repo, dest, ref="HEAD"):
     """Detached worktree of `repo` at `ref`. True on success."""
     try:
@@ -127,20 +152,33 @@ def before_ref(entry, repo):
     return _rev(repo, sha.strip() + "^")
 
 
-def verification_paths(argv, repo):
-    """argv entries that name a file tracked in `repo`. Possibly empty.
+def verification_paths(argv, repo, ref="HEAD"):
+    """argv entries naming a file present in `repo` AT `ref`. Possibly empty.
 
     A rewound worktree predates the verification itself -- test_guard.py did
     not exist before the commit that introduced the guard it tests -- so the
     check has to be brought forward, exactly as bench/run.py checks out its
     `test_path` after rewinding. Interpreters and flags are not paths and are
-    filtered out by simply asking whether the repo has such a file.
+    filtered out by simply asking whether such a file exists.
+
+    Asked of the COMMIT, not the working tree: the carry-forward runs
+    `git checkout <ref> -- <path>`, which reads the commit, and the two
+    disagree whenever the checkout is dirty or sitting on another branch --
+    in which case the path is found, the checkout then fails, and the run is
+    refused for a reason that has nothing to do with the skill.
     """
     out = []
     for token in argv[1:]:
         if not token or token.startswith("-"):
             continue
-        if (Path(repo) / token).exists():
+        try:
+            proc = subprocess.run(
+                ["git", "cat-file", "-e", "%s:%s" % (ref, token)],
+                cwd=str(repo), stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if proc.returncode == 0:
             out.append(token)
     return out
 
@@ -436,9 +474,14 @@ def verification_argv(text):
     dodges the same way; parse_frontmatter is the one parser and this is the
     same key sync._meta already compiles the index from.
     """
+    return _command_argv(text, "verification.command")
+
+
+def _command_argv(text, key):
+    """argv for one frontmatter command key, or None. See verification_argv."""
     from save_skill import parse_frontmatter
     fm, _ = parse_frontmatter(text)
-    value = (fm or {}).get("verification.command")
+    value = (fm or {}).get(key)
     # Anything but a scalar reads as absent: frontmatter is untrusted, and a
     # list or map here is not a command. The strip is the pre-existing
     # allowance for a command written as `cmd` or "cmd" in the frontmatter --
@@ -523,6 +566,11 @@ def unattemptable(text, entry):
     # text, so the scheduler must not keep offering it.
     if verification_argv(text) is None:
         return "no runnable verification.command"
+    # Declared but not runnable is permanent for this text, so the scheduler
+    # must stop offering it -- same reason the verification check above is
+    # here rather than left to the worker.
+    if has_precondition(text) and precondition_argv(text) is None:
+        return "precondition.command needs a shell"
     # A precondition (design §4), not a fallback. There is no safe default
     # here: cwd is not the skill's repo -- this worker is spawned detached, so
     # cwd is whatever directory the parent happened to be in, and building a
@@ -584,7 +632,15 @@ def executable(text, entry):
             # section describes. Not "HEAD": inside a detached worktree HEAD is
             # the before-state, where the file does not exist.
             tip = _rev(root, "HEAD")
-            paths = verification_paths(argv, root)
+            # Both commands' scripts, not just the verification's: a
+            # precondition carried into a tree that predates it would fail,
+            # and a failed precondition is inconclusive -- so the rewind would
+            # silently undo itself for exactly the skills that need it.
+            paths = verification_paths(argv, root, tip or "HEAD")
+            pre_argv = precondition_argv(text)
+            if pre_argv:
+                paths += [q for q in verification_paths(pre_argv, root, tip or "HEAD")
+                          if q not in paths]
             if not paths or not tip:
                 # Cannot reconstruct a runnable before-state. Fail closed:
                 # running the rewound tree without its check would grade a
@@ -617,6 +673,21 @@ def executable(text, entry):
         #      matters: wrap the argv in sandbox-exec (macOS) / bwrap (Linux)
         #      inside run_verification, the single choke point both calls
         #      below go through.
+        # Establish the state the procedure assumes, BEFORE the vacuity check
+        # -- otherwise `before` describes a world the skill never claimed to
+        # work in. A skill whose procedure needs staged changes, a failing
+        # test, or a running service has nothing to do in a clean checkout,
+        # and the follow-run reports no changes forever. bench/run.py has
+        # always had `stub_cmd` for exactly this; skills had no field for it.
+        pre = precondition_argv(text)
+        if pre is not None:
+            rc = run_verification(pre, dest)
+            if rc is None or rc != 0:
+                # Fail closed. A precondition that did not take means the
+                # follow-run would be graded on the wrong starting state, and
+                # a wrong `fail` is the outcome this whole path must avoid.
+                return "inconclusive", "precondition.command did not succeed"
+
         before = run_verification(argv, dest)
         if before is None:
             return "inconclusive", "verification could not be run"

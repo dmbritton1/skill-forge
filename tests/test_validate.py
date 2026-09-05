@@ -1117,6 +1117,18 @@ def test_verification_paths_picks_out_repo_files_only():
         assert validate.verification_paths(["python3", "-c", "pass"], repo) == []
 
 
+def test_verification_paths_asks_the_commit_not_the_working_tree():
+    """git checkout <ref> -- <path> reads the commit, so this must too."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo, first, second = _repo_with_history(pathlib.Path(tmp))
+        # untracked on disk, absent from every commit
+        (repo / "scratch.py").write_text("pass\n")
+        assert validate.verification_paths(["python3", "scratch.py"], repo) == []
+        # present at the tip, absent at the first commit
+        assert validate.verification_paths(["python3", "check.py"], repo, second) == ["check.py"]
+        assert validate.verification_paths(["python3", "check.py"], repo, first) == []
+
+
 def test_make_worktree_honours_an_explicit_ref():
     with tempfile.TemporaryDirectory() as tmp:
         base = pathlib.Path(tmp)
@@ -1130,6 +1142,58 @@ def test_make_worktree_honours_an_explicit_ref():
             subprocess.run(["git", "worktree", "remove", "--force", str(dest)],
                            cwd=str(repo), stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
+
+
+PRECOND_SKILL = RUNNABLE_SKILL.replace(
+    'verification.command: "python3 tests/test_thing.py"',
+    'verification.command: "python3 tests/test_thing.py"\n'
+    'precondition.command: "python3 tests/stage_a_change.py"')
+
+
+def test_precondition_argv_reads_its_own_key():
+    assert validate.precondition_argv(PRECOND_SKILL) == [
+        "python3", "tests/stage_a_change.py"]
+
+
+def test_precondition_argv_is_none_when_absent():
+    assert validate.precondition_argv(RUNNABLE_SKILL) is None
+
+
+def test_a_precondition_needing_a_shell_is_refused_like_a_verification():
+    """Same discipline: skill text is attacker-controlled, and this command
+    runs in a worktree before a model with tool access is turned loose."""
+    bad = RUNNABLE_SKILL.replace(
+        'verification.command: "python3 tests/test_thing.py"',
+        'verification.command: "python3 tests/test_thing.py"\n'
+        'precondition.command: "touch f && git add f"')
+    assert validate.precondition_argv(bad) is None
+    assert validate.has_precondition(bad) is True
+
+
+def test_has_precondition_distinguishes_absent_from_unrunnable():
+    assert validate.has_precondition(RUNNABLE_SKILL) is False
+    assert validate.has_precondition(PRECOND_SKILL) is True
+
+
+def test_a_declared_but_unrunnable_precondition_is_unattemptable():
+    """The scheduler must refuse exactly what the worker refuses, or it burns
+    its one run-per-session slot on a skill that can never be set up."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = _git_repo(pathlib.Path(tmp))
+        bad = RUNNABLE_SKILL.replace(
+            'verification.command: "python3 tests/test_thing.py"',
+            'verification.command: "python3 tests/test_thing.py"\n'
+            'precondition.command: "touch f && git add f"')
+        entry = {"kind": "skill", "root": str(repo), "provenance": {}}
+        why = validate.unattemptable(bad, entry)
+        assert why and "precondition" in why, why
+
+
+def test_a_runnable_precondition_is_attemptable():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = _git_repo(pathlib.Path(tmp))
+        entry = {"kind": "skill", "root": str(repo), "provenance": {}}
+        assert validate.unattemptable(PRECOND_SKILL, entry) is None
 
 
 if __name__ == "__main__":
