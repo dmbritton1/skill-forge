@@ -109,6 +109,45 @@ def registered_hooks():
     return sorted(names)
 
 
+def _main_block(source):
+    """The `if __name__ == "__main__":` node of a module, or None."""
+    import ast
+    for node in ast.parse(source).body:
+        if not isinstance(node, ast.If):
+            continue
+        t = node.test
+        if (isinstance(t, ast.Compare) and isinstance(t.left, ast.Name)
+                and t.left.id == "__name__"):
+            return node
+    return None
+
+
+def test_no_hook_does_work_before_main():
+    """A helper called at INVOCATION time escapes the guard just as an
+    import-time one does, and the reload test cannot see it: reloading a
+    module never executes its `__main__` block.
+
+    Checked statically rather than by running the script, because these
+    suites do not spawn real subprocesses -- and the property is static
+    anyway: the entry point must hand straight to main(), so that main()'s
+    first statement really is the first thing that runs.
+    """
+    import ast
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for name in registered_hooks():
+        src = (root / "scripts" / ("%s.py" % name)).read_text(encoding="utf-8")
+        block = _main_block(src)
+        assert block is not None, "%s has no __main__ block" % name
+        assert len(block.body) == 1, (
+            "%s does %d statements before main() can guard anything; the entry"
+            " point must hand straight to main()" % (name, len(block.body)))
+        stmt = block.body[0]
+        calls = [n.func.id for n in ast.walk(stmt)
+                 if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+        assert "main" in calls, (
+            "%s's entry point does not call main(): %s" % (name, ast.dump(stmt)[:120]))
+
+
 def test_no_hook_touches_stdin_or_argv_at_import_time():
     """The guard lives in main(), so anything read BEFORE main() escapes it.
 
