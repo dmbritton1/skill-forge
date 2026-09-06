@@ -54,7 +54,7 @@ The install is already correct as of this writing. Verify rather than assume —
 one command, and if it prints an error the rest of your session is fiction:
 
 ```bash
-python3 ~/.claude/plugins/cache/skillforge/skillforge/0.2.3/scripts/sync.py --project-root "$PWD"
+python3 ~/.claude/plugins/cache/skillforge/skillforge/0.2.4/scripts/sync.py --project-root "$PWD"
 ```
 
 Silence (plus the usual correction-logging line) is success. `skillforge:
@@ -69,6 +69,40 @@ every pre-existing event row has `project = NULL`, so past successes cannot
 say where they happened. They still show `trusted` in the index because Tier A
 executable validation carries them. Organic corroboration rebuilds as new
 project-tagged events land.
+
+---
+
+## 2b. Do not trust a ratio out of `stats.py` without checking it
+
+`injection-to-use` reported **93%**. Paired per session it is **26%**. It was
+computing `sum(detections) / count(injections)`: a session that ran one
+verification command eight times counted as eight uses, while 21 injections
+followed by nothing contributed only to the denominator. Fixed in `cc9859a`.
+
+That is the **third** instance of this defect class here, after `bash_outcome`
+and the survival stat. Before quoting any ratio from `stats.py`, check that
+its numerator and denominator count the same kind of thing.
+
+What the production numbers actually say, post-fix:
+
+- **Delivery works.** 15 of 16 sessions got an injection; 27 across the
+  library's life.
+- **Relevance is mediocre and now honestly reported.** 6 of 23 injected
+  sessions showed any same-session use.
+- **The marker protocol is barely alive.** 1 of 16 sessions logged a marker.
+  Verification-command runs are carrying the usage signal instead, and those
+  fire whether or not the skill influenced anything.
+- **Helpfulness is not measured and production cannot measure it.**
+  `outcome='success'` means a verification command exited 0. There is no
+  counterfactual anywhere in the telemetry. The only causal evidence in the
+  project is the bench.
+- **Recall is unmeasurable.** Nothing records a session where a skill should
+  have fired and did not.
+
+**A hole opened when the install was fixed.** Both live skills are now `hot`,
+and hot skills log no `injection` row — so the one production relevance metric
+goes dark precisely for the skills that earned promotion. `stats` already
+lists "hot-tier churn" as unmeasured. Nothing records hot delivery at all.
 
 ---
 
