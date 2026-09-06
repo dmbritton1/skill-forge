@@ -7,6 +7,7 @@ WAL mode so concurrent hook processes can write without racing.
 """
 import argparse
 import datetime
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -176,7 +177,13 @@ ADDED_COLUMNS = (("events", "project", "TEXT"),)
 
 
 def default_path():
-    return Path.home() / ".claude" / "skillforge" / "ledger.db"
+    # SKILLFORGE_LEDGER exists for the benchmark. Its sessions are real
+    # sessions with the hooks live, and each throwaway clone resolves to its
+    # own `project` -- so an unisolated batch reads as a dozen independent
+    # corroborations and mints `trusted` from disposable checkouts, which is
+    # the back door the project-keyed view was written to close.
+    return Path(os.environ.get("SKILLFORGE_LEDGER",
+                               Path.home() / ".claude" / "skillforge" / "ledger.db"))
 
 
 def connect(path=None):

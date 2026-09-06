@@ -38,9 +38,18 @@ ROOT = Path(__file__).resolve().parent
 # the whole harness dead without saying so -- `git clone` of a missing path is
 # just a failed task.
 REPO_ROOT = ROOT.parent
-WORK = ROOT / "work"
+# Outside the repo on purpose: a clone under bench/work/ sits inside a
+# project whose skill store retrieve.in_scope() accepts (cwd.startswith
+# (root)), so the real library is retrievable in every bench session --
+# control and treatment alike. Keeping the clones out of the tree is the
+# whole isolation; it also stops work/ accumulating inside the checkout.
+WORK = Path(os.environ.get("SKILLFORGE_BENCH_WORK", "/tmp/skillforge-bench"))
 RESULTS = ROOT / "results.jsonl"
 SESSION_TIMEOUT_S = 900
+# Pinned, not the account default: a cross-date comparison is only sound
+# if the model is known, and the 2026-08-11 pilot did not record one.
+DEFAULT_MODEL = "claude-opus-5"
+MODEL = DEFAULT_MODEL
 
 
 def expand(value):
@@ -167,7 +176,9 @@ def score(task, dest):
 
 def run_session(task, dest, plugin_dir):
     cmd = ('claude -p %s --plugin-dir %s --permission-mode bypassPermissions'
-           % (json.dumps(task["prompt"]), json.dumps(str(plugin_dir))))
+           ' --model %s'
+           % (json.dumps(task["prompt"]), json.dumps(str(plugin_dir)),
+              json.dumps(MODEL)))
     t0 = time.time()
     try:
         r = sh(cmd, cwd=dest, timeout=SESSION_TIMEOUT_S)
@@ -194,7 +205,7 @@ def one(task, arm, run_idx, plugin_dir):
     post, tail = score(task, dest)
     rec = {"task": task["id"], "arm": arm, "run": run_idx,
            "resolved": all(post.values()), "per_test": post,
-           "session_ok": sess["ok"], "secs": sess["secs"],
+           "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
            "skill_note": skill_note, "test_tail": tail,
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     with RESULTS.open("a", encoding="utf-8") as fh:
@@ -212,7 +223,10 @@ def main(argv=None):
     ap.add_argument("--check", action="store_true",
                     help="verify every path in tasks.json resolves, then exit")
     ap.add_argument("--arm", choices=("treatment", "control", "both"), default="both")
+    ap.add_argument("--model", default=DEFAULT_MODEL)
     args = ap.parse_args(argv)
+    global MODEL
+    MODEL = args.model
 
     cfg = expand(json.loads((ROOT / "tasks.json").read_text(encoding="utf-8")))
     problems = check_config(cfg)
@@ -234,6 +248,12 @@ def main(argv=None):
     arms = ("control", "treatment") if args.arm == "both" else (args.arm,)
 
     WORK.mkdir(parents=True, exist_ok=True)
+    # Every child inherits this: the sessions, save_skill.py, and the hooks
+    # the sessions fire. Bench runs are real sessions against a real ledger,
+    # and each throwaway clone is a distinct `project` -- so an unisolated
+    # batch corroborates skills across a dozen disposable checkouts.
+    os.environ["SKILLFORGE_LEDGER"] = str(WORK / "ledger.db")
+    print("model %s | work %s | ledger %s" % (MODEL, WORK, WORK / "ledger.db"))
     for task in tasks:
         print("%s (skill %s from %s)" % (task["id"], task["skill"], task["skill_source_commit"]))
         for run_idx in range(1, args.runs + 1):
