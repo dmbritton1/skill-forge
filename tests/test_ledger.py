@@ -918,6 +918,25 @@ def test_event_totals_counts_by_type_and_detection():
         assert t["by_detection"] == {"marker": 1, "verification": 1}, t
 
 
+def test_event_totals_counts_saved_skills_not_save_rows():
+    """The survival denominator counts skills, not writes.
+
+    `by_type['save']` counts rows, so one skill saved once and improved
+    four times read as five saved skills -- and survival, which divides
+    trusted skills by that number, sank every time a skill got better.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("save", "a", outcome="saved", session="s1", path=db)
+        ledger.log_event("save", "a", outcome="saved", session="s2", path=db)
+        for _ in range(4):
+            ledger.log_event("save", "a", outcome="updated", session="s3", path=db)
+        ledger.log_event("save", "b", outcome="saved", session="s4", path=db)
+        t = ledger.event_totals(path=db)
+        assert t["by_type"] == {"save": 7}, t
+        assert t["saved_skills"] == 2, t
+
+
 def test_event_totals_counts_null_outcome_as_unknown():
     """The bug this whole command exists to surface.
 

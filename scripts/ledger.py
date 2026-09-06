@@ -602,7 +602,7 @@ def event_totals(*, path=None):
     Zeros on any failure: this feeds a display, and a read helper that
     raises would trade a missing number for no output.
     """
-    out = {"by_type": {}, "by_detection": {},
+    out = {"by_type": {}, "by_detection": {}, "saved_skills": 0,
            "verification_outcomes": {"success": 0, "failure": 0, "unknown": 0}}
     try:
         con = connect(path)
@@ -611,6 +611,13 @@ def event_totals(*, path=None):
                     "SELECT event_type, COUNT(*) FROM events"
                     " GROUP BY event_type"):
                 out["by_type"][et] = n
+            # DISTINCT skill, and 'saved' only: `by_type['save']` counts
+            # rows, so re-saving one skill four times as `updated` read as
+            # four saved skills and sank the survival denominator. An update
+            # is not a new skill, and the same skill saved twice is one.
+            out["saved_skills"] = list(con.execute(
+                "SELECT COUNT(DISTINCT skill) FROM events"
+                " WHERE event_type = 'save' AND outcome = 'saved'"))[0][0]
             for det, n in con.execute(
                     "SELECT detection, COUNT(*) FROM events"
                     " WHERE event_type = 'detection' AND detection IS NOT NULL"

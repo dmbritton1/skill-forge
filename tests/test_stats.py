@@ -148,7 +148,7 @@ def test_outcomes_section_shows_unknown_rather_than_zero_successes():
 def test_outcomes_section_reports_survival_without_a_rate_when_small():
     rows = [{"name": "a", "kind": "skill", "bucket": "trusted", "path": ""},
             {"name": "b", "kind": "skill", "bucket": "unproven", "path": ""}]
-    totals = {"by_type": {"save": 2}, "by_detection": {},
+    totals = {"by_type": {"save": 2}, "saved_skills": 2, "by_detection": {},
               "verification_outcomes": {"success": 0, "failure": 0,
                                         "unknown": 0}}
     text = "\n".join(stats.section_outcomes(rows, totals))

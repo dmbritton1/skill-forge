@@ -155,7 +155,7 @@ def section_outcomes(rows, totals):
     """
     oc = totals["verification_outcomes"]
     buckets = _tally(rows, "bucket")
-    saved = totals["by_type"].get("save", 0)
+    saved = totals.get("saved_skills", 0)
     trusted = buckets.get("trusted", 0)
     return ["OUTCOMES",
             "  verification      success=%d, failure=%d, unknown=%d"
