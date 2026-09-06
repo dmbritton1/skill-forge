@@ -190,6 +190,16 @@ def run_session(task, dest, plugin_dir):
 
 def one(task, arm, run_idx, plugin_dir):
     dest = WORK / ("%s-%s-%d" % (task["id"], arm, run_idx))
+    # PER RUN, not per batch. Every child inherits it -- the session,
+    # save_skill.py, and the hooks the session fires -- so bench events never
+    # reach the real library, where each throwaway clone would count as its
+    # own `project` and corroborate skills across disposable checkouts.
+    #
+    # Per run because the ledger is what confidence is computed from: a batch
+    # ledger let run 1's verification success promote the skill to `working`,
+    # so run 2 got it materialized hot while run 1 had it warm. Runs inside a
+    # cell must be independent trials, not a sequence that learns.
+    os.environ["SKILLFORGE_LEDGER"] = str(dest.parent / (dest.name + ".ledger.db"))
     authoring = task.get("mode", "repair") == "author"
     prepare(task, dest)
     if not authoring:
@@ -248,12 +258,7 @@ def main(argv=None):
     arms = ("control", "treatment") if args.arm == "both" else (args.arm,)
 
     WORK.mkdir(parents=True, exist_ok=True)
-    # Every child inherits this: the sessions, save_skill.py, and the hooks
-    # the sessions fire. Bench runs are real sessions against a real ledger,
-    # and each throwaway clone is a distinct `project` -- so an unisolated
-    # batch corroborates skills across a dozen disposable checkouts.
-    os.environ["SKILLFORGE_LEDGER"] = str(WORK / "ledger.db")
-    print("model %s | work %s | ledger %s" % (MODEL, WORK, WORK / "ledger.db"))
+    print("model %s | work %s | ledger per run (SKILLFORGE_LEDGER)" % (MODEL, WORK))
     for task in tasks:
         print("%s (skill %s from %s)" % (task["id"], task["skill"], task["skill_source_commit"]))
         for run_idx in range(1, args.runs + 1):
