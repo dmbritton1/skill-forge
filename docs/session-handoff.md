@@ -199,21 +199,20 @@ E4 asks whether injecting an irrelevant skill actively *hurts*. It cannot run
 on the current traps: control already scores 0/6 there, scoring is binary, and
 there is no room to fall.
 
-The next step is cheap — measure the control baseline of the two repair-mode
-tasks that have never been run:
+**Do not run the two repair-mode tasks to find out.** An earlier version of
+this handoff proposed exactly that, six control sessions, and it was wrong:
+their control rate is already measured. `results-leaky-stub.jsonl` holds four
+clean control runs from 2026-08-10 — `sf-escaping-breaks-symptom-match` 2/2,
+`sf-truncation-reports-absent` 2/2, every hidden test green. Control sits at
+the **ceiling**, which blocks E4 exactly as hard as the floor does.
 
-```bash
-python3 bench/run.py --arm control --runs 3 --task sf-escaping-breaks-symptom-match
-python3 bench/run.py --arm control --runs 3 --task sf-truncation-reports-absent
-```
+That is the pilot's own finding about FAIL_TO_PASS repair tasks: the red
+assertion names the condition, so the task hands over the answer.
 
-**Predict a ceiling, not a floor.** The pilot already established that
-FAIL_TO_PASS repair tasks hand over the answer — the red assertion names the
-exact condition, and control resolved 4/4 on this repo's own post-cutoff bugs.
-If these two land at or near 3/3, E4 is not merely blocked on *these* tasks;
-it needs an **authoring** task where control succeeds *sometimes* — partial
-baseline, neither floor nor ceiling. No such task exists. Building one is
-design work, not a run, and it is the real blocker behind E4.
+E4 therefore needs a task that does not exist — an **authoring** task where
+control succeeds *sometimes*, neither 0 nor 100%. Building one is design work,
+not a run, and it is the real blocker. See the register at the top of
+`bench/RESULTS.md`.
 
 Do not run `sf-author-*-irrelevant` until that exists. `arrow-tzinfo-string-trap`
 is the payload for that arm and has no task of its own.

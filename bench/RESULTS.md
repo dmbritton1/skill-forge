@@ -1,3 +1,67 @@
+# Experiment register
+
+Every benchmark run this project has done, what it answers, and where its data
+is. Added 2026-09-06 after two claims below turned out to be wrong precisely
+because nothing indexed the data — see "What the register caught".
+
+## Experiments
+
+| # | Question | Status | Data |
+|---|---|---|---|
+| Pilot (2026-08-11) | Does a matched skill change authoring behavior? Does a same-class one transfer? | **Done.** control 0/6, matched 5/6, transfer 0/6 | trap 1 rows in `results-round1.jsonl`; trap 2 rows in `results.jsonl` |
+| E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked | `results.jsonl`, the 18 rows carrying `"model": "claude-opus-5"` |
+| E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Blocked.** Needs a task whose control is neither 0 nor 100%; no such task exists | tasks defined (`sf-author-*-irrelevant`), never run |
+| E5 | Is the effect the knowledge, or the delivery path? | **Designed, not run.** Needs a force-hot lever that does not exist | none; design in `docs/session-handoff.md` §3.1 |
+| Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
+
+## The brief's five questions, which are the actual agenda
+
+`docs/2026-08-29-benchmark-investigation-brief.md` ranks five questions by
+value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
+
+| Brief | Question | Where it stands |
+|---|---|---|
+| Q1 | Does the pipeline work end to end, or only the injection half? | **No experiment exists.** Every result in this file uses a *hand-authored* skill. The claim is session → distilled skill → later session improved, and the distiller is the untested link. This is the largest open question in the project |
+| Q2 | Is transfer real at any n? | **Partial.** Transfer 0/6 at n=3 in the pilot. Establishing transfer, or its absence at a convincing n, is unfinished |
+| Q3 | Does injection ever hurt? | = E4, blocked |
+| Q4 | Token cost per unit of benefit? | **No experiment exists** |
+| Q5 | Does the `trusted` gate predict anything? | **Not answered.** Critique calibration measures the rubric's *accuracy against known verdicts* — not whether skills that pass it outperform skills that fail it. That needs bench runs split on critique verdict, and nobody has done it |
+
+## Where the raw rows are
+
+| File | Rows | Live or superseded |
+|---|---|---|
+| `results.jsonl` | 27 | 9 pilot (trap 2, 2026-08-11) + 18 from E1 day |
+| `results-round1.jsonl` | 18 | **Mixed.** Trap 1's pilot rows are LIVE — the headline table's 0/3, 3/3, 0/3 for response_text come from here. Only trap 2's six rows are superseded by the file-cap repair |
+| `results-leaky-stub.jsonl` | 12 | Superseded *as an authoring design* — but it holds the only control data for the two repair-mode tasks, and that data is live |
+
+## Numbering, honestly
+
+The E-labels grew by accretion and do not form a series. E1 came from the
+pilot's "roadmap risk" note, not from the brief. E4 is the brief's Q3. E5 was
+coined on 2026-09-06 in the handoff. **There is no E2 or E3.** Do not read a
+gap as a missing experiment.
+
+## What the register caught
+
+Writing this table found two claims that were stated confidently in this file
+and in the handoff, and were wrong:
+
+1. **"The two repair-mode tasks have never been run."** They have.
+   `results-leaky-stub.jsonl` holds four clean control runs from 2026-08-10 —
+   `sf-escaping-breaks-symptom-match` 2/2 and `sf-truncation-reports-absent`
+   2/2, every hidden test green, both sessions healthy. Their control rate is
+   **100%**, not unknown. This is the same 4/4 already written up below under
+   "Three earlier designs that measured nothing"; nobody connected the two.
+   The consequence is in the E4 section.
+
+2. **"`results-round1.jsonl` is the superseded round."** Half of it is the
+   live trap-1 pilot data this file's own headline table reports.
+
+Both are the same failure: data with no index, described from memory.
+
+---
+
 # SkillForge benchmark — pilot results (2026-08-11)
 
 ## Headline
@@ -123,7 +187,9 @@ related skill that fires costs tokens and delivers nothing.
 - Skills and tasks were both curated by the same author who found the bugs.
 - Replicated on the second trap at 2/3, with the one miss traced to the model
   not applying an injected skill rather than to scoring.
-- Round-1 records (broken file-cap test) kept in `results-round1.jsonl`.
+- Round-1 records in `results-round1.jsonl`. Note this file is MIXED: trap 1's
+  rows there are the live pilot data reported above, and only trap 2's six rows
+  are superseded by the file-cap repair. See the register.
 
 ## Reproducing
 
@@ -283,7 +349,17 @@ batches; they were only run once.
 `sf-author-*-irrelevant` exists but must not be run. E4 asks whether injecting
 an irrelevant skill actively hurts — and control already scores 0/6 on these
 traps, so there is no room to fall and scoring is binary. The experiment cannot
-detect harm here. It needs a task with a non-zero control baseline first. The
-two repair-mode tasks (`sf-escaping-breaks-symptom-match`,
-`sf-truncation-reports-absent`) have never been run and are candidates, but
-their control rate is unknown.
+detect harm here. It needs a task whose control baseline is neither 0 nor 100%.
+
+**The obvious candidates are already ruled out.** An earlier draft of this
+section proposed the two repair-mode tasks and said their control rate was
+unknown. It is not: `results-leaky-stub.jsonl` holds four clean control runs
+from 2026-08-10 — `sf-escaping-breaks-symptom-match` 2/2,
+`sf-truncation-reports-absent` 2/2, every hidden test green. Control is at the
+**ceiling** there, which is the same wall as the floor: no room to fall, no
+harm detectable. That is the pilot's own finding about FAIL_TO_PASS repair
+tasks, which hand over the answer in the failing assertion.
+
+So E4 needs a task that does not exist yet: an **authoring** task where control
+succeeds *sometimes*. Building it is design work, not a run, and it is the real
+blocker behind E4. Do not spend sessions re-measuring the repair tasks.
