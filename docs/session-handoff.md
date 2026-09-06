@@ -1,182 +1,264 @@
 # SkillForge — session handoff
 
-Written 2026-09-05, at the end of the session that shipped `/stats` and the
-promotion fix. Read this before touching anything; several things here are
-not discoverable from the code.
+Written 2026-09-06, at the end of the session that merged the project-keyed
+ledger to `main` and ran E1. Read this before touching anything; several
+things here are not discoverable from the code.
+
+Supersedes the 2026-09-05 handoff (git history has it). Its "START HERE" is
+done: `failure-detection` merged, 0.2.2 shipped.
 
 ---
 
 ## 1. Where things stand
 
-**v0.2 is functionally complete.** Every item in §13's v0.2 list is built.
-The single largest unbuilt subsystem is **§10 Maintainer** (`/consolidate`,
-`/audit`, the compression pass, the meta-loop) — that section is essentially
-v0.3 in full.
+**The install was broken for a week and is now fixed.** The live ledger had
+been migrated to schema v4 by an unmerged branch while the installed plugin
+still ran v3 code, so every confidence read died on `no such column:
+success_sessions`. `confidence()` catches that and returns `{}` — which reads
+as "every skill unproven" — so the hot tier was empty and no skill could be
+promoted, silently, for as long as the mismatch stood. Merged and shipped as
+**0.2.3**.
 
-Three structural bugs were found and fixed this session. All three had the
-same shape: *a mechanism that had never once fired in production, with green
-tests.*
+**E1 is answered: consolidation is safe.** One anti-skill carrying both trap
+classes scored **6/6**, identical to two anti-skills each carrying one. See
+`bench/RESULTS.md` for the full write-up. This was the single item the rest of
+the roadmap waited on — **v0.3 `/consolidate` is unblocked**.
 
-| Bug | Why it survived |
+**E1's first batch was invalid and is kept on purpose.** It scored the
+umbrella 1/6 and would have killed `/consolidate`. It was measuring `kind:`
+rather than generalization: the umbrella was a `kind: skill` while both
+comparators are `kind: antiskill`, and that one difference carried delivery
+tier, verification eligibility, and run independence with it. Both batches are
+in `results.jsonl`, told apart by the store path in `skill_note`
+(`skills/` = invalid, `antiskills/` = valid).
+
+Also landed this session:
+
+| Change | Commit |
 |---|---|
-| The exit-code struggle trigger never fired | Replaying 1,561 real Bash calls produced zero struggles — the keys that failed twice never recovered, and the keys that recovered never failed twice |
-| `bash_outcome` returned `None` on every call ever made | Its test fixture invented an `is_error` field that occurs in **zero** of 12,678 real payloads |
-| `PostToolUse` never delivers failures | Nothing aggregated outcomes, so 100% NULL looked identical to "nobody used the library" |
+| Benchmark isolated from the real library; model pinned | `c767d4a` |
+| Survival stat counted save *rows*, not skills (read 20%, truth 100%) | `1ba440b` |
+| Umbrella re-authored as an anti-skill; per-run ledger | `3968281` |
+| E1 write-up and data | `9eabc7e` |
+| Bump to 0.2.3 | `94a4dca` |
 
-**The loop closed for the first time during this session.** A verification
-command logged `outcome='success'` — the first non-NULL outcome the ledger
-has ever held — and one skill moved to `working`. That is the first promotion
-in the project's history.
+One phantom row was deleted from the live ledger: a `save` for
+`matcher-input-traps`, a bench-only skill, written by `install_skill()` before
+isolation existed. Backup at `~/.claude/skillforge/ledger.db.bak-20260906T001637`.
 
 ---
 
-## 2. START HERE — four steps, then restart
+## 2. START HERE
 
-Nothing built after Aug 28 runs until the plugin is reinstalled. Skipping
-this means every observation you make is about stale code.
+The install is already correct as of this writing. Verify rather than assume —
+one command, and if it prints an error the rest of your session is fiction:
 
 ```bash
-git checkout main && git merge --ff-only failure-detection
+python3 ~/.claude/plugins/cache/skillforge/skillforge/0.2.3/scripts/sync.py --project-root "$PWD"
 ```
 
-Then bump `.claude-plugin/plugin.json` to `0.2.2`, commit, and:
+Silence (plus the usual correction-logging line) is success. `skillforge:
+confidence read failed:` means the code and the ledger schema have diverged
+again — check `SCHEMA_VERSION` in the installed `scripts/ledger.py` against
+`select value from meta where key='schema_version'` in
+`~/.claude/skillforge/ledger.db`.
 
-```bash
-claude plugin marketplace update skillforge && claude plugin update skillforge
-```
-
-**Then fully quit and reopen Claude Code.** Not a new tab — the plugin root
-is resolved at process start and baked into the registered hook commands.
-
-**Verify the new session is actually on `0.2.2` before trusting any result:**
-make one file edit, then check that `edits` grew. If it did not, the session
-is still on the old plugin root and nothing else you observe means anything.
+Expect existing skills to read `unproven` on organic evidence. That is
+correct, not a regression: corroboration is now keyed on **project**, and
+every pre-existing event row has `project = NULL`, so past successes cannot
+say where they happened. They still show `trusted` in the index because Tier A
+executable validation carries them. Organic corroboration rebuilds as new
+project-tagged events land.
 
 ---
 
-## 3. The verification protocol
+## 3. Next steps, in priority order
 
-Everything below is built, merged, and **has never run in a live session**.
-This is the session that finds out whether the design works.
+### 3.1 E5 — is the effect delivery, or content? (6 sessions, do this first)
 
-**Baseline as of this writing** — run `/skillforge:stats` first and compare:
+**The finding that raises it.** The same knowledge, same words, scored
+**1/6** as a description-triggered `kind: skill` delivered hot, and **6/6** as
+a symptom-triggered anti-skill delivered warm. That is a bigger delta than
+anything E1 set out to measure, and it is currently a hypothesis, not a
+finding — the skill version also differed in section structure and in
+confidence trajectory, so it is still multi-variable.
 
-```
-verification outcomes: success=1, failure=0, unknown=3
-buckets:               unproven=5, working=1
-corrections=0  edits=1  drafts=0
-```
+**Why it goes before `/consolidate`.** If delivery is what carries the effect,
+it decides what `/consolidate` should *emit*. Consolidating a cluster into a
+`kind: skill` would be building the losing arm of an experiment nobody ran.
+Six sessions now is cheaper than rewriting the feature later.
 
-**Test 1 — does failure detection work?** (the branch you are merging)
+It also puts a question mark over the **hot tier itself**, which is core
+architecture rather than a v0.3 feature. If standing native context does not
+reach the model at the moment trap knowledge matters, the hot tier's whole
+value proposition needs re-examining.
 
-```bash
-python3 tests/test_guard.py; exit 1
-```
+**Design — hold everything constant except the delivery path.**
 
-Before this branch that produced nothing at all. After it, `/skillforge:stats`
-should show `failure=1`. That single number is the whole acceptance test.
-
-**Test 2 — does capture work?** Do real work in this repo and **correct the
-model when it is genuinely wrong**. Do not stage a correction and do not tell
-it you are testing — if you say "I'm testing the correction trigger," it
-writes a marker because you asked, and you have learned nothing. The trigger
-needs 2+ file edits after the correction, then either 5 minutes or the session
-ending. End the session to settle it, then check `corrections`.
-
-**Test 3 — the original goal.** The thing that started this project: an
-integration you had to troubleshoot for an hour, which should be one-shot the
-next time. Every mechanism for that now exists. Whether it works is open.
-
-`drafts` may stay empty even if capture works — a correction only nominates a
-drafter when it clears the edit floor and settles. `corrections > 0` with
-`drafts = 0` means the system is being appropriately conservative, not broken.
-
----
-
-## 4. Landmines — the expensive things to rediscover
-
-**The plugin cache is keyed on `plugin.json`'s version.**
-`~/.claude/plugins/cache/skillforge/skillforge/<version>/`. The marketplace
-source points at the working tree, which makes it *look* live. It is not. If
-the version does not change, no amount of committing ships anything. This cost
-a month of silent staleness.
-
-**pytest is NOT installed.** Tests are plain `def test_*()` with an
-assert-based `__main__` runner. Run `python3 tests/test_<name>.py`; exit 0 is
-the pass signal. There are **two runner styles** — some files abort at the
-first failure and print no `FAIL` line at all. Never read absence of "FAIL" as
-proof; check the exit code.
-
-**A test fixture that invents a payload shape is worse than no test.** The
-`bash_outcome` bug survived months because three green tests fed it a field
-the harness never sends. When testing against an external contract, verify the
-shape against real data first.
-
-**Assert the contract, not the implementation's strategy.** Documented in
-`bench/RESULTS.md`, where a hidden test punished a *better* implementation
-because it encoded the reference approach.
-
-**`EnterWorktree` branches from `origin/main`, not local `main`.** Happened
-three times. Fast-forward immediately after creating a worktree, before doing
-any work.
-
-**Run `sdd-workspace` AFTER entering the worktree**, or the ledger lands in the
-main repo while briefs and reports land in the worktree, and reviewers report
-the ledger as missing.
-
-**Hooks must exit 0 always and print nothing on stdout on failure.** stdout is
-the harness's control channel. `sync.py` is the deliberate exception — its
-stdout *is* read as context. A `try` block in a hook is load-bearing for the
-exit-0 contract, not just for error reporting; moving code across one has
-broken this twice.
-
-**Never `git stash`** — the stash stack is shared across worktrees.
-
----
-
-## 5. Measured facts worth not re-deriving
-
-Real Bash `tool_response` shapes, from 12,678 results across 1,109
-transcripts:
-
-| shape | count | means |
+| Arm | Delivery | Sessions |
 |---|---|---|
-| `dict` (`stdout`/`stderr`/`interrupted`/…) | 11,729 | success |
-| `str` `^Error: Exit code N` | 594 | genuine failure |
-| `str`, anything else | 356 | harness refused / blocked / user rejected |
+| W (warm) | symptom-triggered injection — *reuse today's 6/6* | 0 new |
+| H (hot) | materialized into native standing context, symptoms suppressed | 6 |
+| control | no skill — reuse the pilot's 0/6 | 0 new |
 
-`is_error` exists on the transcript's `tool_result` block but **not** in the
-hook's `tool_response`. Different objects; the old code read the one lacking
-it.
+Both arms use **the same file**: `bench/skills/matcher-input-traps.md`, the
+umbrella anti-skill, unchanged. Same text, same kind, same tasks
+(`sf-author-response-text-umbrella`, `sf-author-fingerprint-preexisting-umbrella`),
+three runs each.
 
-That 356 is why classification is content-based rather than trusting the event
-name: promotion gates on `failure_sessions = 0`, so **one false failure is
-permanent**. Unknown is honest; wrong is corrosive.
+Arm W is reusable rather than re-run because the model is now pinned and
+recorded (`claude-opus-5` on every row), and today's valid batch already ran
+under the current harness — `3968281` landed the per-run ledger *and* the
+anti-skill re-authoring together, before that batch. If you change anything in
+`bench/run.py` before running E5, re-run arm W too.
 
-Only four hook events add stdout to context: `UserPromptSubmit`,
-`UserPromptExpansion`, `SessionStart`, `PostModelSwitch`. `SessionStart`
-re-fires with `source: "compact"` after every compaction, which is how the
-correction note repairs itself in long sessions.
+**Prerequisite: a force-hot lever. There is no way to do this today.** Two
+gates keep an anti-skill warm, and E5 needs both bypassed for arm H only:
+
+1. `scripts/sync.py` — anti-skills are pinned warm before the bucket check
+   even runs:
+   `if s["kind"] == "antiskill": s["tier"] = "warm"; continue`.
+   `HOT_ELIGIBLE = ("trusted", "working")` also gates it, and a fresh
+   per-run ledger makes every skill `unproven`.
+2. `scripts/sync.py::_write_triggers` compiles symptoms for **every**
+   anti-skill regardless of tier. Force materialization alone and the skill
+   arrives by *both* paths at once, which measures nothing.
+
+So the lever must do two things: force the skill into the hot tier and
+materialize it, **and** drop its entries from `triggers.json["symptoms"]`.
+Something like `SKILLFORGE_FORCE_HOT=<name>` honored at both points, set by
+`run.py` per run the way `SKILLFORGE_LEDGER` already is. Roughly four lines.
+It is test-only scaffolding — mark it as such, and make it refuse to do
+anything unless the name matches exactly.
+
+**Verify the arm before spending sessions on it.** Hot skills log no
+`injection` row (the harness injects them from the native directory and
+SkillForge never sees it), so the delivery check that validated E1 does not
+work here. Instead assert, in one run, before scoring:
+
+- `<clone>/.claude/skills/skillforge-hot/matcher-input-traps/SKILL.md` exists;
+- `~/.claude/skillforge/triggers.json` has **no** `symptoms` entry for it;
+- `index.json` shows `tier: hot`.
+
+Then the usage signal is the `marker` detection, which works in both arms.
+
+**How to read it:**
+
+- **Hot ≈ 6/6.** Delivery does not carry the effect. The invalid batch's 1/6
+  came from something else — section structure, or the auto-promotion
+  artifact. The hot tier is vindicated and `/consolidate` is unconstrained.
+- **Hot ≈ 1/6.** Delivery *is* the effect. `/consolidate` must emit
+  anti-skills, and the hot tier needs a serious re-think for trap-shaped
+  knowledge.
+- **Between.** Partial. Report the split per trap; two traps at n=3 cannot
+  resolve much more than direction.
+
+**Known limit going in:** the hot body is not byte-identical to the warm one.
+`sync.py` appends a modified `MARKER_NOTE` to the materialized copy ("this
+skill" rather than "a skill above"). That difference is inherent to hot
+delivery, so it is part of the treatment rather than a confound — but say so
+in the write-up rather than letting a reader find it.
+
+### 3.2 Unblock E4 — measure first, and expect the opposite problem
+
+E4 asks whether injecting an irrelevant skill actively *hurts*. It cannot run
+on the current traps: control already scores 0/6 there, scoring is binary, and
+there is no room to fall.
+
+The next step is cheap — measure the control baseline of the two repair-mode
+tasks that have never been run:
+
+```bash
+python3 bench/run.py --arm control --runs 3 --task sf-escaping-breaks-symptom-match
+python3 bench/run.py --arm control --runs 3 --task sf-truncation-reports-absent
+```
+
+**Predict a ceiling, not a floor.** The pilot already established that
+FAIL_TO_PASS repair tasks hand over the answer — the red assertion names the
+exact condition, and control resolved 4/4 on this repo's own post-cutoff bugs.
+If these two land at or near 3/3, E4 is not merely blocked on *these* tasks;
+it needs an **authoring** task where control succeeds *sometimes* — partial
+baseline, neither floor nor ceiling. No such task exists. Building one is
+design work, not a run, and it is the real blocker behind E4.
+
+Do not run `sf-author-*-irrelevant` until that exists. `arrow-tzinfo-string-trap`
+is the payload for that arm and has no task of its own.
+
+### 3.3 Build `/consolidate` (v0.3, §10 Maintainer)
+
+E1 cleared it. Two caveats belong in its design doc:
+
+- The evidence covers **two** trap classes. Where the compression curve bends
+  past two is untested, and testing it is not cheap: a third class needs a new
+  trap *and* a new authoring task, not just a third skill.
+- An authoring body-cap is "reasonable" on this evidence, but no number in it
+  is derived from anything measured. Pick one and say it is a guess.
+
+If E5 comes back hot ≈ 1/6, add a third: `/consolidate` emits anti-skills.
+
+### 3.4 Hygiene, whenever
+
+- `/tmp/skillforge-bench` accumulates a clone plus a ledger per run, never
+  cleaned. Harmless, in `/tmp`, but it grows.
+- Bench sessions inherit the operator's **full plugin set** — ponytail and
+  superpowers included. Constant across arms, so contrasts hold, but absolute
+  numbers are model-plus-plugins. Isolate before quoting a figure externally.
+- `index.json` is user-global and last-writer-wins: any session anywhere
+  rewrites it, including a one-off `claude -p` in `/tmp`. Derived and
+  self-healing, so the cost is transient — but it is the same class of leak the
+  ledger had, and it is not isolated.
+- The survival bug (`by_type["save"]` counting rows where the metric wanted
+  entities) suggests a quick audit of the other stats for the same shape.
+- Old plugin caches `0.2.0`–`0.2.2` are still on disk under
+  `~/.claude/plugins/cache/skillforge/skillforge/`.
+- `main` is **61 commits ahead of `origin/main`** and has never been pushed.
 
 ---
 
-## 6. Open items, ranked
+## 4. Things not discoverable from the code
 
-1. **Verify the loop live** (§3 above). Highest value by far — every mechanism
-   is built and unproven, and one session of real use answers more than any
-   feature would.
-2. **Deferred minors from `/stats`**, all small: `_bases()`'s project-store
-   branch has zero test coverage (the sandbox sets `HOME` and `cwd` to the same
-   dir, so the branch that matters in production never fires in tests);
-   `COST_RE` is safe only because `## Cost of rediscovery` is the last section
-   of the anti-skill template; `r["name"]` vs `r.get(key)` inconsistency in
-   `stats.py`.
-3. **§10 Maintainer / v0.3** — `/consolidate`, `/audit`, compression with
-   bucket demotion, preference capture, the meta-loop. Large, and better
-   scoped once real usage data exists.
-4. **Housekeeping**: `origin/claude/project-status-roadmap-4c408a` is redundant
-   (its commits are in `main`); two other branches are checked out in worktrees
-   belonging to other sessions — leave those alone.
+- **`bench/run.py` clones live outside the repo now** (`/tmp/skillforge-bench`,
+  override `SKILLFORGE_BENCH_WORK`). This is not tidiness. A clone under
+  `bench/work/` sits inside a project whose skill store `retrieve.in_scope()`
+  accepts — `cwd.startswith(root)` — so the real library was retrievable inside
+  every bench session, both arms.
+- **`SKILLFORGE_LEDGER` is per run, not per batch.** Per batch let run 1's
+  verification success promote a skill to `working`, so run 2 received it hot
+  while run 1 had it warm. A cell was a sequence that learns, not three trials.
+- **A skill and an anti-skill are never a clean A/B.** Kind, delivery tier, and
+  verification eligibility all ride along on `kind:`. This cost E1 twelve
+  sessions; it is written up in `bench/RESULTS.md` as the third harness lesson
+  alongside the pilot's two.
+- **A skill whose `verification.command` is the task's own `test_cmd` grades
+  itself.** The invalid umbrella declared `python3 tests/test_detect.py`, which
+  *is* `test_cmd` for `sf-author-response-text-umbrella`, so scoring the task
+  logged three verification successes and promoted it mid-experiment.
+- **`claude plugin update` is the refresh path**, and the cache is keyed by
+  version — ship a bump with any change you intend to actually run, or you are
+  overwriting a directory in place and testing something ambiguous.
+- **A plugin update does not affect the running session.** `CLAUDE_PLUGIN_ROOT`
+  resolves at session start. Restart, or you are observing old code.
 
-`/stats` itself is now the instrument for deciding what to build next. Prefer
-reading it over guessing.
+---
+
+## 5. Reproducing today's numbers
+
+```bash
+cd /Users/dwightbritton/Developer/skill-forge
+python3 bench/run.py --check      # expect: config ok: 10 task(s)
+
+# E1, umbrella arm (the valid one)
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text-umbrella
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting-umbrella
+
+# E1, matched arm, same batch same model
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting
+```
+
+Each task-arm-run is a full agentic session with a 900s timeout under
+`--permission-mode bypassPermissions`. Twelve sessions took 13 minutes.
+Results append to `bench/results.jsonl`; every row now carries `model`.
+
+A run that errors prints `ERROR` for that arm and continues to the next, so
+read the console, not only the JSONL.
