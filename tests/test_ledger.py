@@ -918,6 +918,28 @@ def test_event_totals_counts_by_type_and_detection():
         assert t["by_detection"] == {"marker": 1, "verification": 1}, t
 
 
+def test_usage_for_pairs_use_to_the_session_that_was_injected():
+    """Injection-to-use divides sessions, never rows.
+
+    Session A is injected and used once. Session B runs the verification
+    command eight times and was never injected. Session C was injected and
+    did nothing. Row-counting reads 9 detections over 2 injections and
+    reports relevance above 100%; the paired answer is 1 of 2.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "ledger.db"
+        ledger.log_event("injection", "a", tier="warm", session="A", path=db)
+        ledger.log_event("detection", "a", detection="verification",
+                         outcome="success", session="A", path=db)
+        for _ in range(8):
+            ledger.log_event("detection", "a", detection="verification",
+                             outcome="success", session="B", path=db)
+        ledger.log_event("injection", "a", tier="warm", session="C", path=db)
+        u = ledger.usage_for("a", path=db)
+        assert u["injections"] == 2, u
+        assert u["injected_and_used"] == 1, u
+
+
 def test_event_totals_counts_saved_skills_not_save_rows():
     """The survival denominator counts skills, not writes.
 

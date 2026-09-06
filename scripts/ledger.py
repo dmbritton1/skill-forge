@@ -529,8 +529,9 @@ USAGE_SQL = (
     "            AND detection IN ('marker', 'fingerprint', 'verification')))"
     " GROUP BY session")
 
-USAGE_ZERO = {"sessions": 0, "injections": 0, "both": 0,
-              "corroborated_only": 0, "marker_only": 0, "neither": 0}
+USAGE_ZERO = {"sessions": 0, "injections": 0, "injected_and_used": 0,
+              "both": 0, "corroborated_only": 0, "marker_only": 0,
+              "neither": 0}
 
 
 def usage_for(skill, *, path=None):
@@ -555,6 +556,14 @@ def usage_for(skill, *, path=None):
             for _session, inj, marker, corroborated in con.execute(USAGE_SQL, (skill,)):
                 out["sessions"] += 1
                 out["injections"] += 1 if inj else 0
+                # The paired cell: injected HERE and used HERE. Counting all
+                # detections over all injections instead divides two unrelated
+                # totals -- detections cluster in a few sessions while most
+                # injections are followed by nothing, and the ratio reads as
+                # relevance either way. It read 93% when the paired figure was
+                # 22%.
+                if inj and (marker or corroborated):
+                    out["injected_and_used"] += 1
                 if marker and corroborated:
                     out["both"] += 1
                 elif corroborated:

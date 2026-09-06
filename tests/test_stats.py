@@ -1,5 +1,6 @@
 """Tests for the /stats health report. Run: python3 tests/test_stats.py"""
 import io
+import json
 import os
 import pathlib
 import sys
@@ -239,6 +240,16 @@ def test_a_percentage_appears_once_the_sample_clears_the_floor():
     folded into the success or failure count.
     """
     def check(home):
+        # `a` must be INDEXED: injection-to-use now pairs per session over the
+        # library's skills (library.rows() reads index.json), so a ledger full
+        # of events for a skill the index does not carry contributes to neither
+        # side of the ratio. Written directly rather than via sync() to keep
+        # this test about the arithmetic.
+        sp = _skill(home, "a")
+        idx = home / ".claude" / "skillforge" / "index.json"
+        idx.write_text(json.dumps({"entries": [
+            {"name": "a", "kind": "skill", "scope": "global", "tier": "warm",
+             "root": str(home), "path": str(sp)}]}))
         for i in range(12):
             ledger.log_event("injection", "a", tier="warm", session="s%d" % i)
         for i in range(6):

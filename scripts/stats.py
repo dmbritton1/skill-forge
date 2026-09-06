@@ -106,31 +106,45 @@ def section_context(entries, budget):
 
 
 def section_usage(rows, totals):
-    """Injection-to-use, reported warm-only and said so.
+    """Injection-to-use, paired per session and reported warm-only.
+
+    Two separate ways this ratio can lie, and it has told both:
 
     `injection` rows are written for the warm tier alone; hot skills are
     materialized natively and never produce one, while detections are
-    written for every tier. A library-wide ratio would therefore divide
-    across two different populations and still read as relevance. The
-    same defect class as reading a response key the harness never sends.
-    """
-    inj = totals["by_type"].get("injection", 0)
-    det = totals["by_detection"]
-    used = sum(det.values())
-    lines = ["USAGE",
-             "  warm injections   %d" % inj,
-             "  detections        %s" % _counts(det),
-             "  injection-to-use  %s" % rate(used, inj, "warm injections"),
-             "                    (warm tier only -- hot skills are native"
-             " and log no injection)"]
+    written for every tier. A library-wide ratio therefore divides across
+    two different populations and still reads as relevance.
 
-    # Compliance miss: the skill was used, the marker protocol drifted.
-    miss = seen = 0
+    And detections must be PAIRED to the injection that preceded them.
+    Dividing total detections by total injections counts a session that ran
+    one verification command eight times as eight uses, while 21 injections
+    that were followed by nothing contribute only to the denominator. That
+    read 93%; pairing per session gives 26%. Same defect class as reading a
+    response key the harness never sends: a number that is arithmetically
+    fine and answers a question nobody asked.
+    """
+    det = totals["by_detection"]
+    lines = ["USAGE",
+             "  warm injections   %d" % totals["by_type"].get("injection", 0),
+             "  detections        %s" % _counts(det)]
+
+    # One pass, three paired numbers. Every ratio below divides counts of the
+    # same kind of thing -- sessions -- because the alternative has now been
+    # wrong here three times (bash_outcome, survival, this).
+    used_inj = inj_sessions = miss = seen = 0
     for r in rows:
         u = ledger.usage_for(r["name"])
+        used_inj += u["injected_and_used"]
+        inj_sessions += u["injections"]
         miss += u["corroborated_only"]
         seen += u["both"] + u["corroborated_only"] + u["marker_only"]
-    lines.append("  marker miss       %s" % rate(miss, seen, "used sessions"))
+    lines += ["  injection-to-use  %s" % rate(used_inj, inj_sessions,
+                                              "injected sessions"),
+              "                    (sessions where an injected skill was then"
+              " used -- warm tier",
+              "                    only; hot skills are native and log no"
+              " injection)",
+              "  marker miss       %s" % rate(miss, seen, "used sessions")]
 
     # Its own line, below the ratio and outside it. A Read is the consumption
     # path detect.py could not see before, but reading is not applying: these
