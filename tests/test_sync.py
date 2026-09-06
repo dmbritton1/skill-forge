@@ -1317,6 +1317,61 @@ def test_long_name_lists_are_truncated():
     in_sandbox(check)
 
 
+# --- E5 force-hot lever (test-only scaffolding in sync.py) -----------------
+# Both gates matter, and only together: materializing without dropping the
+# symptoms delivers the same skill by two paths at once, which measures
+# nothing. Each assertion below is one of E5's three preconditions.
+
+
+def with_force_hot(value, fn):
+    old = os.environ.get("SKILLFORGE_FORCE_HOT")
+    os.environ["SKILLFORGE_FORCE_HOT"] = value
+    try:
+        fn()
+    finally:
+        if old is None:
+            del os.environ["SKILLFORGE_FORCE_HOT"]
+        else:
+            os.environ["SKILLFORGE_FORCE_HOT"] = old
+
+
+def test_force_hot_materializes_an_antiskill_and_drops_its_symptoms():
+    def check(home):
+        md = put_antiskill(home, "widget-trap")
+        trust.record("widget-trap", md.read_text(encoding="utf-8"), "self")
+
+        def run():
+            sync.sync()
+            entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
+            assert entries["widget-trap"]["tier"] == "hot"
+            # The FLAT path -- one level under .claude/skills, which is the
+            # only depth Claude Code scans. The nested skillforge-hot/ path
+            # the production branch writes is never loaded (bench/RESULTS.md).
+            assert (home / ".claude/skills/widget-trap/SKILL.md").exists()
+            assert not native_md(home, "widget-trap").exists()
+            trig = read_json(home, "triggers.json")
+            assert [s for s in trig["symptoms"] if s["skill"] == "widget-trap"] == []
+        with_force_hot("widget-trap", run)
+    in_sandbox(check)
+
+
+def test_force_hot_needs_an_exact_name_and_is_otherwise_inert():
+    def check(home):
+        md = put_antiskill(home, "widget-trap")
+        trust.record("widget-trap", md.read_text(encoding="utf-8"), "self")
+
+        def run():
+            sync.sync()
+            entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
+            assert entries["widget-trap"]["tier"] == "warm"
+            assert not native_md(home, "widget-trap").exists()
+            trig = read_json(home, "triggers.json")
+            assert [s for s in trig["symptoms"] if s["skill"] == "widget-trap"]
+        for value in ("widget", "widget-trap-x", "", "  "):
+            with_force_hot(value, run)
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

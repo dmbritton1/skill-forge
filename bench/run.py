@@ -50,6 +50,9 @@ SESSION_TIMEOUT_S = 900
 # if the model is known, and the 2026-08-11 pilot did not record one.
 DEFAULT_MODEL = "claude-opus-5"
 MODEL = DEFAULT_MODEL
+# E5 arm H: deliver the treatment skill hot instead of warm. Off = the env var
+# is exported empty, which sync._force_hot() reads as "no override".
+FORCE_HOT = False
 
 
 def expand(value):
@@ -189,7 +192,12 @@ def run_session(task, dest, plugin_dir):
 
 
 def one(task, arm, run_idx, plugin_dir):
-    dest = WORK / ("%s-%s-%d" % (task["id"], arm, run_idx))
+    # `-hot` in the name, or E5's two arms collide: both pass --arm treatment,
+    # so the clone AND the per-run ledger would share a path and the second
+    # batch would silently overwrite the first one's evidence. It did.
+    dest = WORK / ("%s-%s%s-%d" % (task["id"], arm,
+                                   "-hot" if FORCE_HOT and arm == "treatment" else "",
+                                   run_idx))
     # PER RUN, not per batch. Every child inherits it -- the session,
     # save_skill.py, and the hooks the session fires -- so bench events never
     # reach the real library, where each throwaway clone would count as its
@@ -199,7 +207,18 @@ def one(task, arm, run_idx, plugin_dir):
     # ledger let run 1's verification success promote the skill to `working`,
     # so run 2 got it materialized hot while run 1 had it warm. Runs inside a
     # cell must be independent trials, not a sequence that learns.
-    os.environ["SKILLFORGE_LEDGER"] = str(dest.parent / (dest.name + ".ledger.db"))
+    ledger_db = dest.parent / (dest.name + ".ledger.db")
+    # Deleted, not just pointed at: the .db lives OUTSIDE dest, so prepare()'s
+    # rmtree never clears it and a re-run of the same task/arm/run index reads
+    # a previous batch's rows as its own. E5 spent a while reading E1's
+    # injections as its own before this was noticed.
+    for suffix in ("", "-shm", "-wal"):
+        Path(str(ledger_db) + suffix).unlink(missing_ok=True)
+    os.environ["SKILLFORGE_LEDGER"] = str(ledger_db)
+    # Same per-run discipline: exported unconditionally so a previous run's
+    # value can never leak into this one.
+    os.environ["SKILLFORGE_FORCE_HOT"] = (
+        task["skill"] if FORCE_HOT and arm == "treatment" else "")
     authoring = task.get("mode", "repair") == "author"
     prepare(task, dest)
     if not authoring:
@@ -216,6 +235,7 @@ def one(task, arm, run_idx, plugin_dir):
     rec = {"task": task["id"], "arm": arm, "run": run_idx,
            "resolved": all(post.values()), "per_test": post,
            "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
+           "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
            "skill_note": skill_note, "test_tail": tail,
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     with RESULTS.open("a", encoding="utf-8") as fh:
@@ -234,9 +254,13 @@ def main(argv=None):
                     help="verify every path in tasks.json resolves, then exit")
     ap.add_argument("--arm", choices=("treatment", "control", "both"), default="both")
     ap.add_argument("--model", default=DEFAULT_MODEL)
+    ap.add_argument("--force-hot", action="store_true",
+                    help="E5 arm H: deliver the treatment skill hot, with its"
+                         " symptom triggers suppressed (test-only)")
     args = ap.parse_args(argv)
-    global MODEL
+    global MODEL, FORCE_HOT
     MODEL = args.model
+    FORCE_HOT = args.force_hot
 
     cfg = expand(json.loads((ROOT / "tasks.json").read_text(encoding="utf-8")))
     problems = check_config(cfg)

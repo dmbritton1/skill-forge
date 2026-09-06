@@ -94,6 +94,16 @@ def _token_lists(value):
     return out
 
 
+def _force_hot():
+    """Test-only (E5, bench only): the ONE skill name to deliver hot instead of
+    warm. Exact match or nothing -- no prefix, no glob, no "all". Both gates
+    that keep an anti-skill warm read this: the tier loop below, and
+    _write_triggers, which must drop the skill's symptoms or it arrives by
+    both paths at once and the arm measures nothing.
+    """
+    return os.environ.get("SKILLFORGE_FORCE_HOT", "").strip()
+
+
 BUCKET_RANK = {"trusted": 0, "working": 1, "unproven": 2}
 HOT_ELIGIBLE = ("trusted", "working")
 UNKNOWN = {"bucket": "unproven", "successes": 0, "failures": 0,
@@ -165,9 +175,11 @@ def _write_triggers(items):
     # but only anti-skills spend the anti-skill budget and get framed as one
     # (detect.py). Fingerprints ride along on each symptom entry so the
     # PostToolUse hook can snapshot at injection time without a second file.
+    forced = _force_hot()
     syms = [{"skill": s["name"], "path": str(s["path"]), "root": str(s["base"]),
              "tokens": toks, "fingerprints": s["fingerprints"]}
-            for s in items if s["kind"] == "antiskill" for toks in s["symptoms"]]
+            for s in items if s["kind"] == "antiskill" and s["name"] != forced
+            for toks in s["symptoms"]]
     # `tier` rides along so detect.py can tell a hot skill from a warm one
     # without opening index.json on every tool call. It decides whether a
     # verification match is credited: warm skills must have been injected
@@ -343,7 +355,11 @@ def sync(project_root=None):
 
     budget = hot_budget()
     spent = 0
+    forced = _force_hot()
     for s in trusted:
+        if forced and s["name"] == forced:
+            s["tier"] = "hot"       # test-only, bypasses kind, bucket, budget
+            continue
         # Anti-skills are delivered by symptom trigger (spec 8.1), not by
         # standing description -- so they never spend hot budget.
         if s["kind"] == "antiskill":
@@ -377,8 +393,16 @@ def sync(project_root=None):
             # the shared constant that the warm path still uses is untouched.
             hot_note = (retrieve.MARKER_NOTE.replace("a skill above", "this skill")
                                             .replace("<skill-name>", s["name"]))
-            materialize_one_text(s["text"] + "\n\n" + hot_note + "\n",
-                                 native_root(s["base"]) / s["name"])
+            # Test-only (E5): the forced skill goes to `.claude/skills/<name>/`,
+            # NOT `.claude/skills/skillforge-hot/<name>/`. Claude Code scans one
+            # level under .claude/skills, so the nested path this function
+            # normally writes is never loaded -- measured, see bench/RESULTS.md.
+            # The bench arm has to deliver for real, so it uses the path that
+            # works; fixing the production path is a separate decision.
+            dest = (Path(s["base"]) / ".claude" / "skills" / s["name"]
+                    if forced and s["name"] == forced
+                    else native_root(s["base"]) / s["name"])
+            materialize_one_text(s["text"] + "\n\n" + hot_note + "\n", dest)
             counts["materialized"] += 1
 
     for base in bases:
