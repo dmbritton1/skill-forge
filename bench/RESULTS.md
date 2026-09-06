@@ -132,3 +132,147 @@ related skill that fires costs tokens and delivers nothing.
 
 Raw records in `results.jsonl`; each line carries the arm, per-test outcomes,
 wall time, and the ledger-confirmed skill save.
+
+---
+
+# E1 — does an umbrella skill destroy the effect? (2026-09-06)
+
+## Headline
+
+One anti-skill carrying BOTH trap classes performs identically to two
+anti-skills each carrying one. **Consolidation is safe.**
+
+| Condition | Trap 1 (response_text) | Trap 2 (fingerprint snapshot) | Combined |
+|---|---|---|---|
+| Control — no skill *(pilot)* | 0/3 | 0/3 | **0/6** |
+| Transfer — same-class, different bug *(pilot)* | 0/3 | 0/3 | **0/6** |
+| Matched — one skill per trap | 3/3 | 3/3 | **6/6** |
+| **Umbrella — one skill, both traps** | **3/3** | **3/3** | **6/6** |
+
+Matched was re-measured in the same batch rather than compared against the
+pilot's 5/6. `bench/run.py` did not pin a model and the pilot did not record
+one, so a cross-date comparison was confounded by construction. Both rows
+above ran on `claude-opus-5`, now pinned via `--model` and written onto every
+`results.jsonl` record.
+
+This unblocks v0.3 `/consolidate`, and makes an authoring body-cap
+reasonable: specificity survived packaging.
+
+## Delivery was symmetric, and that is the whole result
+
+Per-run ledgers, six runs:
+
+    sf-author-response-text-umbrella-1..3          injection=1  marker=0/1/1
+    sf-author-fingerprint-preexisting-umbrella-1..3  injection=1  marker=1/1/1
+
+Every run saved to `antiskills/`, stayed warm, was never materialized hot, and
+logged exactly one injection — the same delivery path the matched arm took.
+The umbrella was not merely present; it was delivered identically to the
+skills it replaces.
+
+## Mechanism, not just counts
+
+| Task | Run | What it wrote |
+|---|---|---|
+| response_text | 1 | leaf walker, `MAX_DEPTH = 8` |
+| response_text | 2 | leaf walker, `MAX_DEPTH = 8` as the cycle guard |
+| response_text | 3 | recursive leaf walk over dict/list/tuple |
+| fingerprint | 1 | `return None if capped else 0` |
+| fingerprint | 2 | `unknown = unknown or truncated`; `return None if unknown else 0` |
+| fingerprint | 3 | `return None if incomplete else 0` |
+
+Both halves of the umbrella fired, on their own traps, in the same session
+population. Depth-capping is a specific instruction in the umbrella's Fix
+section and appears in the response_text runs; three-valued return is the
+other half and appears in all three fingerprint runs, under three different
+variable names — the instruction, not the wording, is what carried.
+
+## The first batch measured the wrong thing (kept, because the error is the finding)
+
+The first E1 batch scored umbrella **1/6** against matched 6/6, which reads as
+"generalization destroys the effect" and would have killed `/consolidate`.
+
+It was invalid. The umbrella was authored as `kind: skill` while both
+comparators are `kind: antiskill`, and that single difference forked three:
+
+**Delivery.** Anti-skills are symptom-triggered and never spend hot budget;
+skills are description-matched and hot-eligible. Each comparator logged 3
+injections and 3 markers across its 3 runs. The umbrella logged 1 and 1.
+
+**Grading.** The umbrella declared `verification.command: python3
+tests/test_detect.py` — which *is* `test_cmd` for
+`sf-author-response-text-umbrella`. Scoring the task fired the skill's own
+verification, logged three successes, promoted it to `working`, and
+materialized it hot for 5 of 6 runs. The anti-skills declare no
+`verification.command`, could never earn organic confidence, and stayed warm.
+One arm was graded by its own grader.
+
+**Independence.** Because promotion happened mid-cell, run 1's outcome changed
+how run 2 was delivered. A cell was a sequence that learns, not three trials.
+`SKILLFORGE_LEDGER` now points at a per-run file.
+
+The repair changed packaging only: `kind: antiskill`, the union of both
+parents' symptoms verbatim, no `verification.command`, body content unchanged
+in substance and restructured into the Trap/Symptom/Cause/Fix sections
+anti-skills require.
+
+**Lesson for the harness, alongside the pilot's two:** an arm must differ from
+its comparator in exactly the variable under test. Kind, delivery tier, and
+verification eligibility all ride along on `kind:`, so a skill and an
+anti-skill are never a clean A/B.
+
+## A sharper question this raises
+
+The same knowledge scored 1/6 as a description-triggered `kind: skill`
+delivered hot, and 6/6 as a symptom-triggered anti-skill delivered warm. That
+is a delivery-mechanism effect, not a generalization effect, and it is larger
+than anything E1 set out to measure.
+
+It is not a finding — the skill version also differed in section structure and
+in confidence trajectory, so it is still multi-variable. But it is the most
+interesting thing in this batch: for trap-shaped knowledge, symptom triggering
+may be doing the work that description matching does not. Testing it needs one
+skill, one kind, delivered two ways.
+
+## Limits
+
+- n=3 per cell, 6 per condition, two traps, one model (`claude-opus-5`).
+- 6/6 vs 6/6 is consistent with "no difference" but cannot size one. A true
+  difference smaller than roughly a third would be invisible at this n.
+- The umbrella covers two trap classes. Nothing here says how far that scales;
+  the compression curve, if there is one, is untested past two.
+- Both arms measure a **ceiling** — skills written from these exact traps.
+- Bench sessions inherit the operator's full plugin set, so the measurement is
+  of model-plus-plugins rather than a bare model. Constant across arms, so it
+  does not confound the contrast, but the absolute numbers carry it.
+- The umbrella and both parents were authored by the same person who found the
+  bugs.
+
+## Reproducing
+
+    python3 bench/run.py --check
+    python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text-umbrella
+    python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting-umbrella
+    python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text
+    python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting
+
+Control is deliberately not rerun: it installs no skill, so it is identical
+across every variant of a trap and was measured at 0/6 in the pilot.
+
+Records carrying `"model": "claude-opus-5"` in `results.jsonl` are this
+experiment. The invalid batch is the six umbrella rows whose `skill_note`
+saves into `.claude/skillforge/skills/` — the valid ones save into
+`antiskills/`, which is exactly the change that repaired the experiment. Not
+`materialized`: run 1 of the invalid batch was still warm when it ran, because
+promotion had not happened yet. The six matched rows are shared by both
+batches; they were only run once.
+
+## E4 is not ready
+
+`sf-author-*-irrelevant` exists but must not be run. E4 asks whether injecting
+an irrelevant skill actively hurts — and control already scores 0/6 on these
+traps, so there is no room to fall and scoring is binary. The experiment cannot
+detect harm here. It needs a task with a non-zero control baseline first. The
+two repair-mode tasks (`sf-escaping-breaks-symptom-match`,
+`sf-truncation-reports-absent`) have never been run and are candidates, but
+their control rate is unknown.
