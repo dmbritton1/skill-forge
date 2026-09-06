@@ -149,11 +149,22 @@ anti-skills each carrying one. **Consolidation is safe.**
 | Matched — one skill per trap | 3/3 | 3/3 | **6/6** |
 | **Umbrella — one skill, both traps** | **3/3** | **3/3** | **6/6** |
 
-Matched was re-measured in the same batch rather than compared against the
-pilot's 5/6. `bench/run.py` did not pin a model and the pilot did not record
-one, so a cross-date comparison was confounded by construction. Both rows
-above ran on `claude-opus-5`, now pinned via `--model` and written onto every
+Matched was re-measured today rather than compared against the pilot's 5/6.
+`bench/run.py` did not pin a model and the pilot did not record one, so a
+cross-date comparison was confounded by construction. Both rows above ran on
+`claude-opus-5`, now pinned via `--model` and written onto every
 `results.jsonl` record.
+
+**The two rows above are not from one batch, and the write-up said they were.**
+Matched ran 20:25-20:31 on 09-05, in the same batch as the *invalid* umbrella
+run; the valid umbrella ran 00:50-00:57 on 09-06, after the repair commit. The
+model was pinned and recorded identically for both, so the confound that
+motivated re-measuring matched is still controlled -- but this is a same-day
+same-model comparison, not a same-batch one. The harness change between them
+did not reach matched: all six matched rows record `indexed: warm tier` and
+were never materialized, which is what the per-run ledger would have produced
+anyway. Stated here rather than quietly fixed, because "same batch" was the
+stated reason to trust the comparison.
 
 This unblocks v0.3 `/consolidate`, and makes an authoring body-cap
 reasonable: specificity survived packaging.

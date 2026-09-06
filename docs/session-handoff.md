@@ -251,7 +251,7 @@ python3 bench/run.py --check      # expect: config ok: 10 task(s)
 python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text-umbrella
 python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting-umbrella
 
-# E1, matched arm, same batch same model
+# E1, matched arm (ran 09-05, before the umbrella repair -- same model, not same batch)
 python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text
 python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting
 ```
