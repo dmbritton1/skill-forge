@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Trust-gated native materialization — the ONLY writer of native skill dirs.
 
-Native copies under <base>/.claude/skills/skillforge-hot/ are derived,
+Native copies under <base>/.claude/skills/skillforge-<name>/ are derived,
 rebuildable cache: trusted store skills get materialized, everything else
 (quarantined, modified, deleted, orphaned) gets evicted. Runs on every
 SessionStart so a pulled/tampered skill never rides an old trust decision
@@ -25,15 +25,34 @@ import trust
 import validate
 
 
+# Claude Code scans ONE level under .claude/skills, so a skill has to sit at
+# .claude/skills/<dir>/SKILL.md. The old layout nested a level deeper --
+# .claude/skills/skillforge-hot/<name>/SKILL.md -- which made the loader look
+# for skillforge-hot/SKILL.md, find nothing, and skip the whole directory.
+# Every skill ever promoted to hot was invisible to the model; measured in
+# bench/RESULTS.md (E5). The prefix is what replaces that nesting: it keeps
+# one directory namespace this module may safely rmtree, without owning all
+# of .claude/skills. The legacy `skillforge-hot/` dir starts with the prefix
+# and is not in `keep`, so the first sync after this change deletes it.
+NATIVE_PREFIX = "skillforge-"
+
+
 def native_root(base):
-    return Path(base) / ".claude" / "skills" / "skillforge-hot"
+    return Path(base) / ".claude" / "skills"
 
 
-def materialize_one_text(text, native_dir):
-    """Idempotent write-through of skill text into its native dir."""
-    native_dir = Path(native_dir)
-    native_dir.mkdir(parents=True, exist_ok=True)
-    target = native_dir / "SKILL.md"
+def native_dir(base, name):
+    return native_root(base) / (NATIVE_PREFIX + name)
+
+
+def materialize_one_text(text, dest):
+    """Idempotent write-through of skill text into its native dir.
+
+    `dest`, not `native_dir` -- that name now belongs to the function above.
+    """
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    target = dest / "SKILL.md"
     if not target.exists() or target.read_text(encoding="utf-8") != text:
         target.write_text(text, encoding="utf-8")
 
@@ -393,24 +412,20 @@ def sync(project_root=None):
             # the shared constant that the warm path still uses is untouched.
             hot_note = (retrieve.MARKER_NOTE.replace("a skill above", "this skill")
                                             .replace("<skill-name>", s["name"]))
-            # Test-only (E5): the forced skill goes to `.claude/skills/<name>/`,
-            # NOT `.claude/skills/skillforge-hot/<name>/`. Claude Code scans one
-            # level under .claude/skills, so the nested path this function
-            # normally writes is never loaded -- measured, see bench/RESULTS.md.
-            # The bench arm has to deliver for real, so it uses the path that
-            # works; fixing the production path is a separate decision.
-            dest = (Path(s["base"]) / ".claude" / "skills" / s["name"]
-                    if forced and s["name"] == forced
-                    else native_root(s["base"]) / s["name"])
-            materialize_one_text(s["text"] + "\n\n" + hot_note + "\n", dest)
+            materialize_one_text(s["text"] + "\n\n" + hot_note + "\n",
+                                 native_dir(s["base"], s["name"]))
             counts["materialized"] += 1
 
     for base in bases:
-        keep = {s["name"] for s in trusted if s["base"] == base and s["tier"] == "hot"}
+        keep = {NATIVE_PREFIX + s["name"] for s in trusted
+                if s["base"] == base and s["tier"] == "hot"}
         nroot = native_root(base)
         if nroot.is_dir():
             for entry in sorted(nroot.iterdir()):
-                if entry.is_dir() and entry.name not in keep:
+                # Prefix-scoped: .claude/skills also holds the user's own
+                # hand-written skills now, and this sweep must never touch one.
+                if (entry.is_dir() and entry.name.startswith(NATIVE_PREFIX)
+                        and entry.name not in keep):
                     shutil.rmtree(str(entry))
                     counts["evicted"] += 1
 

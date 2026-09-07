@@ -33,8 +33,15 @@ EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path",
               "NotebookEdit": "notebook_path"}
 
 # The directories a skill's own text can be read from: the knowledge store's
-# two kind dirs, and the native copy sync materializes for hot skills.
-SKILL_DIRS = ("skills", "antiskills", "skillforge-hot")
+# two kind dirs, and `.claude/skills`, where sync materializes the native copy
+# of a hot skill. All three are the GRANDPARENT of the SKILL.md -- the native
+# copy lives at `.claude/skills/skillforge-<name>/SKILL.md`, so "skills"
+# covers it and the old `skillforge-hot` entry is gone with the nesting.
+SKILL_DIRS = ("skills", "antiskills")
+# Kept in sync with sync.NATIVE_PREFIX by hand. detect runs on every single
+# tool call; importing sync would drag ledger, trust and validate in with it
+# for the sake of one twelve-character string.
+NATIVE_PREFIX = "skillforge-"
 
 
 def read_skill(file_path, known):
@@ -54,7 +61,16 @@ def read_skill(file_path, known):
     name = p.parent.name
     if p.parent.parent.name not in SKILL_DIRS:
         return None
-    return name if name in known else None
+    if name in known:
+        return name
+    # A native copy's directory carries the prefix; the store name does not.
+    # Checked against `known` after stripping rather than stripping blindly,
+    # so a store skill genuinely named `skillforge-foo` still resolves to
+    # itself instead of to a `foo` that may not exist.
+    if name.startswith(NATIVE_PREFIX):
+        name = name[len(NATIVE_PREFIX):]
+        return name if name in known else None
+    return None
 
 
 def triggers_path():

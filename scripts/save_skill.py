@@ -174,8 +174,10 @@ def store_dir(scope, kind, name, project_root):
 
 
 def native_dir(scope, name, project_root):
+    # One source of truth for the layout -- this used to carry its own copy of
+    # the path and would have drifted from sync.py's the moment either moved.
     base = Path(project_root).resolve() if scope == "project" else Path.home().resolve()
-    return base / ".claude" / "skills" / "skillforge-hot" / name
+    return sync.native_dir(base, name)
 
 
 def _warm_reason(name):
@@ -299,7 +301,7 @@ def main(argv=None):
 
     # Name collisions are checked across both kinds AND both scopes.
     # Same-scope opposite-kind: skills and antiskills of the same name share
-    # one native dir (skills/skillforge-hot/<name>) and would clobber each
+    # one native dir (skills/skillforge-<name>) and would clobber each
     # other's native copy. Cross-scope (either kind): trust.json is keyed by
     # name alone (spec 11.2), so a project antiskill named `foo` saved while
     # a global skill `foo` exists overwrites the one registry entry -- the

@@ -9,8 +9,10 @@ Engine (this plugin) and knowledge (learned skills) are separate:
 
 - Global store: `~/.claude/skillforge/{skills,antiskills}/<name>/SKILL.md`
 - Project store: `<repo>/.claude/skillforge/{skills,antiskills}/<name>/SKILL.md`
-- Native copies: `~/.claude/skills/skillforge-hot/` (global) or
-  `<repo>/.claude/skills/skillforge-hot/` (project)
+- Native copies: `~/.claude/skills/skillforge-<name>/` (global) or
+  `<repo>/.claude/skills/skillforge-<name>/` (project). One level under
+  `.claude/skills/`, because that is the only depth Claude Code scans; the
+  `skillforge-` prefix is the namespace sync may evict from.
 
 ## Install
 

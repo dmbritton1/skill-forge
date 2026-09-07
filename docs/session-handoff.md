@@ -170,7 +170,7 @@ anything unless the name matches exactly.
 SkillForge never sees it), so the delivery check that validated E1 does not
 work here. Instead assert, in one run, before scoring:
 
-- `<clone>/.claude/skills/skillforge-hot/matcher-input-traps/SKILL.md` exists;
+- `<clone>/.claude/skills/skillforge-matcher-input-traps/SKILL.md` exists;
 - `~/.claude/skillforge/triggers.json` has **no** `symptoms` entry for it;
 - `index.json` shows `tier: hot`.
 

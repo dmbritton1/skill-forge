@@ -35,11 +35,20 @@ description: A thing. Do NOT use otherwise.
 
 def in_sandbox(fn):
     old_home = os.environ["HOME"]
+    old_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
+    # cwd is part of the sandbox, not just HOME. save_skill's --project-root
+    # defaults to ".", so sync() treats whatever directory the suite happens to
+    # run in as a project -- and then evicts that project's materialized hot
+    # skills, because the trust store it judges them against lives in the
+    # sandbox HOME and knows nothing about them. Running this suite inside a
+    # real project used to delete that project's native copies.
+        os.chdir(tmp)
         try:
             fn(pathlib.Path(tmp))
         finally:
+            os.chdir(old_cwd)
             os.environ["HOME"] = old_home
 
 
@@ -99,7 +108,7 @@ def read_json(home, filename):
 
 
 def native_md(base, name):
-    return base / ".claude" / "skills" / "skillforge-hot" / name / "SKILL.md"
+    return base / ".claude" / "skills" / ("skillforge-" + name) / "SKILL.md"
 
 
 def test_trusted_skill_materialized():
@@ -139,7 +148,7 @@ def test_modified_store_evicts_native():
 
 def test_orphan_native_dir_evicted():
     def check(home):
-        stale = home / ".claude" / "skills" / "skillforge-hot" / "ghost"
+        stale = home / ".claude" / "skills" / "skillforge-ghost"
         stale.mkdir(parents=True)
         (stale / "SKILL.md").write_text("boo", encoding="utf-8")
         counts = sync.sync()
@@ -1344,11 +1353,7 @@ def test_force_hot_materializes_an_antiskill_and_drops_its_symptoms():
             sync.sync()
             entries = {e["name"]: e for e in read_json(home, "index.json")["entries"]}
             assert entries["widget-trap"]["tier"] == "hot"
-            # The FLAT path -- one level under .claude/skills, which is the
-            # only depth Claude Code scans. The nested skillforge-hot/ path
-            # the production branch writes is never loaded (bench/RESULTS.md).
-            assert (home / ".claude/skills/widget-trap/SKILL.md").exists()
-            assert not native_md(home, "widget-trap").exists()
+            assert native_md(home, "widget-trap").exists()
             trig = read_json(home, "triggers.json")
             assert [s for s in trig["symptoms"] if s["skill"] == "widget-trap"] == []
         with_force_hot("widget-trap", run)
@@ -1370,6 +1375,54 @@ def test_force_hot_needs_an_exact_name_and_is_otherwise_inert():
         for value in ("widget", "widget-trap-x", "", "  "):
             with_force_hot(value, run)
     in_sandbox(check)
+
+
+def test_the_native_copy_sits_one_level_under_claude_skills():
+    """Claude Code scans exactly ONE level under .claude/skills.
+
+    The old layout nested a level deeper -- .claude/skills/skillforge-hot/
+    <name>/SKILL.md -- so the loader looked for skillforge-hot/SKILL.md, found
+    nothing, and skipped the directory. Every skill ever promoted to hot was
+    invisible to the model. Measured in bench/RESULTS.md (E5); no unit test
+    could catch it before, because every test asserted the same wrong path.
+    """
+    def check(home):
+        md = put_skill(home, "alpha")
+        trust.record("alpha", md.read_text(encoding="utf-8"), "self")
+        earn_success("alpha")
+        sync.sync()
+        native = native_md(home, "alpha")
+        assert native.exists(), "not materialized at all"
+        assert native.parent.parent == home / ".claude" / "skills", native
+    in_sandbox(check)
+
+
+def test_the_sweep_leaves_a_hand_written_skill_alone():
+    """The eviction sweep now runs inside .claude/skills, which is also where
+    the user's own skills live. It is scoped to the prefix for exactly this
+    reason -- an unprefixed directory is not ours to delete."""
+    def check(home):
+        mine = home / ".claude" / "skills" / "my-own-skill"
+        mine.mkdir(parents=True, exist_ok=True)
+        (mine / "SKILL.md").write_text("mine\n", encoding="utf-8")
+        stale = home / ".claude" / "skills" / "skillforge-ghost"
+        stale.mkdir(parents=True, exist_ok=True)
+        sync.sync()
+        assert (mine / "SKILL.md").exists(), "swept a hand-written skill"
+        assert not stale.exists(), "orphaned native copy survived"
+    in_sandbox(check)
+
+
+def test_the_sandbox_isolates_cwd_not_just_home():
+    """save_skill's --project-root defaults to ".", so sync() treats whatever
+    directory the suite runs in as a project and evicts its native copies
+    against a trust store that lives in the sandbox HOME. Running this suite
+    inside a real project used to delete that project's hot skills."""
+    outer = os.path.realpath(os.getcwd())
+    seen = {}
+    in_sandbox(lambda home: seen.setdefault("cwd", os.path.realpath(os.getcwd())))
+    assert seen["cwd"] != outer, "cwd was not sandboxed"
+    assert os.path.realpath(os.getcwd()) == outer, "cwd was not restored"
 
 
 if __name__ == "__main__":

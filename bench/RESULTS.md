@@ -346,13 +346,19 @@ session ended, so this is not eviction.
 nothing caught it. The tier has no delivery signal of its own (hot skills log
 no `injection` row), so there was nothing to notice.
 
-**This is not fixed.** Arm H needed a hot tier that reaches the model, so
-`SKILLFORGE_FORCE_HOT` writes the forced skill to `.claude/skills/<name>/`
-instead — test-only, marked as such in `sync.py`. Fixing the production path
-is a separate decision: flattening it means `sync.py` would be rmtree-ing
-directories inside a namespace it does not exclusively own, so the fix is
-probably `.claude/skills/skillforge-<name>/` plus a prefix-scoped eviction
-sweep, not a bare flatten.
+**Fixed in 0.2.5.** Materialization now writes to
+`.claude/skills/skillforge-<name>/SKILL.md` — one level under
+`.claude/skills/`, which is the only depth the loader scans. The
+`skillforge-` prefix replaces the nesting as the namespace `sync.py` may
+evict from: that sweep now runs in the same directory as the user's own
+hand-written skills and must never delete one. The legacy `skillforge-hot/`
+directory carries the prefix and is not in `keep`, so the first sync after
+upgrading removes it; no migration step is needed.
+
+Verified the same way the bug was found — the model was asked to name its
+skills, and named `skillforge-matcher-input-traps`. The arm H runs below
+predate the fix and used the test-only lever's own flat path; the delivery
+mechanism is the same one 0.2.5 now ships.
 
 It also re-reads E1's invalid batch. That batch scored the umbrella 1/6 as a
 description-triggered hot `kind: skill`. Hot delivered nothing, so 1/6 was a
@@ -400,16 +406,20 @@ sessions. `one()` now deletes the database (and `-wal`/`-shm`) before the run.
 **The task repo is SkillForge, and the model runs its test suite.** The
 `response_text` prompt ends with "run `python3 tests/test_detect.py`", and the
 model generalises: run 1's transcript shows `for t in tests/test_*.py`. The
-clone's own `tests/test_save_skill.py` syncs with `--project-root` at the
-clone, using the clone's *old* `sync.py`, which evicts the materialized native
-copy mid-session and rewrites the user-global `index.json` to `tier: warm`.
+clone's own `tests/test_save_skill.py` then evicted the materialized native
+copy mid-session and rewrote the user-global `index.json` to `tier: warm`.
 Timestamps put every eviction inside the session window, after the model had
-finished implementing.
+finished implementing, so the scores stand.
 
-Not fixed, and it does not need to be for these numbers — the flat path the
-lever writes to is outside the namespace that sweep touches. It is a live
-hazard for any future hot-tier arm that materializes where `sync.py` cleans,
-and a second instance of the user-global `index.json` leak the handoff flagged.
+Root cause, and it was never a bench problem: `save_skill.py`'s
+`--project-root` defaults to `"."`, and `main()` syncs that root — so a save
+run from any directory treats **the current working directory** as a project.
+The suite sandboxed `HOME` but not cwd, so `sync()` judged the real cwd's
+store against a trust store living in the sandbox, found nothing trusted, and
+evicted. Running SkillForge's own test suite inside any project deleted that
+project's hot skills. Fixed in 0.2.5: `in_sandbox` chdirs into the sandbox in
+every test file that has one (`test_stats.py` already did — the rest now
+match), with a regression test asserting cwd is isolated and restored.
 
 ## Limits
 
@@ -420,8 +430,10 @@ and a second instance of the user-global `index.json` leak the handoff flagged.
   modified `MARKER_NOTE` ("this skill" rather than "a skill above") to the
   materialized copy. Inherent to hot delivery, so part of the treatment, but
   it is a difference.
-- **Arm H is not production hot delivery.** It is hot delivery via a path that
-  works. Production's path delivers nothing, which is the finding above.
+- **Arm H ran before the path fix landed.** It delivered through the lever's
+  own flat directory; 0.2.5 ships the same mechanism at
+  `skills/skillforge-<name>/`, differing only in the directory's name. Not
+  re-measured under the shipped path.
 - **Bench sessions inherit the operator's full plugin set** (ponytail,
   superpowers). Constant across arms; absolute numbers are model-plus-plugins.
 - Arm H clones were overwritten by the arm W batch before per-run mechanism
@@ -433,11 +445,12 @@ and a second instance of the user-global `index.json` leak the handoff flagged.
 - **`/consolidate` is unconstrained by delivery.** E1 cleared consolidation;
   E5 says the emitted form does not have to be an anti-skill to work. Emitting
   anti-skills is still the safer default — it is the path with two independent
-  measurements above control, and the only one that currently delivers at all.
-- **The hot tier needs a decision, not more measurement.** It has never
-  reached a model. Either fix the path and re-measure, or drop the tier.
-  Ranking hot candidates on `confidence × recent usage` is dead code until
-  then.
+  measurements above control.
+- **The hot tier works as of 0.2.5 and has never been measured in the wild.**
+  Every number the library has recorded about hot skills was collected while
+  the tier delivered nothing. `confidence × recent usage` ranking, the 1,500
+  token budget, promotion and eviction pressure — all of it is now live for
+  the first time, and none of it has evidence behind it yet.
 - **E5's original question is answered well enough to stop.** More runs on
   this design buy resolution the n cannot support; a third trap class would
   buy more.
