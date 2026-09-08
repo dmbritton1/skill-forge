@@ -53,6 +53,11 @@ MODEL = DEFAULT_MODEL
 # E5 arm H: deliver the treatment skill hot instead of warm. Off = the env var
 # is exported empty, which sync._force_hot() reads as "no override".
 FORCE_HOT = False
+# Q1: absolute path to a distilled draft, replacing the task's hand-authored
+# skill. Off = None. The clone path segment is DERIVED from this (arm_segment)
+# rather than passed, because a forgotten segment is the exact bug that let
+# E5's two arms overwrite each other.
+SKILL_FROM = None
 
 
 def expand(value):
@@ -143,9 +148,63 @@ def apply_hidden_tests(task, dest):
             raise RuntimeError("hidden patch failed: " + (r.stderr or r.stdout)[-400:])
 
 
+def skill_src(task):
+    """The SKILL.md install_skill saves: the task's own, or Q1's override."""
+    return Path(SKILL_FROM) if SKILL_FROM else ROOT / "skills" / (task["skill"] + ".md")
+
+
+def arm_segment(arm):
+    """Path-unique segment per treatment arm, derived from the run's config.
+
+    Every arm this harness has ever had passes `--arm treatment`, so without
+    this the clone AND the per-run ledger share a path and the second batch
+    silently overwrites the first one's evidence. It did, once (E5).
+    """
+    if arm != "treatment":
+        return ""
+    if FORCE_HOT:
+        return "-hot"
+    if SKILL_FROM:
+        # .../distilled/<trap>/<distiller>/<draw>/SKILL.md
+        parts = Path(SKILL_FROM).resolve().parts
+        return "-d-%s-%s" % (parts[-3].replace("-", ""), parts[-2])
+    return ""
+
+
+def skill_name(path):
+    """The `name:` from a SKILL.md's frontmatter, or None.
+
+    A distilled draft's name is whatever the distiller chose, so it cannot be
+    read off the task config the way a hand-authored one can.
+    """
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if line.startswith("name:"):
+            return line.split(":", 1)[1].strip() or None
+    return None
+
+
+def tier_of(name):
+    """That skill's tier in the user-global index, or None.
+
+    retrieve.eligible() requires tier == "warm", so a skill that landed hot
+    produces no injection row at all -- and the funnel's delivery stage would
+    read the strongest delivery path as a delivery failure. Asserted rather
+    than assumed: b35f756 already cost a batch to exactly this class of bug.
+    """
+    p = Path.home() / ".claude" / "skillforge" / "index.json"
+    try:
+        idx = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    for e in idx.get("entries", []):
+        if e.get("name") == name:
+            return e.get("tier")
+    return None
+
+
 def install_skill(task, dest, plugin_dir):
     """Put the skill in the clone's PROJECT store via the enforced save path."""
-    src = ROOT / "skills" / (task["skill"] + ".md")
+    src = skill_src(task)
     r = sh('python3 "%s/scripts/save_skill.py" "%s" --scope project --project-root "%s"'
            % (plugin_dir, src, dest), cwd=dest)
     if r.returncode:
@@ -195,9 +254,7 @@ def one(task, arm, run_idx, plugin_dir):
     # `-hot` in the name, or E5's two arms collide: both pass --arm treatment,
     # so the clone AND the per-run ledger would share a path and the second
     # batch would silently overwrite the first one's evidence. It did.
-    dest = WORK / ("%s-%s%s-%d" % (task["id"], arm,
-                                   "-hot" if FORCE_HOT and arm == "treatment" else "",
-                                   run_idx))
+    dest = WORK / ("%s-%s%s-%d" % (task["id"], arm, arm_segment(arm), run_idx))
     # PER RUN, not per batch. Every child inherits it -- the session,
     # save_skill.py, and the hooks the session fires -- so bench events never
     # reach the real library, where each throwaway clone would count as its
@@ -228,14 +285,27 @@ def one(task, arm, run_idx, plugin_dir):
             print("  WARNING: %s already passing at baseline" %
                   [n for n, ok in pre.items() if ok])
     skill_note = install_skill(task, dest, plugin_dir) if arm == "treatment" else ""
+    installed = skill_name(skill_src(task)) if arm == "treatment" else None
+    tier_at_install = tier_of(installed) if installed else None
+    if arm == "treatment" and tier_at_install != "warm":
+        print("  WARNING: %s installed at tier %r, not warm -- retrieve.eligible()"
+              " will skip it and no injection row will be logged"
+              % (installed, tier_at_install))
     sess = run_session(task, dest, plugin_dir)
     if authoring:
         apply_hidden_tests(task, dest)
     post, tail = score(task, dest)
+    parts = Path(SKILL_FROM).resolve().parts if SKILL_FROM else None
     rec = {"task": task["id"], "arm": arm, "run": run_idx,
            "resolved": all(post.values()), "per_test": post,
            "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
            "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
+           "skill_source": None if arm != "treatment" else (
+               "distilled" if SKILL_FROM else "authored"),
+           "distiller": parts[-3] if (parts and arm == "treatment") else None,
+           "draw": int(parts[-2]) if (parts and arm == "treatment") else None,
+           "skill_path": str(skill_src(task)) if arm == "treatment" else None,
+           "tier_at_install": tier_at_install,
            "skill_note": skill_note, "test_tail": tail,
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     with RESULTS.open("a", encoding="utf-8") as fh:
@@ -257,10 +327,14 @@ def main(argv=None):
     ap.add_argument("--force-hot", action="store_true",
                     help="E5 arm H: deliver the treatment skill hot, with its"
                          " symptom triggers suppressed (test-only)")
+    ap.add_argument("--skill-from", default=None,
+                    help="Q1: install this SKILL.md instead of the task's own."
+                         " The path decides the clone segment (test-only)")
     args = ap.parse_args(argv)
-    global MODEL, FORCE_HOT
+    global MODEL, FORCE_HOT, SKILL_FROM
     MODEL = args.model
     FORCE_HOT = args.force_hot
+    SKILL_FROM = args.skill_from
 
     cfg = expand(json.loads((ROOT / "tasks.json").read_text(encoding="utf-8")))
     problems = check_config(cfg)
