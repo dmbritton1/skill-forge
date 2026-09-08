@@ -818,6 +818,41 @@ def test_create_still_spawns_critique_detached():
     in_sandbox(check)
 
 
+def test_no_critique_env_suppresses_the_detached_spawn():
+    def check(home, tmp):
+        seen = []
+        real = save_skill._spawn_validation
+        save_skill._spawn_validation = lambda name, mode: seen.append((name, mode))
+        os.environ["SKILLFORGE_NO_CRITIQUE"] = "1"
+        try:
+            assert save_skill.main(
+                [write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        finally:
+            save_skill._spawn_validation = real
+            os.environ.pop("SKILLFORGE_NO_CRITIQUE", None)
+        assert seen == [], seen
+    in_sandbox(check)
+
+
+def test_no_critique_env_suppresses_the_blocking_update_path():
+    def check(home, tmp):
+        assert save_skill.main(
+            [write_draft(tmp, VALID_SKILL), "--scope", "global"]) == 0
+        seen = []
+        real = save_skill._run_validation
+        save_skill._run_validation = lambda name, mode: seen.append((name, mode))
+        os.environ["SKILLFORGE_NO_CRITIQUE"] = "1"
+        try:
+            assert save_skill.main(
+                [write_draft(tmp, VALID_SKILL), "--scope", "global",
+                 "--action", "update"]) == 0
+        finally:
+            save_skill._run_validation = real
+            os.environ.pop("SKILLFORGE_NO_CRITIQUE", None)
+        assert seen == [], seen
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -200,6 +200,22 @@ def _warm_reason(name):
     return "hot budget full"
 
 
+def _critique_suppressed():
+    """Test-only (Q1 bench): skip the post-save critique.
+
+    An env var rather than a flag, because the one caller that needs it
+    cannot pass one: Q1's phase-1 session invokes save_skill.py itself, and
+    that invocation is the pipeline stage under test. Same lever shape as
+    SKILLFORGE_LEDGER and SKILLFORGE_FORCE_HOT, read at exactly one point.
+
+    Why it exists: a create spawns critique detached and never waits on it,
+    so a 54-session batch would fire up to 48 extra `claude -p` children --
+    unbudgeted, and racing the containment `library.py delete` for the same
+    name. Q1 runs critique retrospectively instead (bench/judge.py).
+    """
+    return os.environ.get("SKILLFORGE_NO_CRITIQUE", "").strip() == "1"
+
+
 def _spawn_validation(name, mode):
     """Detached, never waited on; its own function so tests replace it.
 
@@ -411,7 +427,9 @@ def main(argv=None):
     # and leaving that to the once-per-session scheduler is what makes
     # improving a skill cost more than writing one.
     try:
-        if args.action == "update":
+        if _critique_suppressed():
+            pass
+        elif args.action == "update":
             print("re-validating (the edit voided the previous verdict; "
                   "this takes a couple of minutes)...")
             _run_validation(fm["name"], "critique")
