@@ -9,9 +9,10 @@ because nothing indexed the data — see "What the register caught".
 | # | Question | Status | Data |
 |---|---|---|---|
 | Pilot (2026-08-11) | Does a matched skill change authoring behavior? Does a same-class one transfer? | **Done.** control 0/6, matched 5/6, transfer 0/6 | trap 1 rows in `results-round1.jsonl`; trap 2 rows in `results.jsonl` |
-| E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked | `results.jsonl`, the 18 rows carrying `"model": "claude-opus-5"` |
+| E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked. Re-measured 4/6 on 09-08 as E5's arm W — read 6/6 as one draw | `results.jsonl`, the 18 rows dated 09-05/09-06 with **no** `delivery` key |
 | E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Blocked.** Needs a task whose control is neither 0 nor 100%; no such task exists | tasks defined (`sf-author-*-irrelevant`), never run |
-| E5 | Is the effect the knowledge, or the delivery path? | **Designed, not run.** Needs a force-hot lever that does not exist | none; design in `docs/session-handoff.md` §3.1 |
+| E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
+| Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -31,7 +32,7 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 
 | File | Rows | Live or superseded |
 |---|---|---|
-| `results.jsonl` | 27 | 9 pilot (trap 2, 2026-08-11) + 18 from E1 day |
+| `results.jsonl` | 48 | 9 pilot (trap 2, 2026-08-11) + 18 E1 (09-05, 09-06) + 15 E5 (09-06) + 6 hot-path confirmation (09-08). E5's rows and later carry a `delivery` key; nothing before them does |
 | `results-round1.jsonl` | 18 | **Mixed.** Trap 1's pilot rows are LIVE — the headline table's 0/3, 3/3, 0/3 for response_text come from here. Only trap 2's six rows are superseded by the file-cap repair |
 | `results-leaky-stub.jsonl` | 12 | Superseded *as an authoring design* — but it holds the only control data for the two repair-mode tasks, and that data is live |
 
@@ -565,3 +566,127 @@ all three ran `--arm treatment` on the same two tasks:
 
 Do not use `resolved` to tell them apart: the valid arm H fingerprint run 1 is
 also `false`.
+
+---
+
+# Hot delivery under the shipped path (2026-09-08)
+
+Not a new experiment. E5's arm H established that hot delivery works, but it
+ran through the force-hot lever's own flat directory, before `b35f756` moved
+materialization to `.claude/skills/skillforge-<name>/`. This is the same arm
+re-run under the path 0.2.5 actually ships, so that the one measurement the
+hot tier has does not describe a directory nobody will ever use.
+
+## Headline
+
+**Hot delivery works under the shipped path.** Six runs, `--arm treatment
+--force-hot`, same umbrella anti-skill, same two tasks: **4/6**. Zero
+injection rows across all six ledgers and three marker rows, which is proof of
+delivery rather than an inference from the score.
+
+| Measurement | Delivery | response_text | fingerprint | Combined |
+|---|---|---|---|---|
+| Control — no skill *(pilot)* | — | 0/3 | 0/3 | **0/6** |
+| W — symptom injection *(E1, 09-06 00:50)* | warm | 3/3 | 3/3 | **6/6** |
+| W — symptom injection *(E5 re-run, 09-06 11:40)* | warm | 3/3 | 1/3 | **4/6** |
+| H — lever's flat path *(E5, 09-06 11:30)* | hot | 3/3 | 2/3 | **5/6** |
+| **H — shipped path *(09-08 15:16)*** | **hot** | **3/3** | **1/3** | **4/6** |
+
+n=3 per cell. Say so before quoting any of these numbers.
+
+**Do not read a ranking out of that table.** Four treatment measurements of the
+same skill on the same two tasks now read 6/6, 5/6, 4/6, 4/6 — and two of them
+are the *same* arm measured twice. The spread within one arm is as wide as the
+spread across arms, which is exactly what E5 said the design's resolution limit
+is. The claim here is delivery, not superiority.
+
+The two arms did **not** share a batch, and never have: this batch ran
+`15:16:15 – 15:22:36` on 09-08 against arm W's `11:41:24 – 11:47:31` on 09-06.
+`bench/run.py` and `scripts/` are byte-identical between the two — `git diff
+b35f756 HEAD -- bench/run.py scripts/` is empty — so the harness is not a
+variable, but the batch is.
+
+## The arm was verified before the score was read
+
+All three assertions, at the new path, checked live during run 1 and again
+after the batch:
+
+    <clone>/.claude/skills/skillforge-matcher-input-traps/SKILL.md   present
+    triggers.json["symptoms"]                                        []
+    index.json                        matcher-input-traps  tier: hot
+
+Then the per-run ledgers. Arm H must show no injection row — the harness
+injects native skills and SkillForge never sees it:
+
+    response_text     run 1   injection=0   marker=0
+    response_text     run 2   injection=0   marker=1
+    response_text     run 3   injection=0   marker=1
+    fingerprint       run 1   injection=0   marker=1
+    fingerprint       run 2   injection=0   marker=0
+    fingerprint       run 3   injection=0   marker=0
+
+Zero injections across all six, with `symptoms` empty, means the skill arrived
+by one path only. The three marker rows are the positive evidence:
+`reconcile._credit_markers` writes a marker for an uninjected skill **only**
+when `index.json` says `tier: hot` (`scripts/reconcile.py:303`), so each one is
+a session in which the hot entry was live at Stop time. Marker rate 3/6, in the
+same range as E5's 4/5 and 3/6 — a compliance signal with known drift, not a
+usage rate.
+
+Two side confirmations fell out of the batch:
+
+- **The materialized copy survived every session.** All six clones still hold
+  `skillforge-matcher-input-traps/` after the run. The `response_text` prompt
+  makes the model run this repo's test suite, which before 0.2.5 evicted the
+  project's hot skills mid-session; the cwd-isolation fix holds.
+- **`skill_note` is now accurate.** E5 recorded it printing `indexed: warm
+  tier` for every arm H row, because `save_skill._warm_reason` tested for the
+  nested path. Every row in this batch reads `materialized:
+  .../.claude/skills/skillforge-matcher-input-traps/SKILL.md`.
+
+## What this does *not* validate
+
+Delivery is the only thing measured here. The hot tier's other four mechanisms
+were all bypassed or never loaded:
+
+- **Promotion order and the `trusted`/`working` gate.** The lever forces the
+  tier directly; `index.json` read `bucket: unproven` in every run. Nothing
+  earned hot.
+- **The 1,500-token budget.** One skill at `est_tokens: 1015` against a 1500
+  budget. The budget never bound, so nothing exercised it.
+- **`confidence × recent usage` ranking.** Ranking needs two candidates. There
+  was one.
+- **Eviction pressure.** Nothing competed for the budget, and no skill was
+  demoted.
+
+Those remain what §3.1 of the handoff called unevidenced, and this batch does
+not move them.
+
+## Limits
+
+- **n=3 per cell**, and the resolution limit above swallows any difference this
+  design could report between delivery paths.
+- Same two traps, one skill, one repo as every other cell in this file. The
+  `fingerprint` cell is where all the variance lives — `response_text` has now
+  been 3/3 in five consecutive treatment cells.
+- The hot body still is not byte-identical to the warm one (`sync.py` appends a
+  modified `MARKER_NOTE`). Inherent to hot delivery, part of the treatment.
+- Bench sessions inherit the operator's full plugin set (ponytail,
+  superpowers). Constant across arms; absolute numbers are model-plus-plugins.
+- `index.json` is user-global and last-writer-wins. It held only
+  `matcher-input-traps` throughout this batch, which is *why* the markers were
+  credited — and equally why an unrelated session running anywhere on the
+  machine could have silently cost this batch its only usage signal.
+
+## Reproducing
+
+```bash
+cd /Users/dwightbritton/Developer/skill-forge
+python3 bench/run.py --check      # expect: config ok: 10 task(s)
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-response-text-umbrella
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-fingerprint-preexisting-umbrella
+```
+
+These six rows in `results.jsonl` carry `"delivery": "hot"` with `ts` on
+`2026-09-08`; E5's hot rows carry the same key on `2026-09-06`. Timestamp is
+still the only thing that separates batches.

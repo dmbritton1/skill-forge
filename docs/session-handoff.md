@@ -1,8 +1,10 @@
 # SkillForge — session handoff
 
 Written 2026-09-06 (E1, project-keyed ledger), revised 2026-09-08 at the end
-of the session that ran E5 and shipped 0.2.5. Read this before touching
-anything; several things here are not discoverable from the code.
+of the session that ran E5 and shipped 0.2.5, and again the same day by the
+session that merged 0.2.5 and confirmed hot delivery under the shipped path.
+Read this before touching anything; several things here are not discoverable
+from the code.
 
 Supersedes the 2026-09-05 handoff (git history has it). Its "START HERE" is
 done: `failure-detection` merged, 0.2.2 shipped. §3's E5 item is done too —
@@ -74,12 +76,19 @@ root, so a save from any directory treats cwd as a project. The suite sandboxed
 store in the sandbox, found nothing trusted, and evicted. Also fixed in 0.2.5
 (`in_sandbox` chdirs into the sandbox in every test file that has one).
 
+**Hot delivery is confirmed under the shipped path.** E5's arm H ran through
+the lever's own flat directory, before `b35f756` moved materialization. Six
+runs on 09-08 re-ran it at `.claude/skills/skillforge-<name>/`: 4/6, zero
+injection rows, three markers. Delivery only — §3.1 has what that leaves
+unmeasured.
+
 Landed 2026-09-08:
 
 | Change | Commit |
 |---|---|
 | E5 force-hot lever, write-up, two bench harness fixes | `660e047` |
 | Hot path fix, test-suite cwd isolation, bump to 0.2.5 | `b35f756` |
+| 0.2.5 merged to `main` and installed | `b712e4b` |
 
 One phantom row was deleted from the live ledger: a `save` for
 `matcher-input-traps`, a bench-only skill, written by `install_skill()` before
@@ -89,9 +98,9 @@ isolation existed. Backup at `~/.claude/skillforge/ledger.db.bak-20260906T001637
 
 ## 2. START HERE
 
-**0.2.5 was shipped on a branch, not merged.** Unlike previous revisions of
-this handoff, do not assume the install is current — check, then verify. One
-command, and if it prints an error the rest of your session is fiction:
+**0.2.5 is merged into `main` and installed** as of 2026-09-08 (`b712e4b`).
+Verify rather than assume — one command, and if it prints an error the rest of
+your session is fiction:
 
 ```bash
 python3 ~/.claude/plugins/cache/skillforge/skillforge/0.2.5/scripts/sync.py --project-root "$PWD"
@@ -158,47 +167,47 @@ unmeasured; hot delivery itself is equally unrecorded.
 
 ## 3. Next steps, in priority order
 
-### 3.1 The hot tier is live for the first time and nothing in it is validated
+### 3.1 The hot tier delivers; four of its five mechanisms are still unevidenced
 
-Every number this project has recorded about hot skills was collected while
-the tier delivered nothing (§1). That makes the whole hot-tier design
-unevidenced rather than merely under-measured: `confidence × recent usage`
-ranking, the 1,500-token budget, promotion order, eviction pressure. None of it
-has ever been exercised against a model that could see the result.
+**Delivery is confirmed under the shipped path.** Six runs on 2026-09-08,
+`--arm treatment --force-hot`, scored **4/6** with zero `injection` rows and
+three `marker` rows across the six per-run ledgers. Write-up and the arm
+verification are in `bench/RESULTS.md` under "Hot delivery under the shipped
+path". Four treatment measurements of the same skill now read 6/6, 5/6, 4/6,
+4/6, two of them the same arm — **the score is not the finding, the delivery
+is.**
 
-**Cheapest first move, and the harness already exists.** E5's arm H ran through
-the force-hot lever's own flat directory, which differs from what 0.2.5 ships
-only in the directory's *name*. Six runs re-confirms delivery under the shipped
-path:
+**What is still unevidenced.** Every number this project has recorded about
+hot skills was collected while the tier delivered nothing (§1), and the
+confirmation above moved exactly one of the five mechanisms. The force-hot
+lever bypasses the rest by construction:
 
-```bash
-python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-response-text-umbrella
-python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-fingerprint-preexisting-umbrella
-```
+| Mechanism | Status | Why the confirmation did not touch it |
+|---|---|---|
+| Delivery — model can see a hot skill | **Confirmed** (09-08) | — |
+| Promotion via the `trusted`/`working` gate | Unevidenced | the lever forces the tier; every run read `bucket: unproven` |
+| The 1,500-token budget | Unevidenced | one skill at `est_tokens: 1015`; the budget never bound |
+| `confidence × recent usage` ranking | Unevidenced | ranking needs two candidates; there was one |
+| Eviction pressure | Unevidenced | nothing competed, nothing was demoted |
 
-Verify the arm before scoring, the same three assertions as E5 — but at the new
-path:
-
-- `<clone>/.claude/skills/skillforge-matcher-input-traps/SKILL.md` exists;
-- `~/.claude/skillforge/triggers.json` has **no** `symptoms` entry for it;
-- `index.json` shows `tier: hot`.
-
-Then read the per-run ledgers: arm H must show **zero** `injection` rows. A
-`marker` row on a skill with no injection is itself proof of hot delivery —
-`reconcile._credit_markers` credits an uninjected skill only when `index.json`
-says `tier: hot`.
+Anything past delivery needs a bench arm with **two or more** hot-eligible
+skills that together exceed the budget, and the lever cannot express that — it
+takes a single exact name. That is design work, not a run.
 
 **Second-order, and it matters now in a way it did not before.** A hot skill's
 marker credit depends on `index.json` saying `tier: hot` at Stop time, and
 `index.json` is user-global and last-writer-wins — any session anywhere
-rewrites it. That leak was harmless while nothing was hot. It is now the only
-thing standing between a hot skill and its one usage signal.
+rewrites it. Throughout the 09-08 batch the index held only the bench skill,
+which is *why* the three markers were credited, and equally why an unrelated
+`claude -p` anywhere on the machine could have cost the batch its only usage
+signal. That leak was harmless while nothing was hot.
 
-**Do not spend six more sessions ranking hot against warm.** E5 already
-established that two measurements of one arm span 6/6 to 4/6. This design
-cannot resolve a difference smaller than that, and more runs at n=3 buy
-nothing. If the hot tier needs a verdict beyond "it delivers", it needs a
-different measurement, not a bigger one.
+**Do not spend six more sessions ranking hot against warm.** E5 established
+that two measurements of one arm span 6/6 to 4/6, and 09-08 added a third and
+fourth point inside that same band. This design cannot resolve a difference
+smaller than the one it produces on its own, and more runs at n=3 buy nothing.
+If the hot tier needs a verdict beyond "it delivers", it needs a different
+measurement, not a bigger one.
 
 ### 3.2 Build `/consolidate` (v0.3, §10 Maintainer)
 
@@ -243,10 +252,10 @@ is the payload for that arm and has no task of its own.
 
 ### 3.4 Hygiene, whenever
 
-- **`main` is 91 commits ahead of `origin/main`** and has never been pushed.
-  It was 61 at the 09-06 revision.
+- **`main` is 95 commits ahead of `origin/main`** and has never been pushed.
+  It was 61 at the 09-06 revision and 91 at the first 09-08 one.
 - Old plugin caches `0.2.0`–`0.2.4` are on disk under
-  `~/.claude/plugins/cache/skillforge/skillforge/`.
+  `~/.claude/plugins/cache/skillforge/skillforge/`; `0.2.5` is the live one.
 - `scripts/ledger.py:564` says the paired injection-to-use figure was `22%`;
   `cc9859a`'s own commit message and §2b say `26%`. Same commit, two numbers.
 - `index.json` is user-global and last-writer-wins (see §3.1 — this is no
