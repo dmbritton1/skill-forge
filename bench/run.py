@@ -153,6 +153,26 @@ def skill_src(task):
     return Path(SKILL_FROM) if SKILL_FROM else ROOT / "skills" / (task["skill"] + ".md")
 
 
+def distilled_parts():
+    """(distiller, draw) from --skill-from, or None when it is not set.
+
+    Validates the layout instead of indexing into it. A relative path used to
+    resolve against cwd and yield plausible-but-wrong ancestor names, and that
+    same parse feeds `distiller`/`draw` into results.jsonl -- bogus attribution
+    written silently into the evidence, which is worse than the collision the
+    segment exists to prevent. Fail loudly here instead.
+    """
+    if not SKILL_FROM:
+        return None
+    p = Path(SKILL_FROM).resolve()
+    parts = p.parts
+    if p.name != "SKILL.md" or len(parts) < 5 or parts[-5] != "distilled":
+        raise ValueError(
+            "--skill-from must be <...>/distilled/<trap>/<distiller>/<draw>/SKILL.md,"
+            " got %s" % SKILL_FROM)
+    return parts[-3], parts[-2]
+
+
 def arm_segment(arm):
     """Path-unique segment per treatment arm, derived from the run's config.
 
@@ -165,9 +185,8 @@ def arm_segment(arm):
     if FORCE_HOT:
         return "-hot"
     if SKILL_FROM:
-        # .../distilled/<trap>/<distiller>/<draw>/SKILL.md
-        parts = Path(SKILL_FROM).resolve().parts
-        return "-d-%s-%s" % (parts[-3].replace("-", ""), parts[-2])
+        distiller, draw = distilled_parts()
+        return "-d-%s-%s" % (distiller.replace("-", ""), draw)
     return ""
 
 
@@ -200,6 +219,25 @@ def tier_of(name):
         if e.get("name") == name:
             return e.get("tier")
     return None
+
+
+def source_keys(arm, task, tier_at_install):
+    """The five provenance keys on a result row.
+
+    Control installs no skill, so every source key is null -- "authored" would
+    be a lie. Extracted from one() because the rec dict is otherwise only
+    reachable by spending a session, and these keys are the only thing that
+    tells a Q1 batch from the batches before it.
+    """
+    if arm != "treatment":
+        return {"skill_source": None, "distiller": None, "draw": None,
+                "skill_path": None, "tier_at_install": None}
+    parts = distilled_parts()
+    return {"skill_source": "distilled" if parts else "authored",
+            "distiller": parts[0] if parts else None,
+            "draw": int(parts[1]) if parts else None,
+            "skill_path": str(skill_src(task)),
+            "tier_at_install": tier_at_install}
 
 
 def install_skill(task, dest, plugin_dir):
@@ -295,19 +333,13 @@ def one(task, arm, run_idx, plugin_dir):
     if authoring:
         apply_hidden_tests(task, dest)
     post, tail = score(task, dest)
-    parts = Path(SKILL_FROM).resolve().parts if SKILL_FROM else None
     rec = {"task": task["id"], "arm": arm, "run": run_idx,
            "resolved": all(post.values()), "per_test": post,
            "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
            "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
-           "skill_source": None if arm != "treatment" else (
-               "distilled" if SKILL_FROM else "authored"),
-           "distiller": parts[-3] if (parts and arm == "treatment") else None,
-           "draw": int(parts[-2]) if (parts and arm == "treatment") else None,
-           "skill_path": str(skill_src(task)) if arm == "treatment" else None,
-           "tier_at_install": tier_at_install,
            "skill_note": skill_note, "test_tail": tail,
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    rec.update(source_keys(arm, task, tier_at_install))
     with RESULTS.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec) + "\n")
     print("  %-9s run %d -> %s (%.0fs)" %

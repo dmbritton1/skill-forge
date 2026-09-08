@@ -118,6 +118,94 @@ def test_tier_of_survives_a_missing_index():
             os.environ["HOME"] = old
 
 
+def test_distilled_parts_is_none_without_skill_from():
+    _reset()
+    assert bench_run.distilled_parts() is None
+
+
+def test_distilled_parts_reads_a_well_formed_archive_path():
+    _reset()
+    bench_run.SKILL_FROM = "/x/bench/distilled/trapA/learn-failure/2/SKILL.md"
+    try:
+        assert bench_run.distilled_parts() == ("learn-failure", "2")
+    finally:
+        _reset()
+
+
+def test_distilled_parts_rejects_a_relative_path():
+    """It used to resolve against cwd and return plausible ancestor names,
+    which went straight into results.jsonl as `distiller` and `draw`."""
+    _reset()
+    bench_run.SKILL_FROM = "SKILL.md"
+    try:
+        raised = False
+        try:
+            bench_run.distilled_parts()
+        except ValueError:
+            raised = True
+        assert raised, "a relative --skill-from must be refused, not resolved"
+    finally:
+        _reset()
+
+
+def test_distilled_parts_rejects_a_short_path():
+    _reset()
+    bench_run.SKILL_FROM = "/SKILL.md"
+    try:
+        raised = False
+        try:
+            bench_run.distilled_parts()
+        except ValueError:
+            raised = True
+        assert raised, "a path too short to carry the layout must be refused"
+    finally:
+        _reset()
+
+
+def test_distilled_parts_rejects_a_wrong_layout():
+    _reset()
+    bench_run.SKILL_FROM = "/x/bench/elsewhere/trapA/learn/1/SKILL.md"
+    try:
+        raised = False
+        try:
+            bench_run.distilled_parts()
+        except ValueError:
+            raised = True
+        assert raised, "the archive root must be named distilled/"
+    finally:
+        _reset()
+
+
+def test_source_keys_are_all_null_for_control():
+    _reset()
+    keys = bench_run.source_keys("control", {"skill": "x"}, None)
+    assert set(keys) == {"skill_source", "distiller", "draw", "skill_path",
+                         "tier_at_install"}, keys
+    assert all(v is None for v in keys.values()), keys
+
+
+def test_source_keys_label_a_hand_authored_treatment_run():
+    _reset()
+    keys = bench_run.source_keys("treatment", {"skill": "matcher-input-traps"}, "warm")
+    assert keys["skill_source"] == "authored"
+    assert keys["distiller"] is None and keys["draw"] is None
+    assert keys["skill_path"].endswith("matcher-input-traps.md")
+    assert keys["tier_at_install"] == "warm"
+
+
+def test_source_keys_label_a_distilled_treatment_run():
+    _reset()
+    bench_run.SKILL_FROM = "/x/bench/distilled/trapA/learn-failure/3/SKILL.md"
+    try:
+        keys = bench_run.source_keys("treatment", {"skill": "unused"}, "warm")
+        assert keys["skill_source"] == "distilled"
+        assert keys["distiller"] == "learn-failure"
+        assert keys["draw"] == 3 and isinstance(keys["draw"], int)
+        assert keys["skill_path"] == "/x/bench/distilled/trapA/learn-failure/3/SKILL.md"
+    finally:
+        _reset()
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
