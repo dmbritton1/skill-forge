@@ -7,6 +7,7 @@ import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "bench"))
 import run as bench_run
+import backfill
 
 DRAFT = """---
 name: distilled-thing
@@ -204,6 +205,43 @@ def test_source_keys_label_a_distilled_treatment_run():
         assert keys["skill_path"] == "/x/bench/distilled/trapA/learn-failure/3/SKILL.md"
     finally:
         _reset()
+
+
+def test_backfill_labels_treatment_and_control_rows():
+    with tempfile.TemporaryDirectory() as tmp:
+        p = pathlib.Path(tmp) / "r.jsonl"
+        p.write_text(
+            json.dumps({"task": "t", "arm": "treatment", "resolved": True}) + "\n" +
+            json.dumps({"task": "t", "arm": "control", "resolved": False}) + "\n",
+            encoding="utf-8")
+        assert backfill.backfill(p) == 2
+        rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()]
+        assert rows[0]["skill_source"] == "authored"
+        assert rows[1]["skill_source"] is None
+
+
+def test_backfill_is_idempotent_and_leaves_new_rows_alone():
+    with tempfile.TemporaryDirectory() as tmp:
+        p = pathlib.Path(tmp) / "r.jsonl"
+        p.write_text(
+            json.dumps({"arm": "treatment", "skill_source": "distilled"}) + "\n",
+            encoding="utf-8")
+        assert backfill.backfill(p) == 0
+        assert backfill.backfill(p) == 0
+        rows = [json.loads(l) for l in p.read_text(encoding="utf-8").splitlines()]
+        assert rows[0]["skill_source"] == "distilled"
+
+
+def test_backfill_preserves_every_other_field():
+    with tempfile.TemporaryDirectory() as tmp:
+        p = pathlib.Path(tmp) / "r.jsonl"
+        original = {"task": "t", "arm": "treatment", "per_test": {"a": True},
+                    "secs": 1.5, "ts": "2026-08-11T00:00:00"}
+        p.write_text(json.dumps(original) + "\n", encoding="utf-8")
+        backfill.backfill(p)
+        row = json.loads(p.read_text(encoding="utf-8").splitlines()[0])
+        for k, v in original.items():
+            assert row[k] == v, (k, row.get(k), v)
 
 
 if __name__ == "__main__":
