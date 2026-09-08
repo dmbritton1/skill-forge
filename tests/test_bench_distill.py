@@ -124,6 +124,50 @@ def test_drift_reports_a_leaked_global_store_entry():
     in_home(check)
 
 
+def test_snapshot_survives_a_structurally_wrong_index():
+    """index.json parsing to a LIST rather than a dict used to reach
+    .get("entries") and raise. drift() is the containment assertion for an
+    unattended batch: it must report an anomaly, never abort the batch."""
+    def check(home):
+        _seed(home)
+        d = home / ".claude" / "skillforge"
+        (d / "index.json").write_text("[]", encoding="utf-8")
+        s = libguard.snapshot()
+        assert s["global_index"] == [] and s["project_index"] == [], s
+    in_home(check)
+
+
+def test_snapshot_survives_a_structurally_wrong_trust_file():
+    def check(home):
+        _seed(home)
+        d = home / ".claude" / "skillforge"
+        (d / "trust.json").write_text('"not a registry"', encoding="utf-8")
+        assert libguard.snapshot()["trust"] == []
+    in_home(check)
+
+
+def test_a_wrong_shaped_index_reports_drift_rather_than_raising():
+    def check(home):
+        _seed(home, entries=[{"name": "proj", "scope": "project", "root": "/repo"}])
+        before = libguard.snapshot()
+        d = home / ".claude" / "skillforge"
+        (d / "index.json").write_text("null", encoding="utf-8")
+        out = libguard.drift(before)
+        assert out and any("proj" in m for m in out), out
+    in_home(check)
+
+
+def test_prune_trust_writes_the_same_format_as_trust_py():
+    """scripts/trust.py:47 writes indent=2, sort_keys=True, trailing newline."""
+    def check(home):
+        _seed(home, trust_keys=["b", "a", "drop"])
+        libguard.prune_trust(["drop"])
+        text = (home / ".claude" / "skillforge" / "trust.json").read_text(encoding="utf-8")
+        assert text.endswith("\n"), "trust.json must end with a newline"
+        assert text.index('"a"') < text.index('"b"'), "keys must be sorted"
+    in_home(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

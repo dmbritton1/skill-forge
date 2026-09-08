@@ -29,10 +29,20 @@ def _root():
 
 
 def _read_json(name, default):
+    """Parsed contents of one state file, or `default`.
+
+    Guards the SHAPE as well as the read. A missing or unparseable file is an
+    expected state and degrades to empty, which drift() then reports as a
+    difference -- the safe direction. A file that parses to the WRONG shape
+    would otherwise reach .get()/sorted() and raise, and an uncaught exception
+    in the containment assertion aborts checking for the whole batch instead
+    of flagging one anomaly.
+    """
     try:
-        return json.loads((_root() / name).read_text(encoding="utf-8"))
+        value = json.loads((_root() / name).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return default
+    return value if isinstance(value, type(default)) else default
 
 
 def _store_names():
@@ -73,7 +83,7 @@ def prune_trust(names):
             removed += 1
     if removed:
         (_root() / "trust.json").write_text(
-            json.dumps(data, indent=2), encoding="utf-8")
+            json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return removed
 
 
