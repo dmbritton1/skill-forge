@@ -1,8 +1,9 @@
 # Q1 — does the distiller work end to end?
 
 Design for the experiment answering the benchmark brief's question 1. Written
-2026-09-08. Nothing here has been run; every number in the Comparators section
-is pre-existing data, and every number elsewhere is a slot waiting to be filled.
+2026-09-08; revised the same day against an adversarial review that checked
+every claim in the first draft against the code. Nothing here has been run.
+Every number in §2 is pre-existing data; every number elsewhere is a slot.
 
 ## The question
 
@@ -20,9 +21,9 @@ loop: a session distills its own skill, and a later session is measured with it.
 ## What is being claimed, and what is not
 
 **Primary claim under test.** A skill produced by the distiller, from a real
-session, delivered to a later session, beats no skill at all. Control is 0/6 on
-these two author tasks — a floor with real distance to travel, which is the
-only reason n=3 can resolve anything here.
+session, delivered to a later session, beats no skill at all — measured against
+a control arm run **in this batch, on the pinned model**, not against the
+2026-08-11 floor (see §2, and F1 in the review log).
 
 **Secondary, directional only.** Whether the distilled skill reaches the
 hand-authored ceiling. The ceiling has been measured twice, at 5/6 and 6/6, and
@@ -46,9 +47,10 @@ the author task are the *same bug*:
 | Phase 2 probe (author mode) | `sf-author-response-text` | `sf-author-fingerprint-preexisting` |
 | Hand-authored comparator | `serialization-corrupts-matching` | `lossy-transform-false-negative` |
 
-The repair tasks are ideal phase-1 sources for the same reason they are useless
-to E4: the red assertion names the condition, so control resolves them 2/2. A
-distiller needs a session that *succeeded* and has a real procedure to distill.
+The repair tasks are plausible phase-1 sources for the same reason they are
+useless to E4: the red assertion names the condition. Their control rate is 2/2
+each — but from 2026-08-10, at an unrecorded model, n=2. That is a reason to
+expect success, not a licence to assume it, which is why §4 scores the repair.
 
 ### Session budget
 
@@ -56,11 +58,20 @@ distiller needs a session that *succeeded* and has a real procedure to distill.
 |---|---|---|
 | 1 — distillation | 2 distillers × 2 traps × 3 draws | 12 |
 | 2 — probe | 2 distillers × 2 traps × 3 drafts × 3 runs | 36 |
-| | | **48** |
+| 2 — control | 2 tasks × 3 runs, this batch, pinned model | 6 |
+| | | **54** |
 
-At the 48–98s per session observed on 2026-09-08, roughly 50–80 minutes, plus
-scoring. Phase 2 shrinks if phase 1 emits fewer than 3 saved drafts in a cell
-(see §5); it never grows.
+Phase 2 shrinks if phase 1 emits fewer probeable drafts (§5); it never grows.
+
+**Runtime is stated for phase 2 only.** Across all 78 timed rows in the three
+results files: min 27.5s, median 72.3s, mean 74.3s, p90 100.1s, max 245.6s. The
+42 phase-2 sessions are author-mode sessions of exactly that shape, so ~50
+minutes is a sound estimate for them. It is **not** sound for phase 1: those
+sessions do a repair *and* a full distillation (transcript review, novelty gate,
+duplicate check, draft, secret scan, save), and nothing in the record measures
+that workload. `secs` also excludes `git clone` and `setup_cmd`, which run
+outside `run_session`. **Time one pilot draw, then state phase 1's cost.** Do
+not extrapolate.
 
 ### Both distillers
 
@@ -78,43 +89,58 @@ Therefore:
   control alone. Comparing its `kind: skill` output to a hand-authored
   anti-skill would reproduce E1's invalid batch exactly.
 
-`/learn-failure` is also the semantically correct command for these two bugs:
-both are debugging traps, and both hand-authored comparators are anti-skills
-distilled from exactly these traps.
-
 ---
 
-## 2. Comparators — existing data, exact rows
+## 2. Comparators
 
-No comparator sessions are run. These cells already exist and are named
-precisely, because the register's standing lesson is that data described from
-memory gets described wrong.
+### The floor is measured in this batch
+
+**Every `control` row this project has ever recorded carries no `model` key.**
+Verified across all three results files: `results.jsonl` (3 control rows,
+2026-08-11), `results-round1.jsonl` (6, 2026-08-11), `results-leaky-stub.jsonl`
+(8, 2026-08-10/11). Every row carrying `model: claude-opus-5` is a *treatment*
+row. `run.py:46-49` pins the model precisely because "a cross-date comparison is
+only sound if the model is known, and the 2026-08-11 pilot did not record one."
+
+So the historical 0/6 floor cannot carry the primary claim. The 2026-09-05
+re-measure re-ran the treatment arm and did not re-run control, so the gap has
+never been observed under one configuration. This batch runs its own control:
+
+    python3 bench/run.py --arm control --runs 3 --task sf-author-response-text
+    python3 bench/run.py --arm control --runs 3 --task sf-author-fingerprint-preexisting
+
+The fresh cell is **the floor**. The 2026-08-11 figure is corroboration, and is
+reported as such — not the other way round.
+
+### Existing cells, exact rows
+
+Named precisely because the register's standing lesson is that data described
+from memory gets described wrong.
 
 | Comparator | Source | response_text | fingerprint | Combined |
 |---|---|---|---|---|
-| Control — no skill | `results-round1.jsonl` (rt) and `results.jsonl` (fp), both `ts` 2026-08-11 | 0/3 | 0/3 | **0/6** |
-| Hand-authored, matched | same files, same date | 3/3 | 2/3 | **5/6** |
-| Hand-authored, re-measured | `results.jsonl`, `ts` 2026-09-05 | 3/3 | 3/3 | **6/6** |
+| Control — no skill (corroborating) | `results-round1.jsonl` (rt) and `results.jsonl` (fp), both `ts` 2026-08-11, **model unrecorded** | 0/3 | 0/3 | **0/6** |
+| Hand-authored, matched | same files, same date, **model unrecorded** | 3/3 | 2/3 | **5/6** |
+| Hand-authored, re-measured | `results.jsonl`, `ts` 2026-09-05, `claude-opus-5` | 3/3 | 3/3 | **6/6** |
 
 `results-round1.jsonl`'s `sf-author-fingerprint-preexisting` rows are the
-**superseded** file-cap batch (0/3 in every arm, which is the signature of the
-broken test, not a hard task). The live fingerprint pilot cells are in
-`results.jsonl`. Do not aggregate the two files blindly; the combined figure is
-wrong if you do.
+**superseded** file-cap batch (0/3 in every arm, the signature of the broken
+test, not a hard task). The live fingerprint pilot cells are in `results.jsonl`.
+Do not aggregate the two files blindly; the combined figure is wrong if you do.
 
-The ceiling is itself a range, 5/6 to 6/6. That is the same spread problem one
-level up and is why the secondary comparison is directional only.
+The ceiling is itself a range, 5/6 to 6/6. Same spread problem one level up, and
+why the secondary comparison is directional only.
 
 ---
 
 ## 3. The funnel — the primary output
 
-Q1 is reported as a funnel, not a score. The distiller can fail at five
-separable stages, and collapsing them into one number discards most of what the
-experiment observes.
+Q1 is reported as a funnel, not a score. The distiller can fail at six separable
+stages, and collapsing them into one number discards most of what the experiment
+observes.
 
 ```
-3 draws  →  draft written  →  save_skill accepted  →  injected downstream  →  resolved
+3 draws → repair resolved → draft written → save_skill accepted → delivered downstream → task resolved
 ```
 
 Reported per distiller × trap:
@@ -122,15 +148,50 @@ Reported per distiller × trap:
 | Stage | Definition | Failure means |
 |---|---|---|
 | Draws | 3 per cell, fixed | — |
-| Draft written | the session produced a candidate SKILL.md | the novelty self-gate aborted, or the session never reached the distiller |
+| Repair resolved | the phase-1 session's own FAIL_TO_PASS tests pass | the session distilled from a bug it never fixed |
+| Draft written | a candidate SKILL.md was produced | the novelty self-gate aborted, or the session timed out |
 | `save_skill` accepted | exit 0 from the enforced write path | the distiller emits drafts its own validator refuses |
-| Injected downstream | exactly one `injection` row for the skill in the probe run's ledger | the distiller wrote unusable triggers — the skill never arrived |
+| Delivered downstream | an `injection` row for the skill in the probe run's ledger | the description never matched the probe prompt |
 | Resolved | the probe task's hidden tests pass | arrived and did not help |
 
-The fourth stage is load-bearing. The brief is explicit that a null which never
-arrived is not a null, and it is the stage most likely to fail silently: a
-saved skill whose `description` triggers or `symptoms` never match reads as "no
-effect" while being a delivery failure.
+### Stage 5 is a description test, not a symptom test
+
+This is the correction that most changes how the result must be read.
+
+`distilling-failures` step 4 mandates that `symptoms:` entries be "the literal
+error text or signature someone would see (exception name, error message
+fragment)"; its template says `<literal error signature 1>`. `detect.py` matches
+those against `tool_response` and `error` text. But **author mode never places
+the grading tests in the tree during the session** — `run.py::prepare` skips
+them and `apply_hidden_tests` runs only after the session ends — so the trap's
+real error signature never appears in any tool output during a probe. A
+distilled anti-skill that obeys its own contract is therefore structurally
+incapable of firing on symptoms in phase 2.
+
+Delivery for both arms falls entirely to `retrieve.run_hook`: BM25 over
+`name + description` against the **prompt**, gated on `score > 0` and
+`matched >= MIN_MATCHED_TERMS` (=2) at `retrieve.py:322`, and on
+`trust.check_text(name, body) == "trusted"` at `retrieve.py:334`. The trust gate
+passes for a freshly distilled skill — `save_skill.py:390` records it with
+`origin="self"` — but it is a silent-zero path and the plan asserts it rather
+than assuming it.
+
+Two consequences, both binding:
+
+1. Record which trigger actually fired. The ledger row already carries
+   `trigger: prompt` versus `trigger: symptom`; report the split rather than
+   collapsing it into "injected".
+2. **Pre-probe dry run, zero session cost.** For each saved draft, rank the
+   probe task's prompt against the draft's description with `retrieve.rank`, and
+   record the score and `matched` count in `meta.json`. A draft scoring below
+   `MIN_MATCHED_TERMS` is a *predicted* stage-5 failure, known before a single
+   probe session is spent, which makes the eventual zero attributable instead of
+   ambiguous.
+
+A stage-5 zero must not be written up as "the distiller wrote unusable
+triggers." The honest reading is that the contract and the probe disagree about
+what a symptom is. See §7.9 for the asymmetry this creates against the
+hand-authored comparators.
 
 ---
 
@@ -140,12 +201,18 @@ effect" while being a delivery failure.
 
 Per (trap, distiller, draw):
 
-1. `prepare()` the repair task exactly as `run.py` does — clone at
+1. **Precondition, checked per draw and not merely per batch:**
+   `~/.claude/skillforge/skills/` and `~/.claude/skillforge/antiskills/` are
+   empty. `distilling-failures` step 3's duplicate check runs
+   `ls ~/.claude/skillforge/antiskills/`, so a leaked draft from an earlier draw
+   would make the next session "propose updating it" instead of drafting fresh —
+   silently converting an independent draw into a dependent one. One `os.listdir`;
+   it makes a containment failure loud instead of contaminating.
+2. `prepare()` the repair task exactly as `run.py` does — clone at
    `fix_commit~1`, overlay the fix's tests, so the trap is live.
-2. Export `SKILLFORGE_LEDGER` to a per-draw database, deleted first, same
-   discipline as `run.py::one()`. Phase-1 sessions write `save` and `draft`
-   rows; none of them may reach the real library.
-3. Run one `claude -p` session whose prompt is **fixed and identical across
+3. Export `SKILLFORGE_LEDGER` to a per-draw database, deleted first, same
+   discipline as `run.py::one()`.
+4. Run one `claude -p` session whose prompt is **fixed and identical across
    every draw and both traps**, except for the repair task's own prompt text
    spliced in. It instructs the session to fix the bug, verify the tests pass,
    and then distill the session through the named distiller skill.
@@ -154,21 +221,46 @@ Per (trap, distiller, draw):
    literal `/skillforge:learn-failure` expands inside a `-p` prompt. If it does
    not, the prompt names the skill (`skillforge:distilling-failures`) for
    invocation through the Skill tool, which reaches the same contract. Whichever
-   works, it is fixed across all 12 phase-1 sessions — the prompt is an
-   experimental variable and must not drift between cells.
-4. Extract whatever landed in the clone's store:
+   works is fixed across all 12 phase-1 sessions — the prompt is an experimental
+   variable and must not drift between cells.
+
+   Phase 1 sets its own timeout explicitly. `SESSION_TIMEOUT_S = 900` is sized
+   for author-mode sessions and may be tight for repair-plus-distillation.
+5. **Score the repair** with `run.py::score(task, dest)`, before extraction.
+   Repair mode already has the tests in the tree, so this is one call and no
+   `apply_hidden_tests`. Record `repair_resolved`.
+6. Extract whatever landed in the clone's store:
    - `/learn-failure` → `<clone>/.claude/skillforge/antiskills/*/SKILL.md`
    - `/learn` → `<clone>/.claude/skillforge/skills/*/SKILL.md`
-   Extract the **store** copy, not a materialized native copy: `sync.py`
-   appends a modified `MARKER_NOTE` to what it materializes, and that text is a
-   delivery artifact rather than part of the draft.
-5. Write to `bench/distilled/<trap>/<distiller>/<draw>/`:
+
+   Extract the **store** copy, not a materialized native copy:
+   `save_skill.py:388` writes the draft verbatim, while `sync.py:413` appends a
+   rewritten `MARKER_NOTE` to the hot copy only. That text is a delivery
+   artifact, not part of the draft.
+7. Write to `bench/distilled/<trap>/<distiller>/<draw>/`:
    - `SKILL.md` — the draft verbatim, when one saved
-   - `meta.json` — phase-1 outcome, `save_skill.py` stdout/stderr verbatim, the
-     ledger's `save` and `draft` rows, the skill name, and the session tail
+   - `meta.json` — `repair_resolved`, the phase-1 outcome (§5), `save_skill.py`
+     stdout/stderr verbatim, the ledger's `save` and `draft` rows, the skill
+     name, the chosen scope, the pre-probe BM25 score and `matched` count (§3),
+     the session tail, and whether the session hit its timeout
 
 `bench/distilled/` is **committed**. Un-indexed data is what produced the two
 false claims the register caught.
+
+### Suppressing the inline critique
+
+`save_skill.py:420` calls `_spawn_validation` on **every create** —
+`subprocess.Popen(..., start_new_session=True)`, detached and never waited on —
+and `validate.py critique` is itself a real `claude -p` child. Left alone, this
+batch spawns up to 48 extra detached sessions, which violates §7.7's own rule
+that nothing else may run during the batch, adds an unbudgeted token cost, and
+in phase 1 races the containment `library.py delete` for the same name.
+
+**Add a `--no-critique` seam to `save_skill.py`** and have §6's retrospective
+pass run `validate.py` explicitly. §6 already wants the verdict retrospectively,
+so the inline spawn buys this experiment nothing. Where the seam cannot be used
+— the phase-1 session calls `save_skill.py` itself, which is the point — reap
+the child before the containment diff rather than racing it.
 
 ### The global-scope leak, and how phase 1 contains it
 
@@ -176,36 +268,60 @@ false claims the register caught.
 `Path.home()/.claude/skillforge/`, and the distillation contract has the *model*
 choose the scope — step 5 reads "mentions repo-specific paths/conventions →
 `project`; otherwise `global`". A phase-1 session that judges its trap general
-would therefore write into the operator's **real library**. Phase 2 is safe
-(`install_skill` forces `--scope project`); phase 1 is not, because letting the
-session drive the full save path is the entire point of an end-to-end test.
+writes into the operator's **real library**.
+
+Phase 2 cannot write to the global *store* (`install_skill` forces
+`--scope project`), but it is **not** otherwise isolated: `trust.py:24` resolves
+`trust.json` to `Path.home()` unconditionally and `save_skill.py:390` calls
+`trust.record` on every save, so all 48 saves write into the operator's real
+trust registry, and `index.json` is user-global too.
 
 Containment, chosen over the alternatives because it keeps the pipeline whole:
 
-- Snapshot the global store, `index.json`, and `trust.json` before the batch.
-- After **each** phase-1 session, diff the global store. A new entry means the
-  session chose global scope.
-- That is recorded as a phase-1 outcome — the scope decision is Q1 data, and
-  "the distiller called a project-specific trap general" is a real finding — and
-  the draft is copied into the archive exactly as a project-scoped one would be.
-- The entry is then removed with `library.py delete <name>`, which unwinds the
-  store, the native tier, and the trust registry and resyncs. The next session
-  starts from the snapshot state.
-- The batch ends with a final diff asserting the global store matches the
-  opening snapshot. A mismatch invalidates the batch rather than being tidied
-  away.
+- **At batch open**, snapshot: the directory contents of
+  `~/.claude/skillforge/{skills,antiskills}/`, the *set* of `index.json` entries
+  with `scope == "global"`, the set of project-scoped entries rooted at the real
+  repo, and `trust.json`'s key set.
+- **After each phase-1 session**, diff the global store. A new entry means the
+  session chose global scope. That is recorded as a phase-1 outcome — the scope
+  decision is Q1 data, and "the distiller called a project-specific trap
+  general" is a real finding — and the draft is archived exactly as a
+  project-scoped one would be.
+- Remove the entry with `library.py delete <name>`. Note what this does *not*
+  do: `_resync` calls `sync.sync(project_root=None)`, whose `bases` is
+  `[Path.home()]` alone (`sync.py:330`), so the rebuild drops the operator's
+  project-scoped entries out of `index.json`. That state is derived and
+  self-healing — the next sync in the real project restores it, as observed on
+  2026-09-08 when a bench batch left `index.json` holding only the bench skill
+  while the materialized copies survived untouched — but the assertion below
+  must not be fooled by it.
+- **At batch close**, assert: (a) the store directories match the opening
+  snapshot, (b) the *set* of `scope == "global"` index entries matches — never a
+  byte comparison of `index.json`, and ignore `compiled_ts`, (c) `trust.json`'s
+  key set matches after pruning the batch's names, and (d) the project entries
+  rooted at the real repo are present; if not, restore with one
+  `sync.sync(project_root=<real repo>)`.
+- A mismatch that survives the restore invalidates the batch rather than being
+  tidied away.
 
-Rejected alternatives, and why: sandboxing `HOME` for phase 1 would isolate the
-store completely but the `claude` CLI reads `HOME` for its own credentials, so
-it risks breaking authentication; having the harness call `save_skill.py` itself
+Rejected alternatives: sandboxing `HOME` for phase 1 would isolate the store
+completely, but the `claude` CLI reads `HOME` for its own credentials, so it
+risks breaking authentication; having the harness call `save_skill.py` itself
 would be structurally safe but removes the model's invocation of the save path,
-which is one of the five funnel stages Q1 exists to measure.
+which is one of the funnel stages Q1 exists to measure.
 
 ### Phase 2 — one flag on `bench/run.py`
 
 `--skill-from <path>` replaces the `ROOT / "skills" / (task["skill"] + ".md")`
-lookup inside `install_skill()`. Nothing else in `one()` changes: the per-run
-ledger, the arm handling, and the scoring are untouched.
+lookup inside `install_skill()`. Nothing else in `one()` changes.
+
+After `install_skill`, read the index entry and **assert `tier == "warm"`**,
+recording it on the result row. `retrieve.eligible()` requires `tier == "warm"`
+(`retrieve.py:172`), so a skill that landed hot would produce no `injection` row
+at all and stage 5 would read the strongest delivery path as a delivery failure.
+A fresh save is warm today (`_warm_reason`: "unproven — earns hot once a real
+session verifies it"), so this holds — and it is exactly the class of failure
+`b35f756` already cost a batch. Two lines.
 
 ### Collision discipline
 
@@ -233,27 +349,43 @@ timestamp — a limitation the register names explicitly:
 | `distiller` | `learn` \| `learn-failure` \| `null` |
 | `draw` | `1` \| `2` \| `3` \| `null` |
 | `skill_path` | the file `install_skill` actually saved |
+| `tier_at_install` | `warm` expected; asserted, not assumed |
+
+**Backfill the historical rows.** Every pre-existing row lacks these keys, so a
+filter on `skill_source == "authored"` silently excludes the comparators this
+design depends on. Backfill `results.jsonl` and `results-round1.jsonl` once and
+commit it — `arm == "control"` → `skill_source: null`, otherwise `authored` —
+rather than relying on a documented read rule. §4's own argument applies:
+un-indexed data is what produced the two false claims the register caught. The
+read rule (missing key → `authored`; control → `null`) is stated here as a
+fallback for `results-leaky-stub.jsonl`, which is not backfilled.
 
 ---
 
 ## 5. Phase-1 outcomes
 
-Three outcomes. All are recorded; none is a harness error.
+Five outcomes. All are recorded; none is a harness error.
 
-1. **Aborted at the novelty self-gate.** The distillation contract states that
+1. **Repair unresolved.** The session did not fix the bug. The draft is
+   archived and reported as its own funnel row, and is **not probed**. A
+   distiller that writes a confident skill about a mechanism the session never
+   found is a finding worth naming loudly, and it must not launder itself into
+   the probe numbers by way of a clean `save_skill` exit 0.
+2. **Timed out.** Distinguished from an abort in `meta.json`. A timeout landing
+   mid-distillation otherwise reads as "no draft written", which is
+   indistinguishable from the novelty gate firing.
+3. **Aborted at the novelty self-gate.** The distillation contract states that
    aborting is a success outcome — "the knowledge is model-obvious" is the gate
-   working. Recorded as an abort with its stated reason. No draft, no probes
-   for that draw.
-2. **Draft written, `save_skill.py` rejected it.** The `REJECTED` /
-   `SECRET BLOCKED` reason is captured verbatim. This is the highest-information
-   failure available: the distiller's own enforced write path refusing the
-   distiller's own output.
-3. **Saved.** Proceeds to phase 2.
+   working. Recorded with its stated reason. No draft, no probes.
+4. **Draft written, `save_skill.py` rejected it.** The `REJECTED` /
+   `SECRET BLOCKED` reason is captured verbatim. The highest-information failure
+   available: the distiller's own enforced write path refusing its own output.
+5. **Saved, repair resolved.** Proceeds to phase 2.
 
-A cell with fewer than 3 saved drafts probes only what exists, and reports its n
-honestly — the emission rate is a first-class Q1 number, not an inconvenience.
-**A cell with zero saved drafts is a complete Q1 answer for that distiller and
-trap, and costs zero probe sessions.**
+A cell with fewer than 3 probeable drafts probes only what qualifies and reports
+its n honestly — the emission rate is a first-class Q1 number, not an
+inconvenience. **A cell with zero probeable drafts is a complete Q1 answer for
+that distiller and trap, and costs zero probe sessions.**
 
 ---
 
@@ -266,10 +398,8 @@ live session.
 Per saved draft:
 
 - **Critique verdict** from `scripts/validate.py`, run explicitly against the
-  archived draft. `save_skill.py` spawns critique detached on a create, so a
-  verdict may not exist when the phase-1 session ends; the retrospective pass
-  does not rely on it having landed. Precedent and worked example:
-  `bench/critique-calibration/`.
+  archived draft. With the inline spawn suppressed (§4), this is the only place
+  critique runs, which is where the design wanted it anyway.
 - **Does `verification.command` fail when the skill is skipped?** Run it at
   `fix_commit~1`, a tree where the procedure demonstrably was not applied. Exit
   0 there means it is not a verification. The distillation contract states this
@@ -281,10 +411,13 @@ Per saved draft:
 - **Does `description` carry both trigger directions?** `save_skill.py` enforces
   this, so the expected rate is 100%; anything less is a bug in the enforcement,
   not in the distiller.
+- **Symptom shape.** Are the `symptoms:` entries error signatures, as the
+  contract demands, or narration, as both hand-authored comparators are? This is
+  the measurement behind §7.9, and it costs nothing to record.
 
-These are reported alongside the funnel, not merged into it. A draft can be
-accepted, injected, resolve the task, and still carry a verification command
-that proves nothing.
+Reported alongside the funnel, not merged into it. A draft can be accepted,
+delivered, resolve the task, and still carry a verification command that proves
+nothing.
 
 ---
 
@@ -298,31 +431,40 @@ Stated before the run, not discovered in the write-up.
    is no replay path, so it is not built. A cell that varies widely cannot be
    attributed to either cause.
 2. **The repair source hands over the answer.** The red assertion names the
-   condition, which is why control resolves these 2/2. A session may therefore
-   distill "read the failing test" rather than the trap. If that is what comes
-   out, that is the finding, and the archived drafts will show it plainly.
+   condition. A session may therefore distill "read the failing test" rather
+   than the trap. If that is what comes out, that is the finding, and the
+   archived drafts will show it plainly.
 3. **Same-author curation is only half fixed.** The distiller now writes the
    skills, which is the half the brief asked for. The operator still wrote the
    tasks and chose the traps.
 4. **Self-referential tasks.** Both traps are in SkillForge's own codebase,
    which narrows what any result generalizes to.
-5. **The two arms use different delivery paths.** `/learn-failure`'s anti-skill
-   arrives by symptom injection; `/learn`'s `kind: skill` arrives by warm
-   retrieval. E5 found that the delivery path does not decide the effect, which
-   is what makes this tolerable — it is not nothing.
+5. **The two arms use different delivery paths.** Both arrive by warm retrieval
+   in practice (§3), but `/learn-failure`'s output additionally carries
+   `symptoms:` that are dead in author mode, while `/learn`'s never had them.
+   E5 found that the delivery path does not decide the effect, which is what
+   makes this tolerable — it is not nothing.
 6. **n=3 per probe cell**, against a harness whose own spread on one arm is 6/6
    versus 4/6.
-7. **`index.json` is user-global and last-writer-wins.** Forty-eight sessions
-   rewrite it. Nothing else may run on the machine during the batch — including
-   a one-off `claude -p` in `/tmp`.
+7. **`index.json` and `trust.json` are user-global.** Fifty-four sessions
+   rewrite them. Nothing else may run on the machine during the batch —
+   including a one-off `claude -p` in `/tmp`. The batch's own inline critique
+   children are suppressed for this reason (§4).
 8. **Phase 1 can write to the real library.** The distiller chooses its own
    scope, and a `global` choice lands in the operator's store. Contained by
-   snapshot-diff-revert per session (§4), with a closing assertion that the
-   store is unchanged — but the containment is reactive, and a batch that trips
-   it is invalidated rather than repaired.
-9. **Bench sessions inherit the operator's full plugin set** (ponytail,
-   superpowers). Constant across arms, so contrasts hold; absolute numbers are
-   model-plus-plugins.
+   snapshot-diff-revert per session with a precise closing assertion (§4) — but
+   the containment is reactive, and a batch that trips it and cannot restore is
+   invalidated rather than repaired.
+9. **The comparators' trigger shape is asymmetric with the contract's.** Both
+   hand-authored anti-skills carry narration-shaped symptoms —
+   `"confirmed absent without examining the full input"` — written by someone
+   who knew the probe would be author-mode. `distilling-failures` step 4 demands
+   literal error signatures. That asymmetry is in the comparison from the start;
+   it is not something the distiller failed at, and the write-up must not
+   score it as one.
+10. **Bench sessions inherit the operator's full plugin set** (ponytail,
+    superpowers). Constant across arms, so contrasts hold; absolute numbers are
+    model-plus-plugins.
 
 ---
 
@@ -331,25 +473,34 @@ Stated before the run, not discovered in the write-up.
 Fixed before any data exists, because E1's first batch was invalid and the
 register caught two confidently-stated false claims:
 
-- **All** saved drafts are probed, 3 runs each. No draft is selected, skipped,
-  or re-rolled after its content is seen.
+- The floor is this batch's own control arm on the pinned model. The 2026-08-11
+  figure is corroboration and is labelled as such.
+- **All** drafts from a resolved repair are probed, 3 runs each. No draft is
+  selected, skipped, or re-rolled after its content is seen.
+- A draft from an **unresolved** repair is archived and reported, never probed.
+  This rule is fixed now, not after seeing how many there are.
 - No cell is dropped after its score is seen.
 - The funnel stages in §3 are the reported output. The headline is the funnel;
   the score is one stage of it.
+- A stage-5 zero is reported against the pre-probe BM25 prediction recorded
+  before the run, not reinterpreted afterward.
 - The secondary comparison against the hand-authored ceiling is directional and
   will be labelled as such regardless of which direction it points.
-- A phase-1 abort or rejection is a result. It is reported, not re-run.
+- A phase-1 abort, timeout, or rejection is a result. It is reported, not re-run.
 
 ## 9. How to read the outcome
 
-- **Drafts save and probes beat control.** The pipeline closes end to end. Q1 is
-  answered affirmatively and the distiller stops being the untested link.
+- **Drafts save and probes beat the fresh control.** The pipeline closes end to
+  end. Q1 is answered affirmatively and the distiller stops being the untested
+  link.
 - **Drafts save, probes sit at control.** The distiller emits valid artifacts
-  that do not help. The funnel says at which stage — never injected (bad
-  triggers, a retrieval problem) versus injected and ignored (a content
-  problem). These have different fixes.
-- **Drafts do not save.** The pipeline does not close, and the funnel names the
-  gate that stopped it. Cheapest possible answer; costs no probe sessions.
+  that do not help. The funnel says at which stage — never delivered (a
+  description that does not match the probe prompt, predicted in advance by the
+  BM25 dry run) versus delivered and ignored (a content problem). Different
+  fixes.
+- **Drafts do not save, or repairs do not resolve.** The pipeline does not
+  close, and the funnel names the gate that stopped it. Cheapest possible
+  answer; costs no probe sessions.
 - **The two distillers diverge.** Expected to be informative given that `kind:`
   carries delivery tier and verification eligibility, but at n=3 per cell,
   report the split and do not rank.
@@ -360,3 +511,24 @@ Transfer (brief Q2), harm from irrelevant injection (E4, blocked on a task that
 does not exist), token cost per unit of benefit (brief Q4), and whether the
 `trusted` gate predicts anything (brief Q5). Nothing here requires a new trap, a
 new task, or a new repository.
+
+---
+
+## Review log
+
+Revised against an adversarial review that checked the first draft against the
+code at `925810d`. Ten findings; every mechanical claim independently verified
+before adoption.
+
+| # | Finding | Disposition |
+|---|---|---|
+| F1 | Control floor never measured on the pinned model — every control row lacks `model` | Adopted. 6 control sessions; 48 → 54 |
+| F2 | Phase 1 never checked the repair succeeded | Adopted. §4 step 5, §5 outcome 1, §8 |
+| F3 | Symptoms are dead in author mode; stage 5 is a description test | Adopted in full — §3, the BM25 dry run, §7.9 |
+| F4 | `library.py delete`'s resync drops project entries from `index.json` | Adopted, **narrowed**. Mechanics confirmed at `sync.py:330`; the state is derived and self-healing, so the defect is an imprecise assertion, not library mutation |
+| F5 | `trust.json` is global regardless of scope | Adopted. "Phase 2 is safe" corrected; key set snapshotted |
+| F6 | Every create spawns a detached critique child | Adopted. `--no-critique` seam; reap where unavoidable |
+| F7 | Time estimate low "by an order of magnitude" | **Partly rejected.** 42 probes × median 72.3s ≈ 50 min, which is what the draft said. Adopted the real point: do not extrapolate author-mode timings to phase 1, pilot it, and distinguish timeout from abort |
+| F8 | Historical rows lack `skill_source` | Adopted, backfill preferred over a read rule |
+| F9 | Duplicate check reads the operator's real library | Adopted. Per-draw precondition, §4 step 1 |
+| F10 | Stage 5 assumes the skill lands warm | Adopted. Asserted after `install_skill` |
