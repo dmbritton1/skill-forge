@@ -34,11 +34,20 @@ f
 
 def in_sandbox(fn):
     old_home = os.environ["HOME"]
+    old_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
+    # cwd is part of the sandbox, not just HOME. save_skill's --project-root
+    # defaults to ".", so sync() treats whatever directory the suite happens to
+    # run in as a project -- and then evicts that project's materialized hot
+    # skills, because the trust store it judges them against lives in the
+    # sandbox HOME and knows nothing about them. Running this suite inside a
+    # real project used to delete that project's native copies.
+        os.chdir(tmp)
         try:
             fn(pathlib.Path(tmp))
         finally:
+            os.chdir(old_cwd)
             os.environ["HOME"] = old_home
 
 
@@ -793,7 +802,7 @@ def test_reading_a_skill_file_is_recorded_as_a_read():
 
 def test_reading_the_native_hot_copy_counts_too():
     def check(home):
-        path = home / ".claude/skills/skillforge-hot/alpha/SKILL.md"
+        path = home / ".claude/skills/skillforge-alpha/SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("body\n", encoding="utf-8")
         write_triggers(home, verifications=[

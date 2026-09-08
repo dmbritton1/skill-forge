@@ -1,11 +1,12 @@
 # SkillForge — session handoff
 
-Written 2026-09-06, at the end of the session that merged the project-keyed
-ledger to `main` and ran E1. Read this before touching anything; several
-things here are not discoverable from the code.
+Written 2026-09-06 (E1, project-keyed ledger), revised 2026-09-08 at the end
+of the session that ran E5 and shipped 0.2.5. Read this before touching
+anything; several things here are not discoverable from the code.
 
 Supersedes the 2026-09-05 handoff (git history has it). Its "START HERE" is
-done: `failure-detection` merged, 0.2.2 shipped.
+done: `failure-detection` merged, 0.2.2 shipped. §3's E5 item is done too —
+the result and what it changed are in §1 and §3.1.
 
 ---
 
@@ -24,6 +25,10 @@ classes scored **6/6**, identical to two anti-skills each carrying one. See
 `bench/RESULTS.md` for the full write-up. This was the single item the rest of
 the roadmap waited on — **v0.3 `/consolidate` is unblocked**.
 
+That same cell was re-measured on 09-08 and came back **4/6** (E5's arm W).
+Nothing changed between them but the batch. Treat 6/6 as one draw from a wide
+distribution, not as the number.
+
 **E1's first batch was invalid and is kept on purpose.** It scored the
 umbrella 1/6 and would have killed `/consolidate`. It was measuring `kind:`
 rather than generalization: the umbrella was a `kind: skill` while both
@@ -32,7 +37,7 @@ tier, verification eligibility, and run independence with it. Both batches are
 in `results.jsonl`, told apart by the store path in `skill_note`
 (`skills/` = invalid, `antiskills/` = valid).
 
-Also landed this session:
+Landed 2026-09-06:
 
 | Change | Commit |
 |---|---|
@@ -42,6 +47,40 @@ Also landed this session:
 | E1 write-up and data | `9eabc7e` |
 | Bump to 0.2.3 | `94a4dca` |
 
+**E5 is answered, and it found something bigger than it was looking for.**
+The same anti-skill delivered as standing native context scored 5/6; delivered
+by symptom injection, 4/6 re-measured (6/6 when E1 measured it); control 0/6.
+Two measurements of the *same* arm differ by more than the arms differ, so at
+n=3 the content carries the effect and no ranking between delivery paths is
+claimable. `/consolidate` is not constrained by delivery.
+
+**The hot tier had never delivered anything, to anyone, ever.** `sync.py`
+materialized to `.claude/skills/skillforge-hot/<name>/SKILL.md`. Claude Code
+scans exactly ONE level under `.claude/skills`, so the loader looked for
+`skillforge-hot/SKILL.md`, found nothing, and skipped the directory. Every
+skill ever promoted to hot was invisible to the model, from the first release
+through 0.2.4. Nothing caught it: the tier logs no `injection` row so there was
+no signal to miss, and every test in the repo plus §312 of the architecture doc
+asserted the same wrong path. Fixed in **0.2.5** —
+`.claude/skills/skillforge-<name>/SKILL.md`, with the eviction sweep scoped to
+the `skillforge-` prefix because it now shares a directory with the user's own
+hand-written skills. The legacy `skillforge-hot/` dir is swept on first sync;
+no migration step.
+
+**Running the test suite inside a project deleted that project's hot skills.**
+`save_skill.py`'s `--project-root` defaults to `"."` and `main()` syncs that
+root, so a save from any directory treats cwd as a project. The suite sandboxed
+`HOME` but not cwd, so `sync()` judged the real cwd's store against a trust
+store in the sandbox, found nothing trusted, and evicted. Also fixed in 0.2.5
+(`in_sandbox` chdirs into the sandbox in every test file that has one).
+
+Landed 2026-09-08:
+
+| Change | Commit |
+|---|---|
+| E5 force-hot lever, write-up, two bench harness fixes | `660e047` |
+| Hot path fix, test-suite cwd isolation, bump to 0.2.5 | `b35f756` |
+
 One phantom row was deleted from the live ledger: a `save` for
 `matcher-input-traps`, a bench-only skill, written by `install_skill()` before
 isolation existed. Backup at `~/.claude/skillforge/ledger.db.bak-20260906T001637`.
@@ -50,12 +89,19 @@ isolation existed. Backup at `~/.claude/skillforge/ledger.db.bak-20260906T001637
 
 ## 2. START HERE
 
-The install is already correct as of this writing. Verify rather than assume —
-one command, and if it prints an error the rest of your session is fiction:
+**0.2.5 was shipped on a branch, not merged.** Unlike previous revisions of
+this handoff, do not assume the install is current — check, then verify. One
+command, and if it prints an error the rest of your session is fiction:
 
 ```bash
-python3 ~/.claude/plugins/cache/skillforge/skillforge/0.2.4/scripts/sync.py --project-root "$PWD"
+python3 ~/.claude/plugins/cache/skillforge/skillforge/0.2.5/scripts/sync.py --project-root "$PWD"
 ```
+
+If that path does not exist, **0.2.5 is not installed** and the hot-tier fix
+is not live: merge and `claude plugin update`. The cache is keyed by version,
+so the presence of the directory is the check. A plugin update does not affect
+the running session either way — `CLAUDE_PLUGIN_ROOT` resolves at session
+start, so restart or you are observing old code.
 
 Silence (plus the usual correction-logging line) is success. `skillforge:
 confidence read failed:` means the code and the ledger schema have diverged
@@ -99,114 +145,92 @@ What the production numbers actually say, post-fix:
 - **Recall is unmeasurable.** Nothing records a session where a skill should
   have fired and did not.
 
-**A hole opened when the install was fixed.** Both live skills are now `hot`,
-and hot skills log no `injection` row — so the one production relevance metric
-goes dark precisely for the skills that earned promotion. `stats` already
-lists "hot-tier churn" as unmeasured. Nothing records hot delivery at all.
+**A hole opened when the install was fixed, and it was worse than this.**
+Both live skills went `hot`, and hot skills log no `injection` row — so the one
+production relevance metric went dark for exactly the skills that earned
+promotion. What the 09-06 session could not know: those skills were not being
+delivered at all (§1). The metric was not merely blind, it was blind to a tier
+that did nothing. Both facts are now true at once: 0.2.5 makes hot deliver, and
+nothing still records that it happened. `stats` lists "hot-tier churn" as
+unmeasured; hot delivery itself is equally unrecorded.
 
 ---
 
 ## 3. Next steps, in priority order
 
-### 3.1 E5 — is the effect delivery, or content? (6 sessions, do this first)
+### 3.1 The hot tier is live for the first time and nothing in it is validated
 
-**The finding that raises it.** The same knowledge, same words, scored
-**1/6** as a description-triggered `kind: skill` delivered hot, and **6/6** as
-a symptom-triggered anti-skill delivered warm. That is a bigger delta than
-anything E1 set out to measure, and it is currently a hypothesis, not a
-finding — the skill version also differed in section structure and in
-confidence trajectory, so it is still multi-variable.
+Every number this project has recorded about hot skills was collected while
+the tier delivered nothing (§1). That makes the whole hot-tier design
+unevidenced rather than merely under-measured: `confidence × recent usage`
+ranking, the 1,500-token budget, promotion order, eviction pressure. None of it
+has ever been exercised against a model that could see the result.
 
-**Why it goes before `/consolidate`.** If delivery is what carries the effect,
-it decides what `/consolidate` should *emit*. Consolidating a cluster into a
-`kind: skill` would be building the losing arm of an experiment nobody ran.
-Six sessions now is cheaper than rewriting the feature later.
+**Cheapest first move, and the harness already exists.** E5's arm H ran through
+the force-hot lever's own flat directory, which differs from what 0.2.5 ships
+only in the directory's *name*. Six runs re-confirms delivery under the shipped
+path:
 
-It also puts a question mark over the **hot tier itself**, which is core
-architecture rather than a v0.3 feature. If standing native context does not
-reach the model at the moment trap knowledge matters, the hot tier's whole
-value proposition needs re-examining.
+```bash
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-response-text-umbrella
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-fingerprint-preexisting-umbrella
+```
 
-**Design — hold everything constant except the delivery path.**
+Verify the arm before scoring, the same three assertions as E5 — but at the new
+path:
 
-| Arm | Delivery | Sessions |
-|---|---|---|
-| W (warm) | symptom-triggered injection — *reuse today's 6/6* | 0 new |
-| H (hot) | materialized into native standing context, symptoms suppressed | 6 |
-| control | no skill — reuse the pilot's 0/6 | 0 new |
-
-Both arms use **the same file**: `bench/skills/matcher-input-traps.md`, the
-umbrella anti-skill, unchanged. Same text, same kind, same tasks
-(`sf-author-response-text-umbrella`, `sf-author-fingerprint-preexisting-umbrella`),
-three runs each.
-
-Arm W is reusable rather than re-run because the model is now pinned and
-recorded (`claude-opus-5` on every row), and today's valid batch already ran
-under the current harness — `3968281` landed the per-run ledger *and* the
-anti-skill re-authoring together, before that batch. If you change anything in
-`bench/run.py` before running E5, re-run arm W too.
-
-**Prerequisite: a force-hot lever. There is no way to do this today.** Two
-gates keep an anti-skill warm, and E5 needs both bypassed for arm H only:
-
-1. `scripts/sync.py` — anti-skills are pinned warm before the bucket check
-   even runs:
-   `if s["kind"] == "antiskill": s["tier"] = "warm"; continue`.
-   `HOT_ELIGIBLE = ("trusted", "working")` also gates it, and a fresh
-   per-run ledger makes every skill `unproven`.
-2. `scripts/sync.py::_write_triggers` compiles symptoms for **every**
-   anti-skill regardless of tier. Force materialization alone and the skill
-   arrives by *both* paths at once, which measures nothing.
-
-So the lever must do two things: force the skill into the hot tier and
-materialize it, **and** drop its entries from `triggers.json["symptoms"]`.
-Something like `SKILLFORGE_FORCE_HOT=<name>` honored at both points, set by
-`run.py` per run the way `SKILLFORGE_LEDGER` already is. Roughly four lines.
-It is test-only scaffolding — mark it as such, and make it refuse to do
-anything unless the name matches exactly.
-
-**Verify the arm before spending sessions on it.** Hot skills log no
-`injection` row (the harness injects them from the native directory and
-SkillForge never sees it), so the delivery check that validated E1 does not
-work here. Instead assert, in one run, before scoring:
-
-- `<clone>/.claude/skills/skillforge-hot/matcher-input-traps/SKILL.md` exists;
+- `<clone>/.claude/skills/skillforge-matcher-input-traps/SKILL.md` exists;
 - `~/.claude/skillforge/triggers.json` has **no** `symptoms` entry for it;
 - `index.json` shows `tier: hot`.
 
-Then the usage signal is the `marker` detection, which works in both arms.
+Then read the per-run ledgers: arm H must show **zero** `injection` rows. A
+`marker` row on a skill with no injection is itself proof of hot delivery —
+`reconcile._credit_markers` credits an uninjected skill only when `index.json`
+says `tier: hot`.
 
-**How to read it:**
+**Second-order, and it matters now in a way it did not before.** A hot skill's
+marker credit depends on `index.json` saying `tier: hot` at Stop time, and
+`index.json` is user-global and last-writer-wins — any session anywhere
+rewrites it. That leak was harmless while nothing was hot. It is now the only
+thing standing between a hot skill and its one usage signal.
 
-- **Hot ≈ 6/6.** Delivery does not carry the effect. The invalid batch's 1/6
-  came from something else — section structure, or the auto-promotion
-  artifact. The hot tier is vindicated and `/consolidate` is unconstrained.
-- **Hot ≈ 1/6.** Delivery *is* the effect. `/consolidate` must emit
-  anti-skills, and the hot tier needs a serious re-think for trap-shaped
-  knowledge.
-- **Between.** Partial. Report the split per trap; two traps at n=3 cannot
-  resolve much more than direction.
+**Do not spend six more sessions ranking hot against warm.** E5 already
+established that two measurements of one arm span 6/6 to 4/6. This design
+cannot resolve a difference smaller than that, and more runs at n=3 buy
+nothing. If the hot tier needs a verdict beyond "it delivers", it needs a
+different measurement, not a bigger one.
 
-**Known limit going in:** the hot body is not byte-identical to the warm one.
-`sync.py` appends a modified `MARKER_NOTE` to the materialized copy ("this
-skill" rather than "a skill above"). That difference is inherent to hot
-delivery, so it is part of the treatment rather than a confound — but say so
-in the write-up rather than letting a reader find it.
+### 3.2 Build `/consolidate` (v0.3, §10 Maintainer)
 
-### 3.2 Unblock E4 — measure first, and expect the opposite problem
+Fully unblocked. E1 cleared consolidation; E5 removed the second constraint by
+showing the delivery path does not decide the effect, so the emitted form is
+not forced.
 
-E4 asks whether injecting an irrelevant skill actively *hurts*. It cannot run
-on the current traps: control already scores 0/6 there, scoring is binary, and
-there is no room to fall.
+Three caveats belong in its design doc:
 
-**Do not run the two repair-mode tasks to find out.** An earlier version of
-this handoff proposed exactly that, six control sessions, and it was wrong:
-their control rate is already measured. `results-leaky-stub.jsonl` holds four
-clean control runs from 2026-08-10 — `sf-escaping-breaks-symptom-match` 2/2,
+- The evidence covers **two** trap classes. Where the compression curve bends
+  past two is untested, and testing it is not cheap: a third class needs a new
+  trap *and* a new authoring task, not just a third skill.
+- An authoring body-cap is "reasonable" on this evidence, but no number in it
+  is derived from anything measured. Pick one and say it is a guess.
+- Emit **anti-skills** as the default. Not because E5 forces it — it does not —
+  but because that is the path with two independent measurements above control,
+  and it is the delivery mechanism with production history. Hot delivery is
+  two days old.
+
+### 3.3 E4 is blocked on a task that does not exist, not on the traps
+
+Unchanged by E5. E4 asks whether injecting an irrelevant skill actively
+*hurts*. It cannot run on the current traps: control already scores 0/6 there,
+scoring is binary, and there is no room to fall.
+
+**The obvious candidates are already ruled out — do not re-measure them.** An
+earlier draft proposed running control on the two repair-mode tasks and said
+their rate was unknown. It is not: `results-leaky-stub.jsonl` holds four clean
+control runs from 2026-08-10 — `sf-escaping-breaks-symptom-match` 2/2,
 `sf-truncation-reports-absent` 2/2, every hidden test green. Control sits at
-the **ceiling**, which blocks E4 exactly as hard as the floor does.
-
-That is the pilot's own finding about FAIL_TO_PASS repair tasks: the red
+the **ceiling** there, which blocks harm detection exactly as hard as the floor
+does. That is the pilot's own finding about FAIL_TO_PASS repair tasks: the red
 assertion names the condition, so the task hands over the answer.
 
 E4 therefore needs a task that does not exist — an **authoring** task where
@@ -217,39 +241,54 @@ not a run, and it is the real blocker. See the register at the top of
 Do not run `sf-author-*-irrelevant` until that exists. `arrow-tzinfo-string-trap`
 is the payload for that arm and has no task of its own.
 
-### 3.3 Build `/consolidate` (v0.3, §10 Maintainer)
-
-E1 cleared it. Two caveats belong in its design doc:
-
-- The evidence covers **two** trap classes. Where the compression curve bends
-  past two is untested, and testing it is not cheap: a third class needs a new
-  trap *and* a new authoring task, not just a third skill.
-- An authoring body-cap is "reasonable" on this evidence, but no number in it
-  is derived from anything measured. Pick one and say it is a guess.
-
-If E5 comes back hot ≈ 1/6, add a third: `/consolidate` emits anti-skills.
-
 ### 3.4 Hygiene, whenever
 
-- `/tmp/skillforge-bench` accumulates a clone plus a ledger per run, never
-  cleaned. Harmless, in `/tmp`, but it grows.
+- **`main` is 91 commits ahead of `origin/main`** and has never been pushed.
+  It was 61 at the 09-06 revision.
+- Old plugin caches `0.2.0`–`0.2.4` are on disk under
+  `~/.claude/plugins/cache/skillforge/skillforge/`.
+- `scripts/ledger.py:564` says the paired injection-to-use figure was `22%`;
+  `cc9859a`'s own commit message and §2b say `26%`. Same commit, two numbers.
+- `index.json` is user-global and last-writer-wins (see §3.1 — this is no
+  longer only a tidiness item).
 - Bench sessions inherit the operator's **full plugin set** — ponytail and
   superpowers included. Constant across arms, so contrasts hold, but absolute
   numbers are model-plus-plugins. Isolate before quoting a figure externally.
-- `index.json` is user-global and last-writer-wins: any session anywhere
-  rewrites it, including a one-off `claude -p` in `/tmp`. Derived and
-  self-healing, so the cost is transient — but it is the same class of leak the
-  ledger had, and it is not isolated.
 - The survival bug (`by_type["save"]` counting rows where the metric wanted
   entities) suggests a quick audit of the other stats for the same shape.
-- Old plugin caches `0.2.0`–`0.2.2` are still on disk under
-  `~/.claude/plugins/cache/skillforge/skillforge/`.
-- `main` is **61 commits ahead of `origin/main`** and has never been pushed.
+- `/tmp/skillforge-bench` is currently empty; it accumulates a clone plus a
+  ledger per run and is never cleaned, so it will grow again.
 
 ---
 
 ## 4. Things not discoverable from the code
 
+- **Claude Code scans exactly ONE level under `.claude/skills`.** A skill must
+  sit at `.claude/skills/<dir>/SKILL.md`. Nest it one deeper and it is silently
+  skipped — no error, no log, nothing. This cost the hot tier its entire
+  existence (§1). The *directory* name is what the model sees as the skill's
+  name, not the frontmatter `name:`.
+- **`save_skill.py --project-root` defaults to `"."`**, and `main()` syncs that
+  root — so a save run from any directory treats the current working directory
+  as a project, reads its store, and evicts its native copies. This is why the
+  test suite used to delete a project's hot skills, and it is a live sharp edge
+  for anything that shells out to `save_skill.py`.
+- **A `marker` row on a skill with no `injection` row proves hot delivery.**
+  `reconcile._credit_markers` credits an uninjected skill only when
+  `index.json` says `tier: hot`. It is the only positive delivery evidence the
+  hot tier produces, and it is hostage to a user-global file (§3.1).
+- **Both E5 arms pass `--arm treatment`.** The clone and per-run ledger paths
+  used to collide, and the second batch silently overwrote the first's
+  evidence. `--force-hot` now puts `-hot` in the path. If you add a third arm,
+  give it its own path segment or you will lose a batch and not notice.
+- **The bench per-run ledger lives OUTSIDE the clone**, so `prepare()`'s rmtree
+  never cleared it and a re-run of the same task/arm/run index read the
+  previous batch's rows as its own. `one()` now deletes it first. E5's first
+  pass read E1's injections as evidence about its own sessions before this was
+  found.
+- **`skill_note` in `results.jsonl` is not a delivery record.** It reports
+  `indexed: warm tier` for a forced-hot row, because `save_skill._warm_reason`
+  tests a path the lever does not write. The ledger is the record.
 - **`bench/run.py` clones live outside the repo now** (`/tmp/skillforge-bench`,
   override `SKILLFORGE_BENCH_WORK`). This is not tidiness. A clone under
   `bench/work/` sits inside a project whose skill store `retrieve.in_scope()`
@@ -274,7 +313,7 @@ If E5 comes back hot ≈ 1/6, add a third: `/consolidate` emits anti-skills.
 
 ---
 
-## 5. Reproducing today's numbers
+## 5. Reproducing the numbers
 
 ```bash
 cd /Users/dwightbritton/Developer/skill-forge
@@ -287,7 +326,21 @@ python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preex
 # E1, matched arm (ran 09-05, before the umbrella repair -- same model, not same batch)
 python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text
 python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting
+
+# E5 arm H -- standing native context, symptoms suppressed. --force-hot sets
+# SKILLFORGE_FORCE_HOT per run the way SKILLFORGE_LEDGER is set: exact name
+# match or inert, and it does BOTH gates -- forces the tier and materializes,
+# AND drops the skill's symptoms from triggers.json. Only the first would
+# deliver by two paths at once and measure nothing.
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-response-text-umbrella
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-fingerprint-preexisting-umbrella
 ```
+
+E5's rows in `results.jsonl` carry `"delivery": "hot"|"warm"`; E1's rows have no
+such key. Three same-day batches ran `--arm treatment` on the same two tasks and
+only the timestamp tells them apart — 11:17-11:18 is arm H against the
+undeliverable nested path (**invalid**, kept on purpose), 11:30-11:40 is arm H
+valid, 11:41-11:47 is arm W re-run. Full write-up in `bench/RESULTS.md`.
 
 Each task-arm-run is a full agentic session with a 900s timeout under
 `--permission-mode bypassPermissions`. Twelve sessions took 13 minutes.

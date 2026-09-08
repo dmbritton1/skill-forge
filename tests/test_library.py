@@ -32,11 +32,20 @@ verification.command: "python3 tests/test_thing.py"
 
 def in_sandbox(fn):
     old_home = os.environ["HOME"]
+    old_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
+    # cwd is part of the sandbox, not just HOME. save_skill's --project-root
+    # defaults to ".", so sync() treats whatever directory the suite happens to
+    # run in as a project -- and then evicts that project's materialized hot
+    # skills, because the trust store it judges them against lives in the
+    # sandbox HOME and knows nothing about them. Running this suite inside a
+    # real project used to delete that project's native copies.
+        os.chdir(tmp)
         try:
             fn(pathlib.Path(tmp))
         finally:
+            os.chdir(old_cwd)
             os.environ["HOME"] = old_home
 
 
@@ -114,7 +123,7 @@ def test_delete_removes_store_native_and_trust_entry():
         ledger.log_event("detection", "alpha", outcome="success", session="s1",
                          project="/repo/a/.git")
         sync.sync()
-        native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
+        native = home / ".claude" / "skills" / "skillforge-alpha"
         assert native.exists(), "precondition: skill must be hot before delete"
         assert "alpha" in trust.load()
         rc, _ = capture(["delete", "alpha"])
@@ -215,7 +224,7 @@ def test_delete_of_a_project_skill_does_not_strip_the_shared_index():
                          project="/repo/a/.git")
         sync.sync(project_root=str(proj))
 
-        native = proj / ".claude" / "skills" / "skillforge-hot" / "alpha"
+        native = proj / ".claude" / "skills" / "skillforge-alpha"
         assert native.exists(), "precondition: alpha must be hot before delete"
         assert any(r["name"] == "kept" for r in library.rows()), \
             "precondition: kept must be indexed before delete"
@@ -439,7 +448,7 @@ def test_archive_evicts_native_copy_and_trust_entry():
         ledger.log_event("detection", "alpha", outcome="success", session="s1",
                          project="/repo/a/.git")
         sync.sync()
-        native = home / ".claude" / "skills" / "skillforge-hot" / "alpha"
+        native = home / ".claude" / "skills" / "skillforge-alpha"
         assert native.exists(), "precondition: skill must be hot before archive"
         capture(["archive", "alpha"])
         assert not native.exists()

@@ -363,3 +363,205 @@ tasks, which hand over the answer in the failing assertion.
 So E4 needs a task that does not exist yet: an **authoring** task where control
 succeeds *sometimes*. Building it is design work, not a run, and it is the real
 blocker behind E4. Do not spend sessions re-measuring the repair tasks.
+
+---
+
+# E5 — is the effect the delivery, or the content? (2026-09-06)
+
+## Headline
+
+**The content carries the effect. Delivery does not decide it.** The same
+anti-skill, same file, same text, delivered as standing native context scores
+**5/6**; delivered by symptom injection it scores **4/6** re-measured today
+and 6/6 when E1 measured it. Control is 0/6. The gap between the two delivery
+paths is smaller than the gap between two measurements of the *same* path.
+
+| Arm | Delivery | response_text | fingerprint | Combined |
+|---|---|---|---|---|
+| Control — no skill *(pilot)* | — | 0/3 | 0/3 | **0/6** |
+| W — symptom injection *(E1, 00:50)* | warm | 3/3 | 3/3 | **6/6** |
+| W — symptom injection *(re-run, 11:40)* | warm | 3/3 | 1/3 | **4/6** |
+| **H — standing native context** | **hot** | **3/3** | **2/3** | **5/6** |
+| H — materialized where nothing loads it | none | 0/3 | — | **0/3** |
+
+n=3 per cell. Say so before quoting any of these numbers.
+
+Arm W was re-run rather than reused because `bench/run.py` changed (two
+harness fixes below). Both W measurements are the same code, same model, same
+skill, three runs each: **6/6 and 4/6**. That spread is the resolution limit
+of this design, and it is wider than the H-vs-W difference it was supposed to
+adjudicate. The defensible claim is the one in bold, not a ranking.
+
+The last row is not a designed arm. It is the first attempt at arm H, kept
+because it is the cleanest internal validity check the bench has produced.
+
+## The hot tier does not deliver, and never has
+
+`sync.py` materializes a promoted skill to
+
+    <base>/.claude/skills/skillforge-hot/<name>/SKILL.md
+
+Claude Code scans **one** level under `.claude/skills/`, so it looks for
+`.claude/skills/skillforge-hot/SKILL.md`, does not find one, and skips the
+directory. Every skill SkillForge has ever promoted to hot has been invisible
+to the model.
+
+Measured, not inferred. One session, both paths present, nothing else
+different:
+
+    .claude/skills/skillforge-hot/matcher-input-traps/SKILL.md   not listed
+    .claude/skills/flat-copy/SKILL.md   (same bytes, name changed)   listed
+
+The model was asked to name every Skill available to it. It named `flat-copy`
+and not `matcher-input-traps`. The nested copy was still on disk when the
+session ended, so this is not eviction.
+
+`docs/skillforge-architecture-v4.md` §312 states the assumption in the open —
+"a directory Claude Code actually loads (`~/.claude/skills/skillforge-hot/
+<name>/`)" — and every test in the repo asserts that same path, which is why
+nothing caught it. The tier has no delivery signal of its own (hot skills log
+no `injection` row), so there was nothing to notice.
+
+**Fixed in 0.2.5.** Materialization now writes to
+`.claude/skills/skillforge-<name>/SKILL.md` — one level under
+`.claude/skills/`, which is the only depth the loader scans. The
+`skillforge-` prefix replaces the nesting as the namespace `sync.py` may
+evict from: that sweep now runs in the same directory as the user's own
+hand-written skills and must never delete one. The legacy `skillforge-hot/`
+directory carries the prefix and is not in `keep`, so the first sync after
+upgrading removes it; no migration step is needed.
+
+Verified the same way the bug was found — the model was asked to name its
+skills, and named `skillforge-matcher-input-traps`. The arm H runs below
+predate the fix and used the test-only lever's own flat path; the delivery
+mechanism is the same one 0.2.5 now ships.
+
+It also re-reads E1's invalid batch. That batch scored the umbrella 1/6 as a
+description-triggered hot `kind: skill`. Hot delivered nothing, so 1/6 was a
+control measurement with one lucky run — consistent with the pilot's 0/6, and
+no longer evidence about section structure or auto-promotion.
+
+## Delivery was asymmetric by construction, and the ledger proves it
+
+Per-run ledgers. Arm H must show no injection row (the harness injects native
+skills and SkillForge never sees it); arm W must show exactly one.
+
+    arm H  response_text     2,3   injection=0  marker=1,1
+    arm H  fingerprint     1,2,3   injection=0  marker=0,1,1
+    arm W  response_text   1,2,3   injection=1  marker=1,1,1
+    arm W  fingerprint     1,2,3   injection=1  marker=0,0,0
+
+Zero injections across arm H is the load-bearing check: with symptoms dropped
+from `triggers.json`, the skill arrived by one path only. A marker credited to
+a skill with no injection row is itself proof of hot delivery —
+`reconcile._credit_markers` credits an uninjected skill only when `index.json`
+says `tier: hot`.
+
+**Arm H response_text run 1's ledger was overwritten before it was read** and
+is not in the table. Both arms pass `--arm treatment`, so their clones and
+ledgers shared a path; the arm W batch deleted arm H's run-1 database. Fixed
+(`-hot` in the path), but that run's delivery is unverified. Its score stands.
+
+Marker rate: 4/5 in arm H, 3/6 in arm W. Do not read that as arm H being used
+more. Marker capture is a compliance signal with known drift, n is 5 and 6,
+and arm W's fingerprint cell logged zero markers while resolving one of three.
+
+`skill_note` is not a delivery record. It reports `indexed: warm tier` for
+every arm H row, because `save_skill._warm_reason` tests for the *nested*
+path that the lever deliberately no longer writes. Cosmetic; the ledger is the
+record.
+
+## Two harness defects found on the way, both fixed
+
+**Per-run ledgers were reused across batches.** `SKILLFORGE_LEDGER` points
+outside the clone, so `prepare()`'s rmtree never cleared it, and a re-run of
+the same task/arm/run index read the previous batch's rows as its own. E5
+spent its first pass reading E1's 04:49 injections as evidence about its own
+sessions. `one()` now deletes the database (and `-wal`/`-shm`) before the run.
+
+**The task repo is SkillForge, and the model runs its test suite.** The
+`response_text` prompt ends with "run `python3 tests/test_detect.py`", and the
+model generalises: run 1's transcript shows `for t in tests/test_*.py`. The
+clone's own `tests/test_save_skill.py` then evicted the materialized native
+copy mid-session and rewrote the user-global `index.json` to `tier: warm`.
+Timestamps put every eviction inside the session window, after the model had
+finished implementing, so the scores stand.
+
+Root cause, and it was never a bench problem: `save_skill.py`'s
+`--project-root` defaults to `"."`, and `main()` syncs that root — so a save
+run from any directory treats **the current working directory** as a project.
+The suite sandboxed `HOME` but not cwd, so `sync()` judged the real cwd's
+store against a trust store living in the sandbox, found nothing trusted, and
+evicted. Running SkillForge's own test suite inside any project deleted that
+project's hot skills. Fixed in 0.2.5: `in_sandbox` chdirs into the sandbox in
+every test file that has one (`test_stats.py` already did — the rest now
+match), with a regression test asserting cwd is isolated and restored.
+
+## Limits
+
+- **n=3 per cell.** Two measurements of arm W came back 6/6 and 4/6.
+- **Two traps, one skill, one repo.** The fingerprint cell is where all the
+  variance lives; `response_text` was 3/3 in all four treatment cells today.
+- **The hot body is not byte-identical to the warm one.** `sync.py` appends a
+  modified `MARKER_NOTE` ("this skill" rather than "a skill above") to the
+  materialized copy. Inherent to hot delivery, so part of the treatment, but
+  it is a difference.
+- **Arm H ran before the path fix landed.** It delivered through the lever's
+  own flat directory; 0.2.5 ships the same mechanism at
+  `skills/skillforge-<name>/`, differing only in the directory's name. Not
+  re-measured under the shipped path.
+- **Bench sessions inherit the operator's full plugin set** (ponytail,
+  superpowers). Constant across arms; absolute numbers are model-plus-plugins.
+- Arm H clones were overwritten by the arm W batch before per-run mechanism
+  notes were taken, so there is no "what it wrote" table for E5 as there is
+  for E1.
+
+## What this does to the roadmap
+
+- **`/consolidate` is unconstrained by delivery.** E1 cleared consolidation;
+  E5 says the emitted form does not have to be an anti-skill to work. Emitting
+  anti-skills is still the safer default — it is the path with two independent
+  measurements above control.
+- **The hot tier works as of 0.2.5 and has never been measured in the wild.**
+  Every number the library has recorded about hot skills was collected while
+  the tier delivered nothing. `confidence × recent usage` ranking, the 1,500
+  token budget, promotion and eviction pressure — all of it is now live for
+  the first time, and none of it has evidence behind it yet.
+- **E5's original question is answered well enough to stop.** More runs on
+  this design buy resolution the n cannot support; a third trap class would
+  buy more.
+
+## Reproducing
+
+```bash
+cd /Users/dwightbritton/Developer/skill-forge
+python3 bench/run.py --check      # expect: config ok: 10 task(s)
+
+# arm H -- standing native context, symptoms suppressed
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-response-text-umbrella
+python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-fingerprint-preexisting-umbrella
+
+# arm W -- symptom injection
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text-umbrella
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting-umbrella
+```
+
+`--force-hot` sets `SKILLFORGE_FORCE_HOT=<skill>` per run, the way
+`SKILLFORGE_LEDGER` is set. It is refused unless the name matches a skill
+exactly, and it does two things that must happen together: forces the tier
+hot and materializes, and drops the skill's entries from
+`triggers.json["symptoms"]`. Doing only the first delivers the skill by both
+paths at once and measures nothing.
+
+E5 rows in `results.jsonl` carry `"delivery": "hot"|"warm"`; E1's rows have no
+such key. Timestamp tells the three batches apart, and nothing else does —
+all three ran `--arm treatment` on the same two tasks:
+
+| Window (09-06) | Batch |
+|---|---|
+| 11:17:03 – 11:18:15 | arm H against the undeliverable nested path — **invalid**, kept |
+| 11:30:18 – 11:40:08 | arm H, valid |
+| 11:41:24 – 11:47:31 | arm W, re-run |
+
+Do not use `resolved` to tell them apart: the valid arm H fingerprint run 1 is
+also `false`.

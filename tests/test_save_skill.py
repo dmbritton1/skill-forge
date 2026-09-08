@@ -76,11 +76,20 @@ Do the right thing.
 def in_sandbox(fn):
     """Run fn(home, tmp) with HOME pointed at a fresh temp dir."""
     old_home = os.environ["HOME"]
+    old_cwd = os.getcwd()
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["HOME"] = tmp
+    # cwd is part of the sandbox, not just HOME. save_skill's --project-root
+    # defaults to ".", so sync() treats whatever directory the suite happens to
+    # run in as a project -- and then evicts that project's materialized hot
+    # skills, because the trust store it judges them against lives in the
+    # sandbox HOME and knows nothing about them. Running this suite inside a
+    # real project used to delete that project's native copies.
+        os.chdir(tmp)
         try:
             fn(pathlib.Path(tmp), pathlib.Path(tmp))
         finally:
+            os.chdir(old_cwd)
             os.environ["HOME"] = old_home
 
 
@@ -104,7 +113,7 @@ def test_valid_global_skill_saves_and_materializes():
         assert (home / ".claude/skillforge/skills/test-skill/SKILL.md").exists()
         # v0.2 slice C2: a freshly saved skill is unproven -- it does not
         # materialize until it earns a real verification success.
-        assert not (home / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
+        assert not (home / ".claude/skills/skillforge-test-skill/SKILL.md").exists()
         idx = json.loads((home / ".claude/skillforge/index.json").read_text(encoding="utf-8"))
         entry = {e["name"]: e for e in idx["entries"]}["test-skill"]
         assert entry["bucket"] == "unproven"
@@ -114,7 +123,7 @@ def test_valid_global_skill_saves_and_materializes():
                          project="/repo/a/.git")
         import sync
         sync.sync()
-        assert (home / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
+        assert (home / ".claude/skills/skillforge-test-skill/SKILL.md").exists()
     in_sandbox(check)
 
 
@@ -125,7 +134,7 @@ def test_antiskill_goes_to_antiskills_dir():
         assert (home / ".claude/skillforge/antiskills/test-trap/SKILL.md").exists()
         # v0.2 slice C1: anti-skills are delivered by symptom trigger, never
         # materialized into the native hot dir (sync.py forces them warm).
-        assert not (home / ".claude/skills/skillforge-hot/test-trap/SKILL.md").exists()
+        assert not (home / ".claude/skills/skillforge-test-trap/SKILL.md").exists()
     in_sandbox(check)
 
 
@@ -146,7 +155,7 @@ def test_project_scope_writes_under_project_root():
                          project="/repo/a/.git")
         import sync
         sync.sync(project_root=str(proj))
-        assert (proj / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
+        assert (proj / ".claude/skills/skillforge-test-skill/SKILL.md").exists()
     in_sandbox(check)
 
 
@@ -156,7 +165,7 @@ def test_secret_blocks_save():
         rc = save_skill.main([write_draft(tmp, bad), "--scope", "global"])
         assert rc == 1
         assert not (home / ".claude/skillforge/skills/test-skill").exists()
-        assert not (home / ".claude/skills/skillforge-hot/test-skill").exists()
+        assert not (home / ".claude/skills/skillforge-test-skill").exists()
     in_sandbox(check)
 
 
@@ -221,7 +230,7 @@ def test_cross_kind_name_collision_rejected_and_native_copy_preserved():
                          project="/repo/a/.git")
         import sync
         sync.sync()
-        native = home / ".claude/skills/skillforge-hot/clash/SKILL.md"
+        native = home / ".claude/skills/skillforge-clash/SKILL.md"
         assert native.exists()
         assert native.read_text(encoding="utf-8").startswith(skill)
         preserved = native.read_text(encoding="utf-8")
@@ -442,7 +451,7 @@ def test_save_with_zero_hot_budget_reports_warm():
                 rc = save_skill.main([write_draft(tmp, VALID_SKILL), "--scope", "global"])
             assert rc == 0
             assert "warm tier" in out.getvalue()
-            assert not (home / ".claude/skills/skillforge-hot/test-skill/SKILL.md").exists()
+            assert not (home / ".claude/skills/skillforge-test-skill/SKILL.md").exists()
             assert (home / ".claude/skillforge/index.json").exists()
         finally:
             if old is None:

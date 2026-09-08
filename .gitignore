@@ -2,7 +2,7 @@ __pycache__/
 *.pyc
 .DS_Store
 .superpowers/
-.claude/skills/skillforge-hot/
+.claude/skills/skillforge-*/
 
 # Project-scoped knowledge store. Skills are approved per-machine against a
 # content hash in trust.json, which is not committed -- so a skill arriving

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Trust-gated native materialization — the ONLY writer of native skill dirs.
 
-Native copies under <base>/.claude/skills/skillforge-hot/ are derived,
+Native copies under <base>/.claude/skills/skillforge-<name>/ are derived,
 rebuildable cache: trusted store skills get materialized, everything else
 (quarantined, modified, deleted, orphaned) gets evicted. Runs on every
 SessionStart so a pulled/tampered skill never rides an old trust decision
@@ -25,15 +25,34 @@ import trust
 import validate
 
 
+# Claude Code scans ONE level under .claude/skills, so a skill has to sit at
+# .claude/skills/<dir>/SKILL.md. The old layout nested a level deeper --
+# .claude/skills/skillforge-hot/<name>/SKILL.md -- which made the loader look
+# for skillforge-hot/SKILL.md, find nothing, and skip the whole directory.
+# Every skill ever promoted to hot was invisible to the model; measured in
+# bench/RESULTS.md (E5). The prefix is what replaces that nesting: it keeps
+# one directory namespace this module may safely rmtree, without owning all
+# of .claude/skills. The legacy `skillforge-hot/` dir starts with the prefix
+# and is not in `keep`, so the first sync after this change deletes it.
+NATIVE_PREFIX = "skillforge-"
+
+
 def native_root(base):
-    return Path(base) / ".claude" / "skills" / "skillforge-hot"
+    return Path(base) / ".claude" / "skills"
 
 
-def materialize_one_text(text, native_dir):
-    """Idempotent write-through of skill text into its native dir."""
-    native_dir = Path(native_dir)
-    native_dir.mkdir(parents=True, exist_ok=True)
-    target = native_dir / "SKILL.md"
+def native_dir(base, name):
+    return native_root(base) / (NATIVE_PREFIX + name)
+
+
+def materialize_one_text(text, dest):
+    """Idempotent write-through of skill text into its native dir.
+
+    `dest`, not `native_dir` -- that name now belongs to the function above.
+    """
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    target = dest / "SKILL.md"
     if not target.exists() or target.read_text(encoding="utf-8") != text:
         target.write_text(text, encoding="utf-8")
 
@@ -92,6 +111,16 @@ def _token_lists(value):
         if len(toks) >= 2:
             out.append(toks)
     return out
+
+
+def _force_hot():
+    """Test-only (E5, bench only): the ONE skill name to deliver hot instead of
+    warm. Exact match or nothing -- no prefix, no glob, no "all". Both gates
+    that keep an anti-skill warm read this: the tier loop below, and
+    _write_triggers, which must drop the skill's symptoms or it arrives by
+    both paths at once and the arm measures nothing.
+    """
+    return os.environ.get("SKILLFORGE_FORCE_HOT", "").strip()
 
 
 BUCKET_RANK = {"trusted": 0, "working": 1, "unproven": 2}
@@ -165,9 +194,11 @@ def _write_triggers(items):
     # but only anti-skills spend the anti-skill budget and get framed as one
     # (detect.py). Fingerprints ride along on each symptom entry so the
     # PostToolUse hook can snapshot at injection time without a second file.
+    forced = _force_hot()
     syms = [{"skill": s["name"], "path": str(s["path"]), "root": str(s["base"]),
              "tokens": toks, "fingerprints": s["fingerprints"]}
-            for s in items if s["kind"] == "antiskill" for toks in s["symptoms"]]
+            for s in items if s["kind"] == "antiskill" and s["name"] != forced
+            for toks in s["symptoms"]]
     # `tier` rides along so detect.py can tell a hot skill from a warm one
     # without opening index.json on every tool call. It decides whether a
     # verification match is credited: warm skills must have been injected
@@ -343,7 +374,11 @@ def sync(project_root=None):
 
     budget = hot_budget()
     spent = 0
+    forced = _force_hot()
     for s in trusted:
+        if forced and s["name"] == forced:
+            s["tier"] = "hot"       # test-only, bypasses kind, bucket, budget
+            continue
         # Anti-skills are delivered by symptom trigger (spec 8.1), not by
         # standing description -- so they never spend hot budget.
         if s["kind"] == "antiskill":
@@ -378,15 +413,19 @@ def sync(project_root=None):
             hot_note = (retrieve.MARKER_NOTE.replace("a skill above", "this skill")
                                             .replace("<skill-name>", s["name"]))
             materialize_one_text(s["text"] + "\n\n" + hot_note + "\n",
-                                 native_root(s["base"]) / s["name"])
+                                 native_dir(s["base"], s["name"]))
             counts["materialized"] += 1
 
     for base in bases:
-        keep = {s["name"] for s in trusted if s["base"] == base and s["tier"] == "hot"}
+        keep = {NATIVE_PREFIX + s["name"] for s in trusted
+                if s["base"] == base and s["tier"] == "hot"}
         nroot = native_root(base)
         if nroot.is_dir():
             for entry in sorted(nroot.iterdir()):
-                if entry.is_dir() and entry.name not in keep:
+                # Prefix-scoped: .claude/skills also holds the user's own
+                # hand-written skills now, and this sweep must never touch one.
+                if (entry.is_dir() and entry.name.startswith(NATIVE_PREFIX)
+                        and entry.name not in keep):
                     shutil.rmtree(str(entry))
                     counts["evicted"] += 1
 
