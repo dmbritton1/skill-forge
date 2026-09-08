@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Keep Q1's 54 sessions out of the operator's real SkillForge library.
+"""Keep Q1's 60 sessions out of the operator's real SkillForge library.
 
 Three separate leaks, none of which the bench's existing SKILLFORGE_LEDGER
 isolation covers:

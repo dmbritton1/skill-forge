@@ -59,13 +59,35 @@ expect success, not a licence to assume it, which is why §4 scores the repair.
 | 1 — distillation | 2 distillers × 2 traps × 3 draws | 12 |
 | 2 — probe | 2 distillers × 2 traps × 3 drafts × 3 runs | 36 |
 | 2 — control | 2 tasks × 3 runs, this batch, pinned model | 6 |
-| | | **54** |
+| 2 — transfer (brief Q2) | 2 transfer tasks × 3 runs, hand-authored crossed skill | 6 |
+| | | **60** |
 
 Phase 2 shrinks if phase 1 emits fewer probeable drafts (§5); it never grows.
 
+### Why the transfer arm rides this batch
+
+The transfer arm is brief Q2, not Q1, and it is folded in for one reason: it
+needs a floor measured under the same configuration, and this batch is the only
+one that has one.
+
+`sf-author-response-text-transfer` and `sf-author-fingerprint-preexisting-transfer`
+already exist in `tasks.json`, already carry the crossed hand-authored skill,
+and already ran 0/3 each — on 2026-08-11, **with no `model` key**, the same F1
+defect that forced Q1 to run its own control. Re-measured in a separate batch
+later, transfer would need its own control cell as well (+6 treatment **and** +6
+control = 12), because comparing it against this batch's floor would be a
+cross-batch comparison — precisely what E5 established is untrustworthy here:
+two measurements of *one arm* spanned 6/6 to 4/6 with nothing changed but the
+batch. Folded in, it costs 6.
+
+It changes nothing else. `run.py` needs no flag — the transfer tasks name their
+own skill — the clone segments cannot collide (`dest` derives from the task id),
+and the rows land tagged `skill_source: authored`, `distiller: null`,
+distinguishable from every Q1 row by task id alone.
+
 **Runtime is stated for phase 2 only.** Across all 78 timed rows in the three
 results files: min 27.5s, median 72.3s, mean 74.3s, p90 100.1s, max 245.6s. The
-42 phase-2 sessions are author-mode sessions of exactly that shape, so ~50
+48 phase-2 sessions are author-mode sessions of exactly that shape, so ~60
 minutes is a sound estimate for them. It is **not** sound for phase 1: those
 sessions do a repair *and* a full distillation (transcript review, novelty gate,
 duplicate check, draft, secret scan, save), and nothing in the record measures
@@ -488,6 +510,26 @@ register caught two confidently-stated false claims:
   will be labelled as such regardless of which direction it points.
 - A phase-1 abort, timeout, or rejection is a result. It is reported, not re-run.
 
+### The two folded-in questions, declared before any data exists
+
+Both are secondary. Neither may be reported as a Q1 finding, and neither may be
+dropped from the write-up if it points the wrong way.
+
+- **Transfer (brief Q2).** The two transfer tasks are run at n=3 each against
+  this batch's control. The comparison is transfer vs. the fresh floor, and — as
+  a separate, directional line — transfer vs. the matched hand-authored cells.
+  The pilot's 0/6 is corroboration with its missing `model` key stated, exactly
+  as the control is handled in §2.
+- **Does the `trusted` gate predict anything (brief Q5)?** Reported as probe
+  resolve rate grouped by each draft's `critique_verdict` from `judge.py`. The
+  group-by is declared **here**, before any verdict or score exists, so that it
+  is a pre-registered secondary rather than a pattern found afterward. It costs
+  no sessions: `meta.json` and `results.jsonl` are both committed, so the
+  analysis can be run at any later date, by any session, from git alone.
+  Critique passed 0 of 9 hand-written skills, so the likely outcome is that no
+  draft passes and there is no group to compare. **That is the finding**, and it
+  is reported as "the gate rejected every distilled draft", not as a blank.
+
 ## 9. How to read the outcome
 
 - **Drafts save and probes beat the fresh control.** The pipeline closes end to
@@ -507,10 +549,16 @@ register caught two confidently-stated false claims:
 
 ## 10. Out of scope
 
-Transfer (brief Q2), harm from irrelevant injection (E4, blocked on a task that
-does not exist), token cost per unit of benefit (brief Q4), and whether the
-`trusted` gate predicts anything (brief Q5). Nothing here requires a new trap, a
+Harm from irrelevant injection (E4, blocked on a task that does not exist) and
+token cost per unit of benefit (brief Q4). Nothing here requires a new trap, a
 new task, or a new repository.
+
+Transfer (Q2) and the `trusted` gate (Q5) were out of scope in the first draft
+and are now folded in as **pre-registered secondaries** (§8). Neither is a Q1
+result. Q2 rides this batch because it needs a same-configuration floor and this
+batch is the only one that has one; Q5 rides it because the batch produces its
+data anyway and only the analysis was missing. Q1's headline is still the funnel
+in §3, and a Q2 or Q5 result does not change it in either direction.
 
 ---
 

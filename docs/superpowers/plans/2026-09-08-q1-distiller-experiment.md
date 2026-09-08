@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the two-phase harness that lets a session distill its own skill and a later session be measured with it, then run the 54-session batch and write it up.
+**Goal:** Build the two-phase harness that lets a session distill its own skill and a later session be measured with it, then run the 60-session batch and write it up.
 
 **Architecture:** Phase 1 (`bench/distill.py`) runs a repair session, scores the repair, and extracts whatever the distiller saved into a committed archive under `bench/distilled/`. Phase 2 is the existing `bench/run.py` with one new flag, `--skill-from`, pointing at an archived draft. Two support scripts sit between them: `bench/dryrun.py` predicts delivery before any probe session is spent, and `bench/judge.py` scores the archived drafts retrospectively. `bench/libguard.py` keeps the operator's real library out of the experiment.
 
@@ -15,7 +15,8 @@
 Copied verbatim from the spec. Every task's requirements implicitly include these.
 
 - **n=3 per cell.** Say so in anything you conclude.
-- **54 sessions:** 12 phase-1, 36 phase-2 probe, 6 phase-2 control.
+- **60 sessions:** 12 phase-1, 36 phase-2 probe, 6 phase-2 control, 6 phase-2 transfer (brief Q2,
+  folded in as a pre-registered secondary — spec §1 and §8).
 - **Model is pinned** to `claude-opus-5` on every session. Never the account default.
 - **The floor is this batch's own control arm.** The 2026-08-11 figure is corroboration and is labelled as such. Every historical `control` row lacks a `model` key.
 - **All drafts from a resolved repair are probed, 3 runs each.** No draft is selected, skipped, or re-rolled after its content is seen.
@@ -136,7 +137,7 @@ def _critique_suppressed():
     SKILLFORGE_LEDGER and SKILLFORGE_FORCE_HOT, read at exactly one point.
 
     Why it exists: a create spawns critique detached and never waits on it,
-    so a 54-session batch would fire up to 48 extra `claude -p` children --
+    so a 60-session batch would fire up to 54 extra `claude -p` children --
     unbudgeted, and racing the containment `library.py delete` for the same
     name. Q1 runs critique retrospectively instead (bench/judge.py).
     """
@@ -824,7 +825,7 @@ Expected: `ModuleNotFoundError: No module named 'libguard'`.
 
 ```python
 #!/usr/bin/env python3
-"""Keep Q1's 54 sessions out of the operator's real SkillForge library.
+"""Keep Q1's 60 sessions out of the operator's real SkillForge library.
 
 Three separate leaks, none of which the bench's existing SKILLFORGE_LEDGER
 isolation covers:
@@ -1848,6 +1849,19 @@ python3 bench/run.py --arm control --runs 3 --task sf-author-fingerprint-preexis
 ```
 Expected: 6 rows. **This is the floor.** The 2026-08-11 figure is corroboration.
 
+- [ ] **Step 5b: Phase 2 — the transfer arm (brief Q2), 6 sessions**
+
+Folded into this batch because it needs a same-configuration floor and Step 5 is the only place one exists (spec §1, "Why the transfer arm rides this batch"). Run it **after** Step 5, so the floor it is read against is already on disk.
+
+Run:
+```bash
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text-transfer
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting-transfer
+```
+Expected: 6 rows, tagged `skill_source: authored`, `distiller: null`, `draw: null`. No `--skill-from` — these tasks name their own crossed hand-authored skill in `tasks.json`. Nothing collides: `dest` is `<task-id>-<arm><segment>-<run>`, and `arm_segment` returns `""` for a treatment run with no `--skill-from`, so these land at `sf-author-response-text-transfer-treatment-1` — distinct from both `sf-author-response-text-treatment-1` (Step 5's control uses `-control-`) and every `...-treatment-d-<distiller>-<draw>-N` clone from Step 4.
+
+This is a **secondary**. It does not enter the Q1 funnel and it is not a Q1 finding.
+
 - [ ] **Step 6: Judge the drafts**
 
 Run: `python3 bench/judge.py`
@@ -1902,6 +1916,43 @@ for db in sorted(glob.glob('/tmp/skillforge-bench/*-d-*.ledger.db')):
 ```
 Expected: an `injection` row with `trigger='prompt'` for each delivered probe. Report the `prompt` / `symptom` split rather than collapsing it into "injected". A zero here must be read against that draft's `delivery_prediction`.
 
+- [ ] **Step 8b: The two secondaries**
+
+Transfer (Q2), read against Step 5's floor:
+```bash
+python3 -c "
+import json, collections
+agg = collections.defaultdict(lambda: [0, 0])
+for l in open('bench/results.jsonl'):
+    r = json.loads(l)
+    if r['ts'][:10] != __import__('time').strftime('%Y-%m-%d'): continue
+    agg[(r['task'], r['arm'])][0] += bool(r['resolved'])
+    agg[(r['task'], r['arm'])][1] += 1
+for k in sorted(agg): print('%-46s %-9s %d/%d' % (k[0], k[1], *agg[k]))
+"
+```
+Expected: the two `-transfer` cells beside this batch's control cells. Report transfer vs. the fresh floor; the pilot's 0/6 is corroboration with its missing `model` key stated.
+
+Then Q5 — the group-by declared in spec §8, run after Step 6 so the verdicts exist:
+```bash
+python3 -c "
+import json, pathlib, collections
+verdict = {}
+for m in pathlib.Path('bench/distilled').glob('*/*/*/meta.json'):
+    meta = json.loads(m.read_text())
+    j = meta.get('judgement')
+    if j: verdict[(meta['distiller'], meta['draw'])] = j['critique_verdict']
+agg = collections.defaultdict(lambda: [0, 0])
+for l in open('bench/results.jsonl'):
+    r = json.loads(l)
+    if r.get('skill_source') != 'distilled': continue
+    v = verdict.get((r['distiller'], r['draw']), 'unjudged')
+    agg[v][0] += bool(r['resolved']); agg[v][1] += 1
+for v in sorted(agg): print('critique %-10s -> %d/%d probes resolved' % (v, *agg[v]))
+"
+```
+Expected: one line per distinct verdict. **A single line means every draft got the same verdict and there is no group to compare** — most likely all-fail, since critique passed 0 of 9 hand-written skills. Report that as "the gate rejected every distilled draft", not as a blank cell. Both secondaries are labelled as such; neither enters the funnel.
+
 - [ ] **Step 9: Write the results section**
 
 Append to `bench/RESULTS.md`, in the style of the E5 and hot-path sections. It must contain, at minimum:
@@ -1914,7 +1965,13 @@ Append to `bench/RESULTS.md`, in the style of the E5 and hot-path sections. It m
 - The judgement table: critique verdicts, symptom shapes, and how many verification commands discriminate.
 - Threat 9 restated where a reader will meet it: both hand-authored comparators carry narration-shaped symptoms in violation of the contract the distiller is held to, so a distilled draft that emits error signatures is being compared against skills that did not.
 
-Then update the experiment register at the top of `bench/RESULTS.md`: a Q1 row, and the `results.jsonl` row count.
+- The two secondaries from Step 8b, in their own subsection, labelled secondary and kept out of the funnel: transfer against this batch's floor, and probe resolve rate grouped by critique verdict.
+
+Then update the experiment register at the top of `bench/RESULTS.md`: a Q1 row, and the `results.jsonl` row count. The register's brief-questions table also needs three edits, or it will keep saying nobody has done work this batch did:
+
+- **Q2** — no longer "Partial. Transfer 0/6 at n=3 in the pilot". Add this batch's transfer cells and the fact that they are the first measured against a same-configuration floor on a recorded model.
+- **Q5** — no longer "needs bench runs split on critique verdict, and nobody has done it". State what the split showed, including "every draft drew the same verdict, so there was no group to compare" if that is what happened.
+- **Q1** — the row itself, replacing "No experiment exists."
 
 - [ ] **Step 10: Commit**
 

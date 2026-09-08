@@ -209,7 +209,7 @@ def _critique_suppressed():
     SKILLFORGE_LEDGER and SKILLFORGE_FORCE_HOT, read at exactly one point.
 
     Why it exists: a create spawns critique detached and never waits on it,
-    so a 54-session batch would fire up to 48 extra `claude -p` children --
+    so a 60-session batch would fire up to 54 extra `claude -p` children --
     unbudgeted, and racing the containment `library.py delete` for the same
     name. Q1 runs critique retrospectively instead (bench/judge.py).
     """
