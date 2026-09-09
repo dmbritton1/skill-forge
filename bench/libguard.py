@@ -55,16 +55,34 @@ def _store_names():
     return sorted(out)
 
 
-def _index_names(scope):
+def _index_names(scope, root=None):
     entries = _read_json("index.json", {}).get("entries", [])
-    return sorted(e.get("name", "") for e in entries if e.get("scope") == scope)
+    return sorted(e.get("name", "") for e in entries
+                  if e.get("scope") == scope
+                  and (root is None
+                       or _same_path(e.get("root", ""), root)))
 
 
-def snapshot():
-    """The four pieces of user-global state a batch can disturb."""
+def _same_path(a, b):
+    """Path equality that survives /tmp -> /private/tmp and trailing slashes."""
+    try:
+        return Path(str(a)).resolve() == Path(str(b)).resolve()
+    except (OSError, ValueError):
+        return str(a) == str(b)
+
+
+def snapshot(project_root=None):
+    """The four pieces of user-global state a batch can disturb.
+
+    `project_root` narrows `project_index` to entries rooted there. Without it
+    the set includes every throwaway bench clone that saved a project-scoped
+    skill, which is transient noise: index.json is rebuilt wholesale by
+    whichever sync ran last, so those entries appear and vanish on their own.
+    Spec section 4's closing assertion asks about ONE root -- the operator's.
+    """
     return {"stores": _store_names(),
             "global_index": _index_names("global"),
-            "project_index": _index_names("project"),
+            "project_index": _index_names("project", project_root),
             "trust": sorted(_read_json("trust.json", {}))}
 
 
@@ -104,14 +122,18 @@ def prune_trust(names):
     return removed
 
 
-def drift(before):
+def drift(before, project_root=None):
     """Human-readable mismatches against `before`; empty list means clean.
 
     Compares SETS of names, never index.json's bytes: sync rewrites the file
     wholesale on every run, so `compiled_ts` and entry order change constantly
     and a byte comparison would report drift on a clean batch.
+
+    `project_root` must match whatever was passed to snapshot(). Pass the
+    operator's real repo: a bench clone's project entry is expected noise, and
+    comparing it made this assertion fire on a perfectly clean pilot draw.
     """
-    now = snapshot()
+    now = snapshot(project_root)
     out = []
     for key, label in (("stores", "global store"),
                        ("global_index", "global index entries"),

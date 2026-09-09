@@ -655,6 +655,41 @@ def test_one_archives_and_contains_a_global_scope_draw():
     in_home(check)
 
 
+def test_snapshot_narrows_project_entries_to_one_root():
+    def check(home):
+        _seed(home, entries=[
+            {"name": "mine", "scope": "project", "root": "/repo"},
+            {"name": "bench-clone", "scope": "project", "root": "/tmp/throwaway"}])
+        assert libguard.snapshot("/repo")["project_index"] == ["mine"]
+        assert libguard.snapshot()["project_index"] == ["bench-clone", "mine"]
+    in_home(check)
+
+
+def test_drift_ignores_a_bench_clone_s_project_entry():
+    """The pilot draw's clone wrote an entry rooted in /tmp and drift called it
+    unexpected. Every draw writes one; comparing them fires on a clean batch."""
+    def check(home):
+        _seed(home, entries=[{"name": "mine", "scope": "project", "root": "/repo"}])
+        before = libguard.snapshot("/repo")
+        _seed(home, entries=[
+            {"name": "mine", "scope": "project", "root": "/repo"},
+            {"name": "from-a-clone", "scope": "project", "root": "/tmp/clone-1"}])
+        assert libguard.drift(before, "/repo") == []
+    in_home(check)
+
+
+def test_drift_still_reports_the_real_repo_s_entry_going_missing():
+    """Spec section 4(d): the operator's own entries must be asserted present."""
+    def check(home):
+        _seed(home, entries=[{"name": "mine", "scope": "project", "root": "/repo"}])
+        before = libguard.snapshot("/repo")
+        _seed(home, entries=[{"name": "from-a-clone", "scope": "project",
+                              "root": "/tmp/clone-1"}])
+        out = libguard.drift(before, "/repo")
+        assert out and "mine" in out[0], out
+    in_home(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

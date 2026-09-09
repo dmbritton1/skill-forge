@@ -44,11 +44,12 @@ DISTILLERS = {"learn-failure": "antiskills", "learn": "skills"}
 TRAPS = {"A": "sf-escaping-breaks-symptom-match",
          "B": "sf-truncation-reports-absent"}
 
-# Sized for repair PLUS a full distillation (transcript review, novelty gate,
-# duplicate check, draft, secret scan, save). run.py's 900s is sized for an
-# author-mode session that writes one function; nothing in the record measures
-# this workload, so this is a ceiling to be replaced by a piloted number.
-PHASE1_TIMEOUT_S = 1800
+# Measured, not guessed: the Task 8 pilot draw took 183s for a full repair
+# plus distillation (trap A, learn-failure, 2026-09-09). 900 is ~5x that --
+# enough headroom for a slower trap, while a hung session costs 15 minutes
+# rather than 30. n=1: if a later draw times out legitimately, raise it and
+# say so rather than treating the timeout as a result.
+PHASE1_TIMEOUT_S = 900
 
 PROMPT = (
     "%s\n\n"

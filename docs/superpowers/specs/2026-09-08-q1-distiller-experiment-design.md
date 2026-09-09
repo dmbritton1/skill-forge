@@ -241,11 +241,11 @@ Per (trap, distiller, draw):
 
    The prompt names the skill (`skillforge:distilling-failures` /
    `skillforge:distilling-skills`) for invocation through the Skill tool — this
-   is what ships. *Open mechanism, first thing the implementation must
-   confirm:* whether that form actually reaches the distillation contract, not
-   which of two forms to pick. If it does not, a literal `/skillforge:learn-failure`
-   is the fallback. Whichever works is fixed across all 12 phase-1 sessions —
-   the prompt is an experimental variable and must not drift between cells.
+   is what ships. *Confirmed working as of the 2026-09-09 pilot:* that form
+   reached the distillation contract, evidenced by the `save` row in that
+   draw's ledger, so the literal `/skillforge:learn-failure` fallback was never
+   needed. This form is fixed across all 12 phase-1 sessions — the prompt is
+   an experimental variable and must not drift between cells.
 
    Phase 1 sets its own timeout explicitly. `SESSION_TIMEOUT_S = 900` is sized
    for author-mode sessions and may be tight for repair-plus-distillation.
