@@ -85,21 +85,47 @@ def outcome(repair_resolved, timed_out, draft, reject_count):
     return "saved"
 
 
+def _draft_dirs(clone, distiller):
+    """Every store a save could have landed in, in search order.
+
+    The clone's PROJECT store first, then the operator's GLOBAL store:
+    save_skill.store_dir resolves --scope global to Path.home(), and the
+    distillation contract has the MODEL choose the scope. A global save is a
+    normal outcome for a trap the model judges general, not an edge case --
+    and it used to read as `aborted` and then be deleted by containment
+    before anything archived it.
+    """
+    kind = DISTILLERS[distiller]
+    return [Path(clone) / ".claude" / "skillforge" / kind,
+            Path.home() / ".claude" / "skillforge" / kind]
+
+
+def drafts(clone, distiller):
+    """Every SKILL.md this draw saved, project store before global.
+
+    Returns a list so the caller can record how many there were. Taking the
+    first silently is what this replaces.
+    """
+    out = []
+    for d in _draft_dirs(clone, distiller):
+        if not d.is_dir():
+            continue
+        for child in sorted(d.iterdir()):
+            md = child / "SKILL.md"
+            if md.is_file():
+                out.append(md)
+    return out
+
+
 def extract(clone, distiller):
-    """The store copy of whatever the distiller saved, or None.
+    """The store copy of what the draw saved, or None.
 
     The STORE copy, never the native one under .claude/skills/: sync.py
     appends a rewritten MARKER_NOTE to the materialized copy, and that text
     is part of hot delivery rather than part of the draft.
     """
-    d = Path(clone) / ".claude" / "skillforge" / DISTILLERS[distiller]
-    if not d.is_dir():
-        return None
-    for child in sorted(d.iterdir()):
-        md = child / "SKILL.md"
-        if md.is_file():
-            return md
-    return None
+    found = drafts(clone, distiller)
+    return found[0] if found else None
 
 
 def archive_dir(trap, distiller, draw):
@@ -154,7 +180,12 @@ def one(trap, distiller, draw, plugin_dir, task):
     post, test_tail = bench_run.score(task, dest)
     repair_resolved = all(post.values())
 
-    draft = extract(dest, distiller)
+    found = drafts(dest, distiller)
+    draft = found[0] if found else None
+    # Read the TEXT now, not the path. The containment step below deletes a
+    # global-scope save from the real library, and a Path captured before
+    # that would be a dangling read by the time the archive is written.
+    draft_text = draft.read_text(encoding="utf-8") if draft is not None else None
     rows = _ledger_rows(ledger_db)
     # The session calls save_skill.py itself, so the harness never sees its
     # exit code. A refusal is observable only here: save_skill logs a system
@@ -171,8 +202,8 @@ def one(trap, distiller, draw, plugin_dir, task):
 
     d = archive_dir(trap, distiller, draw)
     d.mkdir(parents=True, exist_ok=True)
-    if draft is not None:
-        (d / "SKILL.md").write_text(draft.read_text(encoding="utf-8"), encoding="utf-8")
+    if draft_text is not None:
+        (d / "SKILL.md").write_text(draft_text, encoding="utf-8")
     (d / "meta.json").write_text(json.dumps({
         "trap": trap, "distiller": distiller, "draw": draw,
         "task": task["id"], "model": bench_run.MODEL,
@@ -180,6 +211,8 @@ def one(trap, distiller, draw, plugin_dir, task):
         "repair_resolved": repair_resolved, "per_test": post,
         "timed_out": timed_out, "secs": secs,
         "chose_global_scope": leaked,
+        "drafts_found": len(found),
+        "ledger_read_error": rows["read_error"],
         "ledger_rows": rows["events"],
         "rejections": rejects,
         "session_tail": tail, "test_tail": test_tail,
@@ -195,9 +228,11 @@ def _ledger_rows(db):
     `decisions` is load-bearing, not provenance: it is the ONLY place a
     rejection is observable, because the session invokes save_skill.py itself
     and the harness never sees that process's exit code. Empty on failure,
-    which classifies as `aborted` -- the conservative reading.
+    which classifies as `aborted` -- but `read_error` is recorded, because
+    "could not read" and "nothing to read" must not look identical in the
+    archive.
     """
-    out = {"events": [], "decisions": []}
+    out = {"events": [], "decisions": [], "read_error": None}
     try:
         import sqlite3
         con = sqlite3.connect(str(db))
@@ -212,8 +247,8 @@ def _ledger_rows(db):
                 "select actor, verdict, subject, reason from decisions"
                 " order by id")]
         con.close()
-    except Exception:
-        pass
+    except Exception as err:
+        out["read_error"] = repr(err)
     return out
 
 

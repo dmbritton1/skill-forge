@@ -206,32 +206,38 @@ def test_outcome_saved_is_the_only_probeable_one():
 def test_extract_finds_the_store_copy_not_the_native_one():
     """sync.py appends a rewritten MARKER_NOTE to the materialized copy only,
     so the native copy is a delivery artifact, not the draft."""
-    with tempfile.TemporaryDirectory() as tmp:
-        clone = pathlib.Path(tmp)
-        store = clone / ".claude" / "skillforge" / "antiskills" / "trap-thing"
-        store.mkdir(parents=True)
-        store.joinpath("SKILL.md").write_text("STORE COPY\n", encoding="utf-8")
-        native = clone / ".claude" / "skills" / "skillforge-trap-thing"
-        native.mkdir(parents=True)
-        native.joinpath("SKILL.md").write_text("NATIVE COPY\n", encoding="utf-8")
-        found = distill.extract(clone, "learn-failure")
-        assert found is not None
-        assert found.read_text(encoding="utf-8") == "STORE COPY\n"
+    def check(home):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = pathlib.Path(tmp)
+            store = clone / ".claude" / "skillforge" / "antiskills" / "trap-thing"
+            store.mkdir(parents=True)
+            store.joinpath("SKILL.md").write_text("STORE COPY\n", encoding="utf-8")
+            native = clone / ".claude" / "skills" / "skillforge-trap-thing"
+            native.mkdir(parents=True)
+            native.joinpath("SKILL.md").write_text("NATIVE COPY\n", encoding="utf-8")
+            found = distill.extract(clone, "learn-failure")
+            assert found is not None
+            assert found.read_text(encoding="utf-8") == "STORE COPY\n"
+    in_home(check)
 
 
 def test_extract_looks_in_the_kind_directory_the_distiller_writes():
-    with tempfile.TemporaryDirectory() as tmp:
-        clone = pathlib.Path(tmp)
-        store = clone / ".claude" / "skillforge" / "skills" / "a-skill"
-        store.mkdir(parents=True)
-        store.joinpath("SKILL.md").write_text("X\n", encoding="utf-8")
-        assert distill.extract(clone, "learn") is not None
-        assert distill.extract(clone, "learn-failure") is None
+    def check(home):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = pathlib.Path(tmp)
+            store = clone / ".claude" / "skillforge" / "skills" / "a-skill"
+            store.mkdir(parents=True)
+            store.joinpath("SKILL.md").write_text("X\n", encoding="utf-8")
+            assert distill.extract(clone, "learn") is not None
+            assert distill.extract(clone, "learn-failure") is None
+    in_home(check)
 
 
 def test_extract_is_none_when_nothing_saved():
-    with tempfile.TemporaryDirectory() as tmp:
-        assert distill.extract(pathlib.Path(tmp), "learn-failure") is None
+    def check(home):
+        with tempfile.TemporaryDirectory() as tmp:
+            assert distill.extract(pathlib.Path(tmp), "learn-failure") is None
+    in_home(check)
 
 
 def test_archive_dir_shape_matches_what_arm_segment_parses():
@@ -255,6 +261,92 @@ def test_preflight_passes_on_a_clean_store():
         _seed(home)
         assert distill.preflight() == []
     in_home(check)
+
+
+def test_extract_finds_a_global_scope_save():
+    """The distiller picks its own scope, and --scope global writes to
+    Path.home(), not the clone. This used to read as `aborted` -- and then
+    containment deleted the draft before anything archived it."""
+    def check(home):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = pathlib.Path(tmp)
+            store = home / ".claude" / "skillforge" / "antiskills" / "global-trap"
+            store.mkdir(parents=True)
+            store.joinpath("SKILL.md").write_text("GLOBAL COPY\n", encoding="utf-8")
+            found = distill.extract(clone, "learn-failure")
+            assert found is not None, "a global-scope save must still be found"
+            assert found.read_text(encoding="utf-8") == "GLOBAL COPY\n"
+    in_home(check)
+
+
+def test_extract_prefers_the_project_store_over_the_global_one():
+    def check(home):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = pathlib.Path(tmp)
+            proj = clone / ".claude" / "skillforge" / "antiskills" / "a"
+            proj.mkdir(parents=True)
+            proj.joinpath("SKILL.md").write_text("PROJECT\n", encoding="utf-8")
+            glob_ = home / ".claude" / "skillforge" / "antiskills" / "b"
+            glob_.mkdir(parents=True)
+            glob_.joinpath("SKILL.md").write_text("GLOBAL\n", encoding="utf-8")
+            assert distill.extract(clone, "learn-failure").read_text(
+                encoding="utf-8") == "PROJECT\n"
+    in_home(check)
+
+
+def test_drafts_counts_every_save_across_both_stores():
+    """Taking the first is defensible; taking it silently is not."""
+    def check(home):
+        with tempfile.TemporaryDirectory() as tmp:
+            clone = pathlib.Path(tmp)
+            for name in ("a", "b"):
+                p = clone / ".claude" / "skillforge" / "antiskills" / name
+                p.mkdir(parents=True)
+                p.joinpath("SKILL.md").write_text(name, encoding="utf-8")
+            g = home / ".claude" / "skillforge" / "antiskills" / "c"
+            g.mkdir(parents=True)
+            g.joinpath("SKILL.md").write_text("c", encoding="utf-8")
+            assert len(distill.drafts(clone, "learn-failure")) == 3
+    in_home(check)
+
+
+def test_drafts_is_empty_when_nothing_saved():
+    def check(home):
+        with tempfile.TemporaryDirectory() as tmp:
+            assert distill.drafts(pathlib.Path(tmp), "learn-failure") == []
+    in_home(check)
+
+
+def test_ledger_rows_records_a_read_failure():
+    """A failed read and an uneventful session both yield empty lists, and
+    `rejects` comes only from here -- so without this field a real rejection
+    that fails to read back is indistinguishable from `aborted`."""
+    with tempfile.TemporaryDirectory() as tmp:
+        bad = pathlib.Path(tmp) / "not-a-database.db"
+        bad.write_text("this is not sqlite", encoding="utf-8")
+        rows = distill._ledger_rows(bad)
+        assert rows["events"] == [] and rows["decisions"] == []
+        assert rows["read_error"] is not None, "a read failure must be recorded"
+
+
+def test_ledger_rows_reads_a_real_ledger_and_reports_no_error():
+    import sqlite3
+    with tempfile.TemporaryDirectory() as tmp:
+        db = pathlib.Path(tmp) / "l.db"
+        con = sqlite3.connect(str(db))
+        con.execute("create table events (id integer primary key, event_type text,"
+                    " skill text, outcome text, ts text)")
+        con.execute("create table decisions (id integer primary key, actor text,"
+                    " verdict text, subject text, reason text)")
+        con.execute("insert into events (event_type, skill, outcome, ts)"
+                    " values ('save','x','saved','t')")
+        con.execute("insert into decisions (actor, verdict, subject, reason)"
+                    " values ('system','rejected','x','no verification.command')")
+        con.commit(); con.close()
+        rows = distill._ledger_rows(db)
+        assert rows["read_error"] is None, rows["read_error"]
+        assert len(rows["events"]) == 1 and len(rows["decisions"]) == 1
+        assert rows["decisions"][0]["verdict"] == "rejected"
 
 
 if __name__ == "__main__":
