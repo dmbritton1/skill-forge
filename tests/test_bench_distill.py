@@ -599,10 +599,19 @@ def test_one_archives_and_contains_a_global_scope_draw():
         with _tf.TemporaryDirectory() as tmp:
             tmpp = pathlib.Path(tmp)
             real_archive = distill.ARCHIVE
+            real_work = distill.bench_run.WORK
             real_sh, real_prepare, real_score = (
                 distill.bench_run.sh, distill.bench_run.prepare,
                 distill.bench_run.score)
             distill.ARCHIVE = tmpp / "archive"
+            # WORK too, not just ARCHIVE. one() derives its clone path AND its
+            # per-run ledger path from it, and it unlinks that ledger before
+            # the run -- so against the real /tmp/skillforge-bench this test
+            # read a previous benchmark run's saved draft (drafts() searches
+            # the project store first) and truncated that run's ledger to zero
+            # bytes. This repo has already shipped one fix for a suite that
+            # destroyed real state; that is not a mistake to make twice.
+            distill.bench_run.WORK = tmpp / "work"
             calls = []
 
             class _R:
@@ -650,6 +659,7 @@ def test_one_archives_and_contains_a_global_scope_draw():
                 assert libguard.drift(before) == [], libguard.drift(before)
             finally:
                 distill.ARCHIVE = real_archive
+                distill.bench_run.WORK = real_work
                 (distill.bench_run.sh, distill.bench_run.prepare,
                  distill.bench_run.score) = real_sh, real_prepare, real_score
     in_home(check)
