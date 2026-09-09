@@ -349,6 +349,42 @@ def test_ledger_rows_reads_a_real_ledger_and_reports_no_error():
         assert rows["decisions"][0]["verdict"] == "rejected"
 
 
+import dryrun
+
+
+def test_predict_delivers_when_the_description_shares_the_prompt_s_terms():
+    out = dryrun.predict(
+        "Use when: implementing response_text against a contract-only stub.",
+        "response-text-trap",
+        "scripts/detect.py has a function response_text whose body raises "
+        "NotImplementedError. Read its docstring and implement it.")
+    assert out["predicted"] == "deliver", out
+    assert out["matched"] >= 2, out
+
+
+def test_predict_refuses_when_nothing_overlaps():
+    out = dryrun.predict(
+        "Use when: configuring a Kubernetes ingress for blue-green rollout.",
+        "ingress-rollout",
+        "scripts/detect.py has a function response_text whose body raises "
+        "NotImplementedError. Read its docstring and implement it.")
+    assert out["predicted"] == "no-deliver", out
+
+
+def test_predict_uses_retrieve_s_own_threshold():
+    """The gate is retrieve.py's, not a number this script invents."""
+    import retrieve
+    out = dryrun.predict("Use when: alpha beta.", "x", "gamma delta")
+    assert out["matched"] < retrieve.MIN_MATCHED_TERMS
+    assert out["predicted"] == "no-deliver", out
+
+
+def test_predict_handles_an_empty_description():
+    out = dryrun.predict("", "x", "anything at all")
+    assert out["predicted"] == "no-deliver", out
+    assert out["score"] == 0
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
