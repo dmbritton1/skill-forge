@@ -385,6 +385,43 @@ def test_predict_handles_an_empty_description():
     assert out["score"] == 0
 
 
+import judge
+
+
+def test_symptom_shape_calls_an_error_signature_a_signature():
+    assert judge.symptom_shape(
+        ["KeyError: 'response_text'", "TypeError: expected str, got dict"]) == "signature"
+
+
+def test_symptom_shape_calls_narration_narration():
+    """Both hand-authored comparators are narration-shaped, in violation of
+    the contract the distiller is held to. That asymmetry is measured, not
+    scored against the distiller."""
+    assert judge.symptom_shape(
+        ["matched the string fixture but not the dict payload",
+         "confirmed absent without examining the full input"]) == "narration"
+
+
+def test_symptom_shape_none_when_absent():
+    assert judge.symptom_shape([]) == "none"
+
+
+def test_has_both_directions_requires_both():
+    assert judge.has_both_directions(
+        "Use when: probing. Do NOT use when: never.") is True
+    assert judge.has_both_directions("Use when: probing.") is False
+    assert judge.has_both_directions("") is False
+
+
+def test_verification_discriminates_is_none_for_an_unrunnable_command():
+    assert judge.verification_discriminates("", "/nonexistent", "HEAD") is None
+
+
+def test_fingerprints_in_fix_reports_one_bool_per_fingerprint():
+    out = judge.fingerprints_in_fix([], "/nonexistent", "HEAD")
+    assert out == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
