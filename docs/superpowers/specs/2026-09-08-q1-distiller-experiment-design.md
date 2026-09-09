@@ -239,12 +239,13 @@ Per (trap, distiller, draw):
    spliced in. It instructs the session to fix the bug, verify the tests pass,
    and then distill the session through the named distiller skill.
 
-   *Open mechanism, first thing the implementation must confirm:* whether a
-   literal `/skillforge:learn-failure` expands inside a `-p` prompt. If it does
-   not, the prompt names the skill (`skillforge:distilling-failures`) for
-   invocation through the Skill tool, which reaches the same contract. Whichever
-   works is fixed across all 12 phase-1 sessions — the prompt is an experimental
-   variable and must not drift between cells.
+   The prompt names the skill (`skillforge:distilling-failures` /
+   `skillforge:distilling-skills`) for invocation through the Skill tool — this
+   is what ships. *Open mechanism, first thing the implementation must
+   confirm:* whether that form actually reaches the distillation contract, not
+   which of two forms to pick. If it does not, a literal `/skillforge:learn-failure`
+   is the fallback. Whichever works is fixed across all 12 phase-1 sessions —
+   the prompt is an experimental variable and must not drift between cells.
 
    Phase 1 sets its own timeout explicitly. `SESSION_TIMEOUT_S = 900` is sized
    for author-mode sessions and may be tight for repair-plus-distillation.
@@ -278,11 +279,14 @@ batch spawns up to 48 extra detached sessions, which violates §7.7's own rule
 that nothing else may run during the batch, adds an unbudgeted token cost, and
 in phase 1 races the containment `library.py delete` for the same name.
 
-**Add a `--no-critique` seam to `save_skill.py`** and have §6's retrospective
-pass run `validate.py` explicitly. §6 already wants the verdict retrospectively,
-so the inline spawn buys this experiment nothing. Where the seam cannot be used
-— the phase-1 session calls `save_skill.py` itself, which is the point — reap
-the child before the containment diff rather than racing it.
+**Add a `SKILLFORGE_NO_CRITIQUE=1` env-var seam to `save_skill.py`**, not a
+flag: the phase-1 session invokes `save_skill.py` itself — that is the point
+of phase 1 — so nothing in the harness is positioned to pass it a command-line
+flag, while an exported environment variable reaches the child regardless of
+who invokes it. Have §6's retrospective pass run `validate.py` explicitly. §6
+already wants the verdict retrospectively, so the inline spawn buys this
+experiment nothing. Phase 2 exports the same variable for its 42 treatment
+installs, for the identical reason.
 
 ### The global-scope leak, and how phase 1 contains it
 

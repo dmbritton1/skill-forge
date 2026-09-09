@@ -74,6 +74,23 @@ def new_global_skills(before):
     return sorted(n.split("/", 1)[1] for n in added)
 
 
+def new_trust_keys(before):
+    """Trust registry keys added since `before`.
+
+    trust.py resolves trust.json to Path.home() UNCONDITIONALLY and save_skill
+    records on every save, project-scoped ones included -- so a batch that
+    never leaks a single global-scope skill still leaves one key per save in
+    the operator's real registry. drift() compares those key sets, so without
+    this the closing assertion fires on a clean batch: either a good batch is
+    discarded or the operator learns to ignore the assertion.
+
+    Diffed against the snapshot rather than pruned by name: a distilled draft
+    that happens to pick an existing skill's name must not delete the
+    operator's genuine entry.
+    """
+    return sorted(set(snapshot()["trust"]) - set(before["trust"]))
+
+
 def prune_trust(names):
     """Drop `names` from trust.json. Returns keys removed."""
     data = _read_json("trust.json", {})

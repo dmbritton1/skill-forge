@@ -66,6 +66,15 @@ def test_new_global_skills_names_what_a_session_added():
     in_home(check)
 
 
+def test_new_trust_keys_names_only_what_the_batch_added():
+    def check(home):
+        _seed(home, trust_keys=["operators-own"])
+        before = libguard.snapshot()
+        _seed(home, trust_keys=["operators-own", "batch-wrote-this"])
+        assert libguard.new_trust_keys(before) == ["batch-wrote-this"]
+    in_home(check)
+
+
 def test_prune_trust_drops_only_the_named_keys():
     def check(home):
         _seed(home, trust_keys=["keep", "drop"])
@@ -540,7 +549,7 @@ def test_distill_refuses_to_overwrite_an_archived_draw():
         try:
             d = distill.archive_dir("A", "learn", 1)
             d.mkdir(parents=True)
-            (d / "meta.json").write_text("{}", encoding="utf-8")
+            (d / "meta.json").write_text(json.dumps({"secs": 12.3}), encoding="utf-8")
             raised = False
             try:
                 distill.one("A", "learn", 1, pathlib.Path("."), {"id": "x", "prompt": "p"})
@@ -549,6 +558,101 @@ def test_distill_refuses_to_overwrite_an_archived_draw():
             assert raised, "an archived draw must not be silently re-rolled"
         finally:
             distill.ARCHIVE = real
+
+
+def test_distill_retries_a_draw_that_never_ran():
+    """A draw that died in prepare() wrote a meta.json with secs 0.0 and no
+    draft. Nothing was seen, so pre-registration does not bar a retry."""
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as tmp:
+        real = distill.ARCHIVE
+        distill.ARCHIVE = pathlib.Path(tmp)
+        try:
+            d = distill.archive_dir("A", "learn", 1)
+            d.mkdir(parents=True)
+            (d / "meta.json").write_text(
+                json.dumps({"outcome": "errored", "secs": 0.0}), encoding="utf-8")
+            raised = False
+            try:
+                distill.one("A", "learn", 1, pathlib.Path("."),
+                            {"id": "x", "prompt": "p"})
+            except RuntimeError as err:
+                raised = "already archived" in str(err)
+            assert not raised, "a draw that never ran must be retryable"
+        except Exception:
+            pass          # it will fail later, in prepare -- that is fine
+        finally:
+            distill.ARCHIVE = real
+
+
+def test_one_archives_and_contains_a_global_scope_draw():
+    """Drives distill.one through the global-scope path with the session
+    stubbed: the finally must archive the draft, invoke the containment
+    delete, prune the trust key, and leave drift() clean.
+
+    This is the branch that runs `library.py delete` against the operator's
+    real store. It had no coverage at all, and four blocking defects have
+    already been found in this function by reading rather than by testing.
+    """
+    def check(home):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as tmp:
+            tmpp = pathlib.Path(tmp)
+            real_archive = distill.ARCHIVE
+            real_sh, real_prepare, real_score = (
+                distill.bench_run.sh, distill.bench_run.prepare,
+                distill.bench_run.score)
+            distill.ARCHIVE = tmpp / "archive"
+            calls = []
+
+            class _R:
+                returncode = 0
+                stdout = "session done"
+                stderr = ""
+
+            def fake_sh(cmd, **kw):
+                calls.append(cmd)
+                if "claude -p" in cmd:
+                    # The session saves globally, exactly as a model judging
+                    # its trap general would.
+                    d = home / ".claude" / "skillforge" / "antiskills" / "gtrap"
+                    d.mkdir(parents=True, exist_ok=True)
+                    (d / "SKILL.md").write_text(
+                        "---\nname: gtrap\nkind: antiskill\n---\n## Trap\n",
+                        encoding="utf-8")
+                    reg = home / ".claude" / "skillforge" / "trust.json"
+                    reg.write_text(json.dumps({"gtrap": {"origin": "self"}}),
+                                   encoding="utf-8")
+                elif "library.py" in cmd and "delete" in cmd:
+                    import shutil
+                    shutil.rmtree(
+                        str(home / ".claude" / "skillforge" / "antiskills" / "gtrap"),
+                        ignore_errors=True)
+                return _R()
+
+            distill.bench_run.sh = fake_sh
+            distill.bench_run.prepare = lambda task, dest: None
+            distill.bench_run.score = lambda task, dest: ({"t": True}, "ok")
+            try:
+                _seed(home)
+                before = libguard.snapshot()
+                out = distill.one("A", "learn-failure", 1, pathlib.Path("."),
+                                  {"id": "sf-escaping-breaks-symptom-match",
+                                   "prompt": "fix it"})
+                d = distill.ARCHIVE / "A" / "learn-failure" / "1"
+                meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+                assert out == "saved", out
+                assert (d / "SKILL.md").is_file(), "the draft must be archived"
+                assert meta["chose_global_scope"] == ["gtrap"], meta["chose_global_scope"]
+                assert meta["skill_name"] == "gtrap", meta["skill_name"]
+                assert meta["pruned_trust"] == ["gtrap"], meta["pruned_trust"]
+                assert any("library.py" in c and "delete" in c for c in calls), calls
+                assert libguard.drift(before) == [], libguard.drift(before)
+            finally:
+                distill.ARCHIVE = real_archive
+                (distill.bench_run.sh, distill.bench_run.prepare,
+                 distill.bench_run.score) = real_sh, real_prepare, real_score
+    in_home(check)
 
 
 if __name__ == "__main__":

@@ -31,6 +31,9 @@ import sys
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import libguard
+
 ROOT = Path(__file__).resolve().parent
 # The repository this harness lives in. tasks.json writes `{root}` rather than
 # an absolute path: every path in it used to be hardcoded under a checkout
@@ -352,6 +355,7 @@ def one(task, arm, run_idx, plugin_dir):
             # A test that is already green cannot measure anything.
             print("  WARNING: %s already passing at baseline" %
                   [n for n, ok in pre.items() if ok])
+    trust_before = libguard.snapshot()
     skill_note = install_skill(task, dest, plugin_dir) if arm == "treatment" else ""
     installed = skill_name(skill_src(task)) if arm == "treatment" else None
     tier_at_install = tier_of(installed) if installed else None
@@ -373,6 +377,13 @@ def one(task, arm, run_idx, plugin_dir):
     rec.update(source_keys(arm, task, tier_at_install))
     with RESULTS.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec) + "\n")
+    # Every treatment install writes a key into the operator's real
+    # trust.json -- trust.py resolves it to Path.home() regardless of scope.
+    # 42 unpruned keys make the batch's closing drift assertion fire on a
+    # clean run.
+    pruned = libguard.new_trust_keys(trust_before)
+    if pruned:
+        libguard.prune_trust(pruned)
     print("  %-9s run %d -> %s (%.0fs)" %
           (arm, run_idx, "RESOLVED" if rec["resolved"] else "unresolved", sess["secs"]))
     return rec

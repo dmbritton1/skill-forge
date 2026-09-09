@@ -169,11 +169,22 @@ def one(trap, distiller, draw, plugin_dir, task):
     # appends; this archive would REPLACE, so a re-run of `--all --draws 3`
     # after one draw errored would quietly re-roll every cell over the top of
     # what is already recorded. Refuse instead.
-    if (d / "meta.json").exists():
-        raise RuntimeError(
-            "%s is already archived -- re-rolling a draw after its content is "
-            "seen is what pre-registration forbids. Delete it deliberately to "
-            "redo it." % d)
+    prior = d / "meta.json"
+    if prior.exists():
+        try:
+            pm = json.loads(prior.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            pm = {}
+        # Refuse only when a session actually RAN. A draw that died in
+        # prepare() -- a transient clone or setup_cmd failure -- still wrote a
+        # meta.json from the finally, with secs 0.0 and no draft. Nothing was
+        # seen, so pre-registration's bar on re-rolling does not apply and an
+        # unattended batch must not need hand intervention to retry it.
+        if pm.get("secs") or (d / "SKILL.md").exists():
+            raise RuntimeError(
+                "%s is already archived -- re-rolling a draw after its content "
+                "is seen is what pre-registration forbids. Delete it "
+                "deliberately to redo it." % d)
 
     before = libguard.snapshot()
     st = {"outcome": "errored", "error": None, "repair_resolved": False,
@@ -231,7 +242,12 @@ def one(trap, distiller, draw, plugin_dir, task):
                                  % (bench_run.REPO_ROOT, name),
                                  cwd=str(bench_run.REPO_ROOT))
                 containment_rc = containment_rc or r.returncode
-            libguard.prune_trust(leaked)
+        # Unconditional, and separate from `leaked`: a project-scoped save
+        # leaves no global store entry but still writes a trust key, and an
+        # unpruned key makes the closing drift assertion fire on a clean batch.
+        pruned_trust = libguard.new_trust_keys(before)
+        if pruned_trust:
+            libguard.prune_trust(pruned_trust)
 
         d.mkdir(parents=True, exist_ok=True)
         if st["draft_text"] is not None:
@@ -246,6 +262,7 @@ def one(trap, distiller, draw, plugin_dir, task):
             "skill_name": st["skill_name"],
             "chose_global_scope": leaked,
             "containment_rc": containment_rc,
+            "pruned_trust": pruned_trust,
             "drafts_found": st["drafts_found"],
             "ledger_rows": st["rows"]["events"],
             "ledger_read_error": st["rows"]["read_error"],
