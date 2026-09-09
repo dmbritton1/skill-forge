@@ -275,7 +275,9 @@ false claims the register caught.
 `save_skill.py:420` calls `_spawn_validation` on **every create** —
 `subprocess.Popen(..., start_new_session=True)`, detached and never waited on —
 and `validate.py critique` is itself a real `claude -p` child. Left alone, this
-batch spawns up to 48 extra detached sessions, which violates §7.7's own rule
+batch spawns up to 54 extra detached sessions — one per save, so 12 in
+phase 1 and 42 across phase 2's treatment and transfer installs — which
+violates §7.7's own rule
 that nothing else may run during the batch, adds an unbudgeted token cost, and
 in phase 1 races the containment `library.py delete` for the same name.
 
@@ -579,7 +581,7 @@ before adoption.
 | F3 | Symptoms are dead in author mode; stage 5 is a description test | Adopted in full — §3, the BM25 dry run, §7.9 |
 | F4 | `library.py delete`'s resync drops project entries from `index.json` | Adopted, **narrowed**. Mechanics confirmed at `sync.py:330`; the state is derived and self-healing, so the defect is an imprecise assertion, not library mutation |
 | F5 | `trust.json` is global regardless of scope | Adopted. "Phase 2 is safe" corrected; key set snapshotted |
-| F6 | Every create spawns a detached critique child | Adopted. `--no-critique` seam; reap where unavoidable |
+| F6 | Every create spawns a detached critique child | Adopted, **as an env var, not the flag this row originally proposed** — the phase-1 session invokes `save_skill.py` itself, so nothing can pass it one. See §4 |
 | F7 | Time estimate low "by an order of magnitude" | **Partly rejected.** 42 probes × median 72.3s ≈ 50 min, which is what the draft said. Adopted the real point: do not extrapolate author-mode timings to phase 1, pilot it, and distinguish timeout from abort |
 | F8 | Historical rows lack `skill_source` | Adopted, backfill preferred over a read rule |
 | F9 | Duplicate check reads the operator's real library | Adopted. Per-draw precondition, §4 step 1 |
