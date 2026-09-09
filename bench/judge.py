@@ -22,7 +22,7 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT.parent / "scripts"))
 import validate
 import distill
-import dryrun
+import save_skill
 
 # An error signature carries a machine-shaped token: an exception class, a
 # dotted path, a bracketed literal, a call. Narration is prose about what the
@@ -126,22 +126,6 @@ def fingerprints_in_fix(fps, repo, fix_sha):
     return [bool(f) and f in added for f in fps]
 
 
-def _list_field(text, field):
-    """A simple `field:` YAML list from a SKILL.md, without a YAML dependency."""
-    out, inside = [], False
-    for line in text.splitlines():
-        if line.startswith(field + ":"):
-            inside = True
-            continue
-        if inside:
-            stripped = line.strip()
-            if stripped.startswith("- "):
-                out.append(stripped[2:].strip().strip('"\''))
-            elif stripped and not line.startswith((" ", "\t")):
-                break
-    return out
-
-
 def main():
     plugin_root = ROOT.parent
     cfg = json.loads((ROOT / "tasks.json").read_text(encoding="utf-8"))
@@ -153,24 +137,29 @@ def main():
         if not draft.is_file():
             continue
         text = draft.read_text(encoding="utf-8")
-        name, desc = dryrun._frontmatter(text)
+        fm, _ = save_skill.parse_frontmatter(text)
+        fm = fm or {}
+        name, desc = fm.get("name"), fm.get("description") or ""
         kind = "antiskill" if meta["distiller"] == "learn-failure" else "skill"
         fix = fixes[meta["task"]]
-        command = ""
-        for line in text.splitlines():
-            if line.startswith("verification.command:"):
-                command = line.split(":", 1)[1].strip().strip('"\'')
+        # From the frontmatter dict, never a scan of the whole file: the body
+        # of a draft about SkillForge's own machinery can contain a fenced
+        # frontmatter example, and a line scan kept the LAST match -- so the
+        # command this executes under a shell came from the example.
+        command = str(fm.get("verification.command") or "").strip().strip('"\'')
+        symptoms = fm.get("symptoms") or []
+        fingerprints = fm.get("fingerprints") or []
         verdict, detail = validate.critique(
             text, {"name": name, "kind": kind, "description": desc}, plugin_root)
         meta["judgement"] = {
             "critique_verdict": verdict,
             "critique_detail": detail,
-            "symptom_shape": symptom_shape(_list_field(text, "symptoms")),
+            "symptom_shape": symptom_shape(symptoms),
             "both_trigger_directions": has_both_directions(desc),
             "verification_discriminates": verification_discriminates(
                 command, plugin_root, fix + "~1"),
             "fingerprints_in_fix": fingerprints_in_fix(
-                _list_field(text, "fingerprints"), plugin_root, fix),
+                fingerprints, plugin_root, fix),
         }
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
         judged += 1

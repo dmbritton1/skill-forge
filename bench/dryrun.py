@@ -23,6 +23,7 @@ sys.path.insert(0, str(ROOT.parent / "scripts"))
 import retrieve
 import distill
 import run as bench_run
+import save_skill
 
 # The author task each trap is probed with -- the SAME bug as the repair task
 # phase 1 distilled from.
@@ -41,28 +42,17 @@ def predict(description, name, prompt):
 
 
 def _frontmatter(text):
-    """`name` and `description` from a SKILL.md, without a YAML dependency.
+    """`name` and `description` from a SKILL.md.
 
-    description is a folded block (`description: >`), so its value is the
-    indented lines that follow, not the rest of that one line.
+    Delegates to save_skill.parse_frontmatter, which is the repo's own parser:
+    it bounds itself to the frontmatter block and handles `>`, `|` and `>-`.
+    The hand-rolled version this replaces only stripped `>`, so a `|` or `>-`
+    description was prefixed with its own indicator and the BM25 prediction ran
+    against a string the index does not carry.
     """
-    name, desc, in_desc = None, [], False
-    for line in text.splitlines():
-        if line.strip() == "---" and name and not in_desc:
-            break
-        if line.startswith("name:"):
-            name = line.split(":", 1)[1].strip()
-            in_desc = False
-        elif line.startswith("description:"):
-            rest = line.split(":", 1)[1].strip().lstrip(">").strip()
-            if rest:
-                desc.append(rest)
-            in_desc = True
-        elif in_desc and line.startswith((" ", "\t")):
-            desc.append(line.strip())
-        elif line and not line.startswith((" ", "\t")):
-            in_desc = False
-    return name, " ".join(desc)
+    fm, _ = save_skill.parse_frontmatter(text)
+    fm = fm or {}
+    return fm.get("name"), fm.get("description") or ""
 
 
 def main():
@@ -74,6 +64,9 @@ def main():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         draft = meta_path.parent / "SKILL.md"
         if not draft.is_file():
+            continue
+        if meta["trap"] not in PROBES:
+            print("skip %s: no probe task for trap %r" % (meta_path.parent, meta["trap"]))
             continue
         name, desc = _frontmatter(draft.read_text(encoding="utf-8"))
         meta["delivery_prediction"] = predict(

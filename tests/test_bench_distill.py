@@ -493,22 +493,62 @@ def test_fingerprints_in_fix_matches_added_lines_only():
         assert got == [True, False, False], got
 
 
-def test_list_field_reads_a_list_and_stops_at_the_next_key():
-    text = ('---\n'
-            'name: x\n'
-            'symptoms:\n'
-            '  - "KeyError: response_text"\n'
-            '  - plain entry\n'
-            'fingerprints:\n'
-            '  - "should not be a symptom"\n'
-            '---\n')
-    assert judge._list_field(text, "symptoms") == [
-        "KeyError: response_text", "plain entry"]
-    assert judge._list_field(text, "fingerprints") == ["should not be a symptom"]
+def test_run_py_suppresses_critique_for_every_treatment_install():
+    """42 phase-2 installs would otherwise each spawn a detached `claude -p`
+    critique, concurrent with the sessions being timed."""
+    src = (pathlib.Path(__file__).resolve().parent.parent / "bench" / "run.py"
+           ).read_text(encoding="utf-8")
+    assert 'os.environ["SKILLFORGE_NO_CRITIQUE"] = "1"' in src, src[:0]
 
 
-def test_list_field_is_empty_when_the_key_is_absent():
-    assert judge._list_field("---\nname: x\n---\n", "symptoms") == []
+def test_frontmatter_handles_every_folded_indicator():
+    """`|` and `>-` used to come back with their own indicator glued on."""
+    for ind in (">", "|", ">-"):
+        name, desc = dryrun._frontmatter(
+            "---\nname: x\ndescription: %s\n  Line one.\n---\n## Body\n" % ind)
+        assert name == "x", (ind, name)
+        assert desc.startswith("Line one."), (ind, desc)
+
+
+def test_frontmatter_ignores_a_fenced_example_in_the_body():
+    text = ("---\nname: real\ndescription: >\n  The real one.\n---\n"
+            "## Trap\n```markdown\n---\nname: fake\ndescription: >\n"
+            "  The example.\n---\n```\n")
+    name, desc = dryrun._frontmatter(text)
+    assert name == "real", name
+    assert "example" not in desc, desc
+
+
+def test_judge_reads_verification_command_from_frontmatter_not_the_body():
+    """A line scan kept the LAST match, so a fenced example in the body won --
+    and that string is executed under a shell."""
+    import save_skill as _ss
+    text = ('---\nname: real\ndescription: >\n  d.\n'
+            'verification.command: "python3 tests/real.py"\n---\n'
+            '## Trap\n```markdown\nverification.command: "echo pwned"\n```\n')
+    fm, _ = _ss.parse_frontmatter(text)
+    got = str(fm.get("verification.command") or "").strip().strip('"\'')
+    assert got == "python3 tests/real.py", got
+
+
+def test_distill_refuses_to_overwrite_an_archived_draw():
+    """Pre-registration forbids re-rolling a draw after its content is seen."""
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as tmp:
+        real = distill.ARCHIVE
+        distill.ARCHIVE = pathlib.Path(tmp)
+        try:
+            d = distill.archive_dir("A", "learn", 1)
+            d.mkdir(parents=True)
+            (d / "meta.json").write_text("{}", encoding="utf-8")
+            raised = False
+            try:
+                distill.one("A", "learn", 1, pathlib.Path("."), {"id": "x", "prompt": "p"})
+            except RuntimeError as err:
+                raised = "already archived" in str(err)
+            assert raised, "an archived draw must not be silently re-rolled"
+        finally:
+            distill.ARCHIVE = real
 
 
 if __name__ == "__main__":

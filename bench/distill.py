@@ -26,8 +26,10 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import libguard
 import run as bench_run
+import save_skill
 
 ROOT = Path(__file__).resolve().parent
 ARCHIVE = ROOT / "distilled"
@@ -160,66 +162,100 @@ def one(trap, distiller, draw, plugin_dir, task):
     blockers = preflight()
     if blockers:
         raise RuntimeError("preflight: " + "; ".join(blockers))
-    before = libguard.snapshot()
-
-    bench_run.prepare(task, dest)
-    prompt = PROMPT % (task["prompt"], "skillforge:distilling-%s" %
-                       ("failures" if distiller == "learn-failure" else "skills"))
-    cmd = ('claude -p %s --plugin-dir %s --permission-mode bypassPermissions'
-           ' --model %s' % (json.dumps(prompt), json.dumps(str(plugin_dir)),
-                            json.dumps(bench_run.MODEL)))
-    t0 = time.time()
-    timed_out = False
-    try:
-        sess = bench_run.sh(cmd, cwd=dest, timeout=PHASE1_TIMEOUT_S)
-        tail = (sess.stdout or sess.stderr)[-2000:]
-    except subprocess.TimeoutExpired:
-        timed_out, tail = True, "TIMEOUT"
-    secs = round(time.time() - t0, 1)
-
-    post, test_tail = bench_run.score(task, dest)
-    repair_resolved = all(post.values())
-
-    found = drafts(dest, distiller)
-    draft = found[0] if found else None
-    # Read the TEXT now, not the path. The containment step below deletes a
-    # global-scope save from the real library, and a Path captured before
-    # that would be a dangling read by the time the archive is written.
-    draft_text = draft.read_text(encoding="utf-8") if draft is not None else None
-    rows = _ledger_rows(ledger_db)
-    # The session calls save_skill.py itself, so the harness never sees its
-    # exit code. A refusal is observable only here: save_skill logs a system
-    # decision row for every REJECTED / SECRET BLOCKED / name collision.
-    rejects = [r for r in rows["decisions"] if r["actor"] == "system"]
-    out = outcome(repair_resolved, timed_out, draft, len(rejects))
-
-    leaked = libguard.new_global_skills(before)
-    if leaked:
-        for name in leaked:
-            bench_run.sh('python3 "%s/scripts/library.py" delete %s'
-                         % (bench_run.REPO_ROOT, name), cwd=str(bench_run.REPO_ROOT))
-        libguard.prune_trust(leaked)
 
     d = archive_dir(trap, distiller, draw)
-    d.mkdir(parents=True, exist_ok=True)
-    if draft_text is not None:
-        (d / "SKILL.md").write_text(draft_text, encoding="utf-8")
-    (d / "meta.json").write_text(json.dumps({
-        "trap": trap, "distiller": distiller, "draw": draw,
-        "task": task["id"], "model": bench_run.MODEL,
-        "outcome": out, "probeable": probeable(out),
-        "repair_resolved": repair_resolved, "per_test": post,
-        "timed_out": timed_out, "secs": secs,
-        "chose_global_scope": leaked,
-        "drafts_found": len(found),
-        "ledger_read_error": rows["read_error"],
-        "ledger_rows": rows["events"],
-        "rejections": rejects,
-        "session_tail": tail, "test_tail": test_tail,
-        "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-    }, indent=2), encoding="utf-8")
-    print("  %-13s trap %s draw %d -> %s (%.0fs)" % (distiller, trap, draw, out, secs))
-    return out
+    # Pre-registration (spec section 8) fixes the batch's composition and
+    # forbids re-rolling a draw after its content is seen. results.jsonl
+    # appends; this archive would REPLACE, so a re-run of `--all --draws 3`
+    # after one draw errored would quietly re-roll every cell over the top of
+    # what is already recorded. Refuse instead.
+    if (d / "meta.json").exists():
+        raise RuntimeError(
+            "%s is already archived -- re-rolling a draw after its content is "
+            "seen is what pre-registration forbids. Delete it deliberately to "
+            "redo it." % d)
+
+    before = libguard.snapshot()
+    st = {"outcome": "errored", "error": None, "repair_resolved": False,
+          "per_test": {}, "timed_out": False, "secs": 0.0, "drafts_found": 0,
+          "draft_text": None, "skill_name": None, "rejects": [],
+          "rows": {"events": [], "decisions": [], "read_error": None},
+          "tail": "", "test_tail": ""}
+    try:
+        bench_run.prepare(task, dest)
+        prompt = PROMPT % (task["prompt"], "skillforge:distilling-%s" %
+                           ("failures" if distiller == "learn-failure" else "skills"))
+        cmd = ('claude -p %s --plugin-dir %s --permission-mode bypassPermissions'
+               ' --model %s' % (json.dumps(prompt), json.dumps(str(plugin_dir)),
+                                json.dumps(bench_run.MODEL)))
+        t0 = time.time()
+        try:
+            sess = bench_run.sh(cmd, cwd=dest, timeout=PHASE1_TIMEOUT_S)
+            st["tail"] = (sess.stdout or sess.stderr)[-2000:]
+        except subprocess.TimeoutExpired:
+            st["timed_out"], st["tail"] = True, "TIMEOUT"
+        st["secs"] = round(time.time() - t0, 1)
+
+        post, st["test_tail"] = bench_run.score(task, dest)
+        st["per_test"] = post
+        st["repair_resolved"] = all(post.values())
+
+        found = drafts(dest, distiller)
+        st["drafts_found"] = len(found)
+        # Read the TEXT now, not the path. The containment step below deletes a
+        # global-scope save from the real library, and a Path captured before
+        # that would be a dangling read by the time the archive is written.
+        if found:
+            st["draft_text"] = found[0].read_text(encoding="utf-8")
+            fm, _ = save_skill.parse_frontmatter(st["draft_text"])
+            st["skill_name"] = (fm or {}).get("name")
+        st["rows"] = _ledger_rows(ledger_db)
+        # The session calls save_skill.py itself, so the harness never sees its
+        # exit code. A refusal is observable only here: save_skill logs a system
+        # decision row for every REJECTED / SECRET BLOCKED / name collision.
+        st["rejects"] = [r for r in st["rows"]["decisions"] if r["actor"] == "system"]
+        st["outcome"] = outcome(st["repair_resolved"], st["timed_out"],
+                                st["draft_text"], len(st["rejects"]))
+    except Exception as err:
+        st["error"] = repr(err)
+    finally:
+        # In a finally because the alternative is a paid-for session whose
+        # global-scope save stays in the operator's real library with nothing
+        # recording it. Containment must be per session, not per SUCCESSFUL
+        # session.
+        leaked = libguard.new_global_skills(before)
+        containment_rc = 0
+        if leaked:
+            for name in leaked:
+                r = bench_run.sh('python3 "%s/scripts/library.py" delete %s'
+                                 % (bench_run.REPO_ROOT, name),
+                                 cwd=str(bench_run.REPO_ROOT))
+                containment_rc = containment_rc or r.returncode
+            libguard.prune_trust(leaked)
+
+        d.mkdir(parents=True, exist_ok=True)
+        if st["draft_text"] is not None:
+            (d / "SKILL.md").write_text(st["draft_text"], encoding="utf-8")
+        (d / "meta.json").write_text(json.dumps({
+            "trap": trap, "distiller": distiller, "draw": draw,
+            "task": task["id"], "model": bench_run.MODEL,
+            "outcome": st["outcome"], "probeable": probeable(st["outcome"]),
+            "error": st["error"],
+            "repair_resolved": st["repair_resolved"], "per_test": st["per_test"],
+            "timed_out": st["timed_out"], "secs": st["secs"],
+            "skill_name": st["skill_name"],
+            "chose_global_scope": leaked,
+            "containment_rc": containment_rc,
+            "drafts_found": st["drafts_found"],
+            "ledger_rows": st["rows"]["events"],
+            "ledger_read_error": st["rows"]["read_error"],
+            "rejections": st["rejects"],
+            "session_tail": st["tail"], "test_tail": st["test_tail"],
+            "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }, indent=2), encoding="utf-8")
+    print("  %-13s trap %s draw %d -> %s (%.0fs)"
+          % (distiller, trap, draw, st["outcome"], st["secs"]))
+    return st["outcome"]
 
 
 def _ledger_rows(db):

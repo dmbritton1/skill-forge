@@ -240,6 +240,30 @@ def source_keys(arm, task, tier_at_install):
             "tier_at_install": tier_at_install}
 
 
+def injections(db):
+    """Injection rows for one run, copied out of the per-run ledger.
+
+    The funnel's delivery stage lives ONLY in these sqlite files under /tmp.
+    They are not committed, and one() deletes them at the start of any re-run
+    of the same cell -- so a reboot, a /tmp reap, or a partial re-run destroys
+    the most-argued-about stage of the primary output with no way back short
+    of re-running the batch. Copying them onto the row makes them durable.
+
+    Empty on any failure: this is evidence capture, never a gate.
+    """
+    try:
+        import sqlite3
+        con = sqlite3.connect(str(db))
+        rows = [{"skill": r[0], "trigger": r[1], "tier": r[2]}
+                for r in con.execute(
+                    "select skill, trigger, tier from events"
+                    " where event_type='injection' order by id")]
+        con.close()
+        return rows
+    except Exception:
+        return []
+
+
 def install_skill(task, dest, plugin_dir):
     """Put the skill in the clone's PROJECT store via the enforced save path."""
     src = skill_src(task)
@@ -314,6 +338,12 @@ def one(task, arm, run_idx, plugin_dir):
     # value can never leak into this one.
     os.environ["SKILLFORGE_FORCE_HOT"] = (
         task["skill"] if FORCE_HOT and arm == "treatment" else "")
+    # Phase 2 saves a skill per treatment run, and a create spawns a detached
+    # `claude -p` critique that is never waited on. 42 of those would run
+    # concurrently with the sessions being timed, skewing `secs` and turning
+    # rate-limit pressure into a false `resolved: false`. Q1 runs critique
+    # retrospectively instead (bench/judge.py).
+    os.environ["SKILLFORGE_NO_CRITIQUE"] = "1"
     authoring = task.get("mode", "repair") == "author"
     prepare(task, dest)
     if not authoring:
@@ -338,6 +368,7 @@ def one(task, arm, run_idx, plugin_dir):
            "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
            "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
            "skill_note": skill_note, "test_tail": tail,
+           "injections": injections(ledger_db),
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     rec.update(source_keys(arm, task, tier_at_install))
     with RESULTS.open("a", encoding="utf-8") as fh:
