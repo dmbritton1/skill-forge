@@ -14,6 +14,7 @@ import json
 import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -36,6 +37,13 @@ def symptom_shape(entries):
     distilling-failures step 4 demands literal error signatures. Both
     hand-authored comparators are narration. Measured so the write-up can say
     which side of that asymmetry a draft landed on.
+
+    Majority by `hits * 2 >= len(entries)`, so an exact 1-of-2 tie reads as
+    "signature". That is a coin flip resolved in the draft's favour; say so if
+    a summary table leans on this number. It is a description of the draft,
+    never a gate on it -- the project's own hand-written comparators are
+    narration-shaped in violation of the same contract the distiller is held
+    to, so a "narration" verdict is not a mark against the distiller.
     """
     if not entries:
         return "none"
@@ -53,24 +61,46 @@ def has_both_directions(description):
 def verification_discriminates(command, repo, parent_sha):
     """Does verification.command FAIL where the procedure was NOT applied?
 
-    Run at fix_commit~1, a tree where the skill demonstrably has not been
-    applied. Exit 0 there means the command is not a verification. The
-    distillation contract states this bar and states that every skill in the
-    library has failed it at least once; this is the first machine check.
+    Run in a throwaway worktree checked out at fix_commit~1, a tree where the
+    skill demonstrably has not been applied. Exit 0 there means the command is
+    not a verification. The distillation contract states this bar and states
+    that every skill in the library has failed it at least once; this is the
+    first machine check.
+
+    The worktree is the whole point: running the command in `repo` itself
+    would evaluate it against whatever HEAD happens to be, which is the same
+    tree for every draft and answers a different question entirely.
 
     None when the command could not be run at all -- unknown, not a pass.
+    Never False for that case: an unrunnable command is not evidence.
     """
     if not command:
         return None
     try:
-        wt = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", parent_sha],
-            capture_output=True, text=True, timeout=60)
-        if wt.returncode:
-            return None
-        r = subprocess.run(command, shell=True, cwd=str(repo),
-                           capture_output=True, text=True, timeout=300)
-        return r.returncode != 0
+        with tempfile.TemporaryDirectory() as tmp:
+            wt = Path(tmp) / "tree"
+            add = subprocess.run(
+                ["git", "-C", str(repo), "worktree", "add", "--detach",
+                 str(wt), parent_sha],
+                capture_output=True, text=True, timeout=300)
+            if add.returncode:
+                return None
+            try:
+                # shell=True mirrors how a verification command is written to
+                # be run by a person. scripts/validate.py:503-521 deliberately
+                # refuses shell execution of this same frontmatter key, because
+                # there it runs pulled, untrusted skills in the live pipeline.
+                # Here the archive is this experiment's own output, produced by
+                # the operator. Do not point this script at a third-party
+                # archive without adopting validate.py's argv path.
+                r = subprocess.run(command, shell=True, cwd=str(wt),
+                                   capture_output=True, text=True, timeout=300)
+                return r.returncode != 0
+            finally:
+                subprocess.run(
+                    ["git", "-C", str(repo), "worktree", "remove", "--force",
+                     str(wt)],
+                    capture_output=True, text=True, timeout=120)
     except (OSError, subprocess.SubprocessError):
         return None
 

@@ -422,6 +422,95 @@ def test_fingerprints_in_fix_reports_one_bool_per_fingerprint():
     assert out == []
 
 
+def _tiny_repo(root):
+    """A two-commit git repo: HEAD adds marker.txt, HEAD~1 does not have it."""
+    import subprocess as sp
+    def git(*args):
+        r = sp.run(["git", "-C", str(root)] + list(args),
+                   capture_output=True, text=True)
+        assert r.returncode == 0, (args, r.stderr)
+    git("init", "-q")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (root / "base.txt").write_text("base\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "base")
+    (root / "marker.txt").write_text("applied\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-qm", "the fix")
+
+
+def test_verification_discriminates_true_when_the_command_fails_pre_fix():
+    """The whole point: the command must be evaluated in a tree where the
+    procedure was NOT applied. Run against the live HEAD instead, this
+    returns False and the check means nothing."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "r"
+        root.mkdir()
+        _tiny_repo(root)
+        got = judge.verification_discriminates("test -f marker.txt", root, "HEAD~1")
+        assert got is True, got
+
+
+def test_verification_does_not_discriminate_when_it_passes_pre_fix():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "r"
+        root.mkdir()
+        _tiny_repo(root)
+        got = judge.verification_discriminates("true", root, "HEAD~1")
+        assert got is False, got
+
+
+def test_verification_discriminates_is_none_for_an_unresolvable_sha():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "r"
+        root.mkdir()
+        _tiny_repo(root)
+        got = judge.verification_discriminates("true", root, "nosuchref")
+        assert got is None, got
+
+
+def test_verification_leaves_no_worktree_behind():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "r"
+        root.mkdir()
+        _tiny_repo(root)
+        judge.verification_discriminates("true", root, "HEAD~1")
+        import subprocess as sp
+        out = sp.run(["git", "-C", str(root), "worktree", "list"],
+                     capture_output=True, text=True).stdout
+        assert out.count("\n") == 1, out
+
+
+def test_fingerprints_in_fix_matches_added_lines_only():
+    """Matching runs against the ADDED lines of the reference fix, so a
+    fragment that only appears in the pre-fix tree must not count."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp) / "r"
+        root.mkdir()
+        _tiny_repo(root)
+        got = judge.fingerprints_in_fix(["applied", "base", "absent"], root, "HEAD")
+        assert got == [True, False, False], got
+
+
+def test_list_field_reads_a_list_and_stops_at_the_next_key():
+    text = ('---\n'
+            'name: x\n'
+            'symptoms:\n'
+            '  - "KeyError: response_text"\n'
+            '  - plain entry\n'
+            'fingerprints:\n'
+            '  - "should not be a symptom"\n'
+            '---\n')
+    assert judge._list_field(text, "symptoms") == [
+        "KeyError: response_text", "plain entry"]
+    assert judge._list_field(text, "fingerprints") == ["should not be a symptom"]
+
+
+def test_list_field_is_empty_when_the_key_is_absent():
+    assert judge._list_field("---\nname: x\n---\n", "symptoms") == []
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
