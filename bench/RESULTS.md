@@ -1099,11 +1099,18 @@ tuned. Result:
 | 1.000 | 27 |
 
 15 of 42 land strictly between the endpoints. The subsumption invariant holds
-on the rows where it's checkable: only **7 of 42** rows can be joined
-unambiguously to a `resolved` run in `results.jsonl` (several batches reuse the
-same task/arm/run triple, and the join can only resolve the unambiguous ones);
-of those 7, every artifact whose matching run `resolved` also passes both of
-its trap probes, 0 violations. The invariant is unrefuted, not fully checked.
+on the rows where it is checkable, and the coverage is thin. **The count depends
+on the join, so the join is stated here rather than left implicit:** restrict to
+the 18 rows whose `segment` is empty (a segmented clone's task/arm/run triple is
+not unique), then for each take the **latest by `ts`** among the `session_ok`
+rows sharing that triple. That yields **7** artifacts whose matching run
+`resolved`, and all 7 pass both of their trap probes — 0 violations.
+
+Joining differently gives a different denominator, which is the point: requiring
+a *unique* match instead of the latest one leaves **1** checkable row, because
+several batches reuse the same triple. Neither number is wrong; a coverage
+figure quoted without its join is not reproducible. The invariant is unrefuted,
+not fully checked.
 
 ### Control comes off zero, but not off its own floor
 
