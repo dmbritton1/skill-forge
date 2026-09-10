@@ -68,51 +68,41 @@ against a floor measured in the same batch on the same pinned model.
 four drafts, so there is no failing group to split on. It needs drafts the gate
 *rejects*, which this design does not produce.
 
-**E6 is designed, built, and did not run.** See §2.
+**E6 is answered.** No dilution at n=3 per cell. See §2.
 
 ---
 
-## 2. START HERE — E6 is one command, after the session window resets
+## 2. START HERE — E6 ran; the next move is a decision, not a command
 
-`docs/superpowers/specs/2026-09-09-e6-dilution-design.md` asks whether an
-irrelevant skill **dilutes** a relevant one. It is not E4 (§3.2).
+**E6 is answered (2026-09-10).** An irrelevant skill riding along with a
+relevant one cost nothing measurable: arm R 6/6, arm R+I 6/6, all 12 sessions
+valid, zero excluded. Every R+I run injected **both** skills at `trigger:
+prompt`, so no run measured crowd-out and the §5 separate-reporting rule had
+nothing to report. Write-up in `bench/RESULTS.md`, section "E6 — does an
+irrelevant skill dilute a relevant one?".
 
-Everything is ready. The harness change (`--plus-skill`) is committed and
-tested, and three viability facts were measured for free before the design was
-written:
+Read the limit before you use the result: **n=3 per cell**. Both arms at 6/6
+rules out a large dilution only. If R+I's true rate were 75% it would still
+read 6/6 about 18% of the time. This is "no large effect", not "no effect".
 
-- the irrelevant payload **is delivered** (predicted `deliver`, 7 matched terms
-  on both tasks), so a null cannot mean "never arrived";
-- it **outranks the relevant skill** on `response_text` — 2.53 to 1.87. BM25
-  ranks a skill about `arrow` timezone handling above the matched serialization
-  skill. E6 therefore tests a realistic bad case;
-- both skills fit the 1200-token injection budget at **93% occupancy**, which
-  is what keeps this a dilution test rather than a crowd-out test.
+Two things worth carrying forward:
 
-```bash
-cd /Users/dwightbritton/Developer/skill-forge   # then the worktree, see §5
-python3 bench/run.py --check
-I="$PWD/bench/skills/arrow-tzinfo-string-trap.md"
-# arm R first, both arms in ONE batch (E5: cross-batch comparison is untrustworthy)
-python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text
-python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting
-python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text --plus-skill "$I"
-python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting --plus-skill "$I"
-```
+- **The design understated its own bad case.** Its §3 table has the irrelevant
+  payload losing narrowly to the relevant skill on `fingerprint`. Re-derived
+  against the pool each arm actually installs, the irrelevant skill ranks first
+  on **both** tasks. BM25 is corpus-relative and the two tables rank different
+  pools, so they do not conflict — but the experiment is a stronger test than
+  it was written to be, not a weaker one.
+- **E6 does not answer E4** and never could; different comparator (§3.2).
 
-12 sessions, ~12 minutes. **Then** read §5 of the design for the pre-registered
-rules — in particular: a run where only *one* skill injected measured crowd-out,
-not dilution, and is reported separately rather than pooled.
-
-The previous attempt left 3 valid rows and 9 excluded ones in `results.jsonl`.
-They are correctly labelled; `results.jsonl` is append-only and the exclusion
-rule keeps them out of the re-run's cells. Do not delete them.
-
----
+**There is no single next command.** §3 is a genuine priority decision now, and
+its three live items differ in kind: §3.2 is a scorer to write (it reframes E4
+from "we need a task that does not exist" to "we need a grader we have not
+written"), §3.3 is a cheap experiment nobody has specified, §3.4 is the v0.3
+feature the whole experimental programme was gating. Pick deliberately.
+§3.1 is gone because it was "run E6".
 
 ## 3. Next steps, in priority order
-
-### 3.1 Run E6 (§2). 12 sessions.
 
 ### 3.2 E4 is still blocked, and the diagnosis changed
 
@@ -172,7 +162,10 @@ takes a single exact name and cannot express that.
 
 ### 3.6 Hygiene
 
-- **`main` is 30 commits behind this branch** and this work is unmerged.
+- **`main` is 32 commits behind this branch** and this work is unmerged.
+  E6 ran on `claude/e6-dilution-experiment-84c0d2`, which was fast-forwarded
+  onto `claude/skillforge-hot-tier-validation-569edb` first; the two share a
+  history and either can be merged.
 - `main` has never been pushed to `origin`.
 - `/tmp/skillforge-bench` holds 62 clones and their ledgers. Harmless, in
   `/tmp`, but the per-run ledgers are the *only* copy of delivery evidence for

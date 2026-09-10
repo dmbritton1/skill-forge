@@ -11,7 +11,7 @@ because nothing indexed the data — see "What the register caught".
 | Pilot (2026-08-11) | Does a matched skill change authoring behavior? Does a same-class one transfer? | **Done.** control 0/6, matched 5/6, transfer 0/6 | trap 1 rows in `results-round1.jsonl`; trap 2 rows in `results.jsonl` |
 | E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked. Re-measured 4/6 on 09-08 as E5's arm W — read 6/6 as one draw | `results.jsonl`, the 18 rows dated 09-05/09-06 with **no** `delivery` key |
 | Q1 (2026-09-09) | Does the distiller work end to end? (= brief Q1) | **Answered.** 4/12 draws emitted; those four scored 12/12 against a 1/6 floor. Bottleneck is emission, not delivery or content | `bench/distilled/` + the 24 rows dated 2026-09-09 |
-| E6 (designed 2026-09-09) | Does an irrelevant skill *dilute* a relevant one? | **Attempted, not answered.** A rate limit killed 9 of 12 sessions; arm R+I has zero valid rows. Harness ready (`--plus-skill`), design in `docs/superpowers/specs/2026-09-09-e6-dilution-design.md`, re-run costs 12 sessions | 3 valid rows dated 2026-09-09 carrying `extra_skills`; 9 excluded by the §8 `session_ok` rule |
+| E6 (2026-09-10) | Does an irrelevant skill *dilute* a relevant one? | **Answered.** R 6/6, R+I 6/6, zero exclusions, both skills injected on every R+I run. No dilution at n=3 per cell — rules out a large effect only. Does **not** answer E4 | `results.jsonl`, the 12 rows dated 2026-09-10 carrying `extra_skills`; the 09-09 attempt's 3 valid + 9 excluded rows are kept and not pooled |
 | E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Blocked.** Needs a task whose control is neither 0 nor 100%; no such task exists | tasks defined (`sf-author-*-irrelevant`), never run |
 | E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
@@ -26,7 +26,7 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 |---|---|---|
 | Q1 | Does the pipeline work end to end, or only the injection half? | **Answered 2026-09-09.** It works when it emits, and it emits 4 times in 12. The four that emitted scored 12/12 against a 1/6 floor. The distiller is no longer the untested link — but the 8 novelty-gate refusals are never probed, so whether the gate is right is a new open question |
 | Q2 | Is transfer real at any n? | **Replicated null, still open.** 0/6 in the pilot and 0/6 again on 2026-09-09, the second time against a floor measured in the same batch on the same pinned model. Two nulls at n=6 is not absence at a convincing n |
-| Q3 | Does injection ever hurt? | = E4, blocked |
+| Q3 | Does injection ever hurt? | = E4, **still blocked**. E6 (2026-09-10) answered the neighbouring question — an irrelevant skill alongside a relevant one cost nothing, 6/6 versus 6/6 — which makes E4 less urgent but is a different comparator and does not answer it |
 | Q4 | Token cost per unit of benefit? | **No experiment exists** |
 | Q5 | Does the `trusted` gate predict anything? | **Attempted 2026-09-09, no split available.** Pre-registered as a Q1 secondary and run: critique passed all 4 distilled drafts, so there is no failing group to compare against. Still unanswered, and now known to need drafts the gate *rejects* — which this design does not produce |
 
@@ -34,7 +34,7 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 
 | File | Rows | Live or superseded |
 |---|---|---|
-| `results.jsonl` | 48 | 9 pilot (trap 2, 2026-08-11) + 18 E1 (09-05, 09-06) + 15 E5 (09-06) + 6 hot-path confirmation (09-08). E5's rows and later carry a `delivery` key; nothing before them does |
+| `results.jsonl` | 96 | 9 pilot (trap 2, 2026-08-11) + 18 E1 (09-05, 09-06) + 15 E5 (09-06) + 6 hot-path confirmation (09-08) + 24 Q1/Q2 (09-09) + 12 E6 attempt (09-09, 3 valid and 9 `session_ok: false`) + 12 E6 (09-10). E5's rows and later carry a `delivery` key; nothing before them does. The count read 48 until 2026-09-10 and was stale by 36 rows |
 | `results-round1.jsonl` | 18 | **Mixed.** Trap 1's pilot rows are LIVE — the headline table's 0/3, 3/3, 0/3 for response_text come from here. Only trap 2's six rows are superseded by the file-cap repair |
 | `results-leaky-stub.jsonl` | 12 | Superseded *as an authoring design* — but it holds the only control data for the two repair-mode tasks, and that data is live |
 
@@ -896,3 +896,146 @@ committed. Twelve probe rows dated 2026-09-09 were preceded by twelve that
 never ran — `--skill-from` was passed relative and `install_skill` shells
 `save_skill.py` with `cwd` set to the clone, so every one died before its
 session started. No row was written; fixed in `skill_src`.
+
+---
+
+# E6 — does an irrelevant skill dilute a relevant one? (2026-09-10)
+
+Design and pre-registration:
+`docs/superpowers/specs/2026-09-09-e6-dilution-design.md`. This is the re-run;
+the 2026-09-09 attempt lost 9 of 12 sessions to a rate limit and is described
+under "The first attempt" below.
+
+## Headline
+
+**No dilution detected. Both arms scored 6/6.** An irrelevant skill that
+arrives, outranks the relevant skill, and occupies 45% of the injection budget
+cost nothing measurable on either task.
+
+| Arm | Skills installed | `response_text` | `fingerprint` | Total |
+|---|---|---|---|---|
+| **R** — relevant alone | the task's matched hand-authored anti-skill | 3/3 | 3/3 | **6/6** |
+| **R+I** — relevant + irrelevant | that skill **and** `arrow-tzinfo-string-trap` | 3/3 | 3/3 | **6/6** |
+
+**n=3 per cell**, 6 per arm, 12 sessions in one batch, arm R first. Zero
+sessions excluded: all 12 carry `session_ok: true`. Model `claude-opus-5`,
+warm tier, `trigger: prompt` on every injection.
+
+This is the outcome §6 of the design calls "R+I ≈ R, both near ceiling": the
+strongest available evidence that injection does not hurt. It does **not**
+answer E4, which asks about an irrelevant skill versus *nothing*.
+
+## The pre-registered checks, in order
+
+§5 fixed four rules before any data existed. All four are satisfied.
+
+- **Arm R reproduced its ceiling.** 6/6. §5 required that a failure here be
+  the headline and the comparison be called uninterpretable. It did not fire.
+- **Both arms ran in one batch, R first.** 01:18:22 to 01:31:34, 13 minutes,
+  837 session-seconds.
+- **All 12 sessions ran and no cell was dropped after its score was seen.**
+- **No run measured crowd-out.** Every one of the 6 arm R+I runs injected
+  **both** skills; every arm R run injected exactly one. The §5 rule that a
+  single-injection run is reported separately and never pooled has nothing to
+  report. Crowd-out and dilution are told apart from the injection rows, as
+  §4 requires, not inferred from the score.
+
+## The bad case was worse than the design claimed
+
+The design's §3 viability table has `arrow-tzinfo-string-trap` outranking the
+relevant skill on `response_text` (2.53 to 1.87) but narrowly *losing* on
+`fingerprint` (2.53 to 2.55). Re-derived against `retrieve.rank` over the pool
+each arm actually installs — the two skills present in the clone, not a larger
+index — the irrelevant skill ranks **first on both tasks**:
+
+| task | irrelevant | relevant |
+|---|---|---|
+| `sf-author-response-text` | **3.102** (7 matched) | 1.709 (5 matched) |
+| `sf-author-fingerprint-preexisting` | **3.102** (7 matched) | 2.883 (6 matched) |
+
+BM25 is corpus-relative, so the two tables are not in conflict — they rank
+against different pools, and the design does not say which one it used. The
+pool above is the one the experiment ran on. The qualitative claims the design
+rests on both hold, and the realistic-bad-case argument holds *more* strongly
+than it was written: the irrelevant skill was ranked first, injected first, and
+still cost nothing.
+
+## Budget occupancy, re-derived
+
+The 93% figure is what makes this a dilution test rather than a crowd-out test,
+so it was re-checked rather than inherited. `INJECT_BUDGET_TOKENS` is 1200 and
+injection cost is `len(body) // 4`:
+
+| skill | cost |
+|---|---|
+| `serialization-corrupts-matching` (relevant, rt) | 574 |
+| `lossy-transform-false-negative` (relevant, fp) | 561 |
+| `arrow-tzinfo-string-trap` (irrelevant) | 544 |
+
+Pairs cost 1118 (93%) and 1105 (92%). All three payloads are `kind:
+antiskill`, so `MAX_SKILLS = 3` — which caps non-anti-skills only — never
+applied. The injection rows confirm the arithmetic: both skills arrived every
+time.
+
+## The first attempt (2026-09-09), and why it is postponed rather than poisoned
+
+The 09-09 batch produced 3 valid rows and 9 with `session_ok: false`, the
+latter written at 3-second intervals as `claude -p` exited 1 on the session
+limit. They stay in `results.jsonl`, which is append-only, and the §8
+`session_ok` exclusion rule — pre-registered before any E6 data existed — keeps
+them out of every cell here. One excluded row records `resolved: true`; that is
+exactly the false claim the rule exists to suppress.
+
+Its 3 valid rows are arm R on `response_text`, 3/3. They are **not** pooled
+into the cells above. E5 established that this design's cross-batch spread on
+a single arm (6/6 versus 4/6, nothing changed but the batch) exceeds the
+effects it can resolve, which is why §1 requires one batch.
+
+## Limits
+
+1. **n=3 per cell.** Six sessions per arm. Both arms at 6/6 rules out only a
+   large effect: if R+I's true rate were 50% it would read 6/6 about 1.6% of
+   the time, but at 75% it would read 6/6 about 18% of the time. A moderate
+   dilution is entirely compatible with this result. A null here is "no large
+   effect", never "no effect".
+2. **Ceiling design.** The comparison measures a fall from a ceiling, so it can
+   see harm and cannot see benefit. Arm R+I is already at the maximum.
+3. **One irrelevant payload.** `arrow-tzinfo-string-trap` is one skill about
+   one unrelated bug. A different irrelevant skill could dilute more.
+4. **93% occupancy is a knife edge.** A longer irrelevant payload converts this
+   into a crowd-out test. The measured figures above are what make the design
+   valid today; re-check them if any payload changes.
+5. **Two tasks, one repository**, both traps in SkillForge's own codebase, and
+   the operator wrote the tasks, the traps, and both payloads.
+6. Bench sessions inherit the operator's full plugin set, so absolute numbers
+   are model-plus-plugins. The contrast is within one batch and holds.
+7. **Latency carries no signal either, and should not be read as one.** Arm
+   R+I took 396 session-seconds against arm R's 442. At n=6 with a ~50s spread
+   inside each arm, that difference is noise, not a token-cost finding. Q4
+   still has no experiment.
+
+## What this does *not* validate
+
+E4 (irrelevant versus nothing) is untouched and still blocked. This result
+makes E4's floor problem less urgent without answering it. Q4 — token cost per
+unit of benefit — is out of scope by §8; E6 measures whether a second skill
+hurts, not what it costs. The hot tier injects unconditionally and at a 1,500-
+token budget, and its ranking, promotion and eviction remain unevidenced; this
+result is about the warm path at 1200 tokens.
+
+## Reproducing
+
+```bash
+python3 bench/run.py --check
+I="$PWD/bench/skills/arrow-tzinfo-string-trap.md"
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text --plus-skill "$I"
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting --plus-skill "$I"
+```
+
+Arm R+I rows carry `extra_skills: ["arrow-tzinfo-string-trap"]`; arm R rows
+carry `extra_skills: []`. Both arms pass `--arm treatment`, and `--plus-skill`
+is what puts `-plus` in the clone path segment — without it the two arms would
+share a clone and the second batch would overwrite the first, as happened once
+in E5. The 12 rows are dated `2026-09-10T01:18` to `01:31`.
