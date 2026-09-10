@@ -73,14 +73,14 @@ def test_large_structure_never_exceeds_the_cap():
 
 def test_tokenize_recovers_a_flat_dict_value():
     d, p = _detect(), _patterns()
-    out = d.response_text({"stderr": "TypeError: bad operand"})
+    out = d.response_text({"stderr": "Running webhook test...\nTypeError: bad operand"})
     hay = p.tokenize(out)
     assert p.matches(p.tokenize("TypeError bad operand"), hay), hay[:40]
 
 
 def test_tokenize_recovers_a_nested_dict_value():
     d, p = _detect(), _patterns()
-    out = d.response_text({"result": {"stderr": "TypeError: bad operand"}})
+    out = d.response_text({"result": {"stderr": "Running webhook test...\nTypeError: bad operand"}})
     hay = p.tokenize(out)
     assert p.matches(p.tokenize("TypeError bad operand"), hay), hay[:40]
 
