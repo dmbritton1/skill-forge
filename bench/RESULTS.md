@@ -12,9 +12,10 @@ because nothing indexed the data — see "What the register caught".
 | E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked. Re-measured 4/6 on 09-08 as E5's arm W — read 6/6 as one draw | `results.jsonl`, the 18 rows dated 09-05/09-06 with **no** `delivery` key |
 | Q1 (2026-09-09) | Does the distiller work end to end? (= brief Q1) | **Answered.** 4/12 draws emitted; those four scored 12/12 against a 1/6 floor. Bottleneck is emission, not delivery or content | `bench/distilled/` + the 24 rows dated 2026-09-09 |
 | E6 (2026-09-10) | Does an irrelevant skill *dilute* a relevant one? | **Answered.** R 6/6, R+I 6/6, zero exclusions, both skills injected on every R+I run. No dilution at n=3 per cell — rules out a large effect only. Does **not** answer E4 | `results.jsonl`, the 12 rows dated 2026-09-10 carrying `extra_skills`; the 09-09 attempt's 3 valid + 9 excluded rows are kept and not pooled |
-| E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Blocked.** Needs a task whose control is neither 0 nor 100%; no such task exists | tasks defined (`sf-author-*-irrelevant`), never run |
+| E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Scoring floor removed 2026-09-10, not yet run.** Graded probes put control at 0.636 and 0.852, off the floor on both tasks. The blockage was the scorer, not the task | tasks defined (`sf-author-*-irrelevant`), never run; baselines in `bench/graded.jsonl` |
 | E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
+| Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half yes, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, control came off the floor, E4 unblocked. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1039,3 +1040,166 @@ carry `extra_skills: []`. Both arms pass `--arm treatment`, and `--plus-skill`
 is what puts `-plus` in the clone path segment — without it the two arms would
 share a clone and the second batch would overwrite the first, as happened once
 in E5. The 12 rows are dated `2026-09-10T01:18` to `01:31`.
+
+---
+
+# Graded scoring — the probe half works, the judge half does not (2026-09-10)
+
+Design: `docs/superpowers/specs/2026-09-10-graded-scorer-design.md`.
+Plan: `docs/superpowers/plans/2026-09-10-graded-scorer.md`.
+Data: `bench/graded.jsonl`, 42 rows, one per surviving archived artifact.
+
+## Headline
+
+**Binary scoring was the blocker, and replacing it unblocks E4.** Control now
+lands off the floor on both authoring tasks, with room to fall and room to rise.
+
+**The judge half added nothing and its 42 sessions bought a negative result.**
+The three criteria discriminate between *tasks*, not between artifacts.
+
+## Why this was built
+
+`resolved` is `all(per_test.values())`. Three experiments hit the ceiling that
+creates: E4 cannot run because a 0/6 control has nowhere to fall by
+construction; E6 returned 6/6 against 6/6; E5 measured one arm twice at 6/6 and
+4/6.
+
+The cheap option was checked first and does not work. Each task already
+declares two `fail_to_pass` tests and every row records `per_test`, so a 0/1/2
+scale already exists. Across all 96 rows of `results.jsonl`: 38 at zero, 57 at
+two, and **one** in the middle. The existing gradation is degenerate.
+
+## The probe half — 20 probes, zero sessions
+
+`bench/probes/` holds 11 probes for `fingerprint_preexisting` (nine from the
+stub contract, two the trap) and 9 for `response_text` (three from the
+contract, six from enumerating the input space). `bench/regrade.py` replays
+each archived diff onto its base commit, filtered to `scripts/*`, and scores it.
+
+Each suite was gated on two oracles before any artifact was scored: every probe
+must FAIL against the stub and PASS at the task's `fix_commit`. Both gates held.
+
+**The falsifier did not fire.** Spec §4 pre-registered that a bimodal
+distribution means the design failed and is reported as failed rather than
+tuned. Result:
+
+| probe_score | rows |
+|---|---|
+| 0.636 | 8 |
+| 0.778 | 5 |
+| 0.889 | 2 |
+| 1.000 | 27 |
+
+15 of 42 land strictly between the endpoints. The subsumption invariant holds:
+every artifact whose latest matching run `resolved` also passes both of its
+trap probes, 0 violations.
+
+### Control comes off the floor
+
+| task | control (graded) | matched treatment | control (binary) |
+|---|---|---|---|
+| `fingerprint_preexisting` | 0.636, flat | 1.000 | 0/6 |
+| `response_text` | 0.778, 0.778, 1.000 | 1.000 | 1/6 |
+
+This is the result. E4 needed a baseline that is neither 0 nor 100%, and the
+blockage was **the scorer, not the task** — the diagnosis in the 09-09 handoff
+§3.2 was right.
+
+Three things also became visible that binary scoring hid, all at n=3 and none
+claimed as findings:
+
+- transfer sits **at** control on `fingerprint` (0.636) and **below** it on
+  `response_text` (0.778 against 0.852);
+- E6's R+I arm dips slightly on `response_text`, 0.963 against 1.000, where the
+  binary read was a flat 6/6 versus 6/6;
+- matched treatment **saturates** at 1.000 in every cell. The floor is fixed;
+  the ceiling is not.
+
+## The judge half — 42 sessions, one clean negative
+
+Three criteria, one unsteered `claude -p` turn per artifact, pinned to
+`claude-opus-5` and recorded as `judge_model` on every row. 42 verdicts from 42
+attempts, **zero** `judge_ok: false` exclusions. The machinery worked.
+
+The criteria do not.
+
+| task | n | judge_score | probe_score |
+|---|---|---|---|
+| `fingerprint` | 18 | 0.667–1.000 (mean 0.963) | 0.636–1.000 |
+| `response_text` | 24 | 0.000–0.333 (mean 0.042) | 0.778–1.000 |
+
+Which criteria ever fire tells the whole story:
+
+| task | explicit_unknown | bounds_documented | visible_degradation |
+|---|---|---|---|
+| `fingerprint` (n=18) | 18 | 18 | 16 |
+| `response_text` (n=24) | 0 | 3 | 0 |
+
+On `fingerprint` the criteria saturate at the ceiling; on `response_text` they
+saturate at the floor. **Within either task the judge discriminates nothing.**
+Its entire variance is between tasks.
+
+This is a defect in the criteria, which were written into the spec by their
+author and are `fingerprint_preexisting`-shaped: that contract names three
+unknown conditions and three bounds, so its artifacts all satisfy them, while
+`response_text` has no unknown case and one trivial cap.
+
+**The apparent ceiling break was a pooling artifact.** Across all 27 artifacts
+the probes tie at 1.000, the judge shows three levels — which reads as the
+judge resolving what the probes cannot. Split by task it evaporates: the 10
+tied `fingerprint` artifacts are *all* at 1.000, and 16 of the 17 tied
+`response_text` artifacts are all at 0.000. One level each.
+
+Pearson r between the halves is **-0.308** — weakly *negative*, driven by the
+same task confound. Functionally wrong control code scores 0.889 on
+`fingerprint`'s judge criteria while functionally correct code scores 0.000 on
+`response_text`'s.
+
+This replicates the Q1 finding that a judge here reached the opposite
+conclusion from the scores, and it vindicates spec §3.3's refusal to merge the
+halves. The merged `graded` mean reads control 0.594 against matched treatment
+0.691, compressing a real 0.636-versus-1.000 probe gap into noise. **Do not
+quote `graded`.**
+
+## What it cost, and the lesson
+
+Spec §3.5 specified a calibration corpus for the judge. The plan deliberately
+deferred it, arguing that calibration before any judge run would be tuning a
+rubric against examples written for it. That reasoning was wrong, and this is
+the second time in this project that an argument against a cheap up-front check
+turned out backwards.
+
+A fixed corpus with hand-established verdicts spanning **both** tasks is
+exactly what `bench/critique-calibration/README.md` argues for, and it would
+have exposed task-shaped criteria for a fraction of 42 sessions. The judge half
+is not salvageable by re-running it; it needs criteria that mean something for
+both contracts, and then calibration before spending again.
+
+## Limits
+
+1. **n=3 per cell**, unchanged by any of this.
+2. **One artifact per cell, not one per row.** `prepare()` recreates a clone per
+   path segment, so batches re-run under the same segment overwrote their
+   predecessors long ago.
+3. **The treatment-side ceiling is untouched.** 27 of 42 artifacts tie at a
+   perfect probe score, including every matched-treatment cell, so the
+   comparisons the bench most wants to make remain unresolvable.
+4. **`response_text`'s probes carry a weaker derivation** than `fingerprint`'s:
+   six of nine come from input-space enumeration rather than the contract,
+   because the stub deliberately withholds the hazard.
+5. **The byte-cap probes move together.** After a fixture repair the two overlap,
+   so `fingerprint` carries ~10 independent degrees rather than 11.
+6. **A graded score does not by itself unblock E4.** It removes the scoring
+   floor. Whether an experiment run on this scale detects anything is untested.
+
+## Reproducing
+
+```bash
+python3 bench/probes/probe_fingerprint_preexisting.py <clone_root>   # 11 probes
+python3 bench/probes/probe_response_text.py <clone_root>             #  9 probes
+rm -f bench/graded.jsonl && python3 bench/regrade.py                 # probe half, 0 sessions
+rm -f bench/graded.jsonl && python3 bench/regrade.py --judge         # + judge, 42 sessions
+```
+
+`bench/regrade.py` **appends**. Delete `bench/graded.jsonl` before any re-run
+or the corpus doubles, which corrupts every n without changing any mean.
