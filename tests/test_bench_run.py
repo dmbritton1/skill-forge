@@ -25,6 +25,7 @@ description: >
 def _reset():
     bench_run.SKILL_FROM = None
     bench_run.FORCE_HOT = False
+    bench_run.PLUS_SKILL = None
 
 
 def test_arm_segment_is_empty_for_control_and_plain_treatment():
@@ -265,6 +266,40 @@ def test_skill_path_recorded_on_the_row_is_absolute():
     try:
         keys = bench_run.source_keys("treatment", {"skill": "unused"}, "warm")
         assert pathlib.Path(keys["skill_path"]).is_absolute(), keys["skill_path"]
+    finally:
+        _reset()
+
+
+def test_plus_skill_gets_its_own_clone_segment():
+    """E6's two arms both pass --arm treatment. Without a distinct segment they
+    share a clone AND a per-run ledger, which is how E5 lost a batch."""
+    _reset()
+    plain = bench_run.arm_segment("treatment")
+    bench_run.PLUS_SKILL = "bench/skills/arrow-tzinfo-string-trap.md"
+    try:
+        assert bench_run.arm_segment("treatment") == "-plus"
+        assert bench_run.arm_segment("treatment") != plain
+        assert bench_run.arm_segment("control") == ""
+    finally:
+        _reset()
+
+
+def test_plus_skill_composes_with_skill_from():
+    _reset()
+    bench_run.SKILL_FROM = "/x/bench/distilled/trapA/learn/1/SKILL.md"
+    bench_run.PLUS_SKILL = "bench/skills/arrow-tzinfo-string-trap.md"
+    try:
+        assert bench_run.arm_segment("treatment") == "-d-learn-1-plus"
+    finally:
+        _reset()
+
+
+def test_extra_skill_names_reads_the_frontmatter():
+    _reset()
+    assert bench_run.extra_skill_names() == []
+    bench_run.PLUS_SKILL = "bench/skills/arrow-tzinfo-string-trap.md"
+    try:
+        assert bench_run.extra_skill_names() == ["arrow-tzinfo-string-trap"]
     finally:
         _reset()
 

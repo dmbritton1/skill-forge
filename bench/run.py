@@ -61,6 +61,9 @@ FORCE_HOT = False
 # rather than passed, because a forgotten segment is the exact bug that let
 # E5's two arms overwrite each other.
 SKILL_FROM = None
+# E6: an ADDITIONAL skill installed beside the task's own, to ask whether an
+# irrelevant one riding along dilutes a relevant one. Off = None.
+PLUS_SKILL = None
 
 
 def expand(value):
@@ -195,10 +198,13 @@ def arm_segment(arm):
         return ""
     if FORCE_HOT:
         return "-hot"
+    seg = ""
     if SKILL_FROM:
         distiller, draw = distilled_parts()
-        return "-d-%s-%s" % (distiller.replace("-", ""), draw)
-    return ""
+        seg = "-d-%s-%s" % (distiller.replace("-", ""), draw)
+    if PLUS_SKILL:
+        seg += "-plus"
+    return seg
 
 
 def skill_name(path):
@@ -275,14 +281,31 @@ def injections(db):
         return []
 
 
-def install_skill(task, dest, plugin_dir):
-    """Put the skill in the clone's PROJECT store via the enforced save path."""
-    src = skill_src(task)
+def _save_one(src, dest, plugin_dir):
     r = sh('python3 "%s/scripts/save_skill.py" "%s" --scope project --project-root "%s"'
            % (plugin_dir, src, dest), cwd=dest)
     if r.returncode:
         raise RuntimeError("save_skill failed: " + (r.stdout + r.stderr)[-400:])
     return r.stdout.strip()
+
+
+def extra_skill_names():
+    """Names of any skill installed BESIDE the task's own (E6), else []."""
+    return [skill_name(Path(PLUS_SKILL).resolve())] if PLUS_SKILL else []
+
+
+def install_skill(task, dest, plugin_dir):
+    """Put the skill in the clone's PROJECT store via the enforced save path.
+
+    E6 installs a second one after it. Order matters only in that the task's
+    own goes first; retrieve ranks them itself at injection time, and on
+    `response_text` the IRRELEVANT skill outranks the relevant one -- which is
+    the case E6 exists to test.
+    """
+    notes = [_save_one(skill_src(task), dest, plugin_dir)]
+    if PLUS_SKILL:
+        notes.append(_save_one(Path(PLUS_SKILL).resolve(), dest, plugin_dir))
+    return "\n".join(notes)
 
 
 def score(task, dest):
@@ -383,6 +406,7 @@ def one(task, arm, run_idx, plugin_dir):
            "injections": injections(ledger_db),
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     rec.update(source_keys(arm, task, tier_at_install))
+    rec["extra_skills"] = extra_skill_names() if arm == "treatment" else []
     with RESULTS.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(rec) + "\n")
     # Every treatment install writes a key into the operator's real
@@ -409,14 +433,18 @@ def main(argv=None):
     ap.add_argument("--force-hot", action="store_true",
                     help="E5 arm H: deliver the treatment skill hot, with its"
                          " symptom triggers suppressed (test-only)")
+    ap.add_argument("--plus-skill", default=None,
+                    help="E6: install this SKILL.md IN ADDITION to the task's"
+                         " own, to test dilution (test-only)")
     ap.add_argument("--skill-from", default=None,
                     help="Q1: install this SKILL.md instead of the task's own."
                          " The path decides the clone segment (test-only)")
     args = ap.parse_args(argv)
-    global MODEL, FORCE_HOT, SKILL_FROM
+    global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL
     MODEL = args.model
     FORCE_HOT = args.force_hot
     SKILL_FROM = args.skill_from
+    PLUS_SKILL = args.plus_skill
 
     cfg = expand(json.loads((ROOT / "tasks.json").read_text(encoding="utf-8")))
     problems = check_config(cfg)
