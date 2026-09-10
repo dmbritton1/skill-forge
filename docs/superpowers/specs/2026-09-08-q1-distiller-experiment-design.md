@@ -515,6 +515,18 @@ register caught two confidently-stated false claims:
 - The secondary comparison against the hand-authored ceiling is directional and
   will be labelled as such regardless of which direction it points.
 - A phase-1 abort, timeout, or rejection is a result. It is reported, not re-run.
+- **A session the API refused is NOT a result.** Declared here, before any data
+  exists, because it would otherwise be a rule invented after seeing which rows
+  it excludes. A rate limit, an auth failure or a crash makes `claude -p` exit
+  non-zero without raising, which in phase 1 would be archived as
+  `repair_unresolved` — a false claim about the distiller — and in phase 2 lands
+  in `results.jsonl` as `resolved: false`, indistinguishable from a task the
+  model failed. Therefore: phase 1 records `session_ok` and gives a refused
+  session its own outcome, `session_failed`, which outranks every other and is
+  never probeable and never counted; phase 2 rows with `session_ok: false` are
+  **excluded from every cell**, and the count of excluded rows is reported
+  alongside the funnel. A refused draw or probe is re-run, and re-running it is
+  not re-rolling: nothing about its content was seen.
 
 ### The two folded-in questions, declared before any data exists
 

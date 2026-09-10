@@ -65,10 +65,18 @@ def probeable(out):
     return out == "saved"
 
 
-def outcome(repair_resolved, timed_out, draft, reject_count):
-    """One of five, checked in priority order.
+def outcome(repair_resolved, timed_out, draft, reject_count, session_ok=True):
+    """One of six, checked in priority order.
 
-    repair_unresolved outranks everything: whatever the distiller produced,
+    `session_failed` outranks everything, including repair_unresolved. A
+    session the API refused -- a rate limit mid-batch is the realistic case --
+    returns non-zero without raising, so the draw would otherwise flow on to
+    score(), find the repair unresolved, and be archived as "the distiller's
+    source session did not fix the bug". That is a false claim about the
+    experiment written into its own evidence, and the archive guard would then
+    refuse to re-run it. A harness failure is not a result.
+
+    repair_unresolved outranks the rest: whatever the distiller produced,
     it produced it from a session that did not fix the bug, and that fact
     must not be laundered by a clean save.
 
@@ -77,6 +85,8 @@ def outcome(repair_resolved, timed_out, draft, reject_count):
     unreachable and silently relabel the single most informative failure the
     distiller can produce as the novelty gate working.
     """
+    if not session_ok:
+        return "session_failed"
     if not repair_resolved:
         return "repair_unresolved"
     if timed_out:
@@ -181,7 +191,10 @@ def one(trap, distiller, draw, plugin_dir, task):
         # meta.json from the finally, with secs 0.0 and no draft. Nothing was
         # seen, so pre-registration's bar on re-rolling does not apply and an
         # unattended batch must not need hand intervention to retry it.
-        if pm.get("secs") or (d / "SKILL.md").exists():
+        # A session the API refused is a harness failure, not content anyone
+        # saw, so it is retryable for the same reason a prepare() crash is.
+        refused = pm.get("outcome") == "session_failed"
+        if not refused and (pm.get("secs") or (d / "SKILL.md").exists()):
             raise RuntimeError(
                 "%s is already archived -- re-rolling a draw after its content "
                 "is seen is what pre-registration forbids. Delete it "
@@ -191,6 +204,7 @@ def one(trap, distiller, draw, plugin_dir, task):
     st = {"outcome": "errored", "error": None, "repair_resolved": False,
           "per_test": {}, "timed_out": False, "secs": 0.0, "drafts_found": 0,
           "draft_text": None, "skill_name": None, "rejects": [],
+          "session_ok": True,
           "rows": {"events": [], "decisions": [], "read_error": None},
           "tail": "", "test_tail": ""}
     try:
@@ -204,6 +218,10 @@ def one(trap, distiller, draw, plugin_dir, task):
         try:
             sess = bench_run.sh(cmd, cwd=dest, timeout=PHASE1_TIMEOUT_S)
             st["tail"] = (sess.stdout or sess.stderr)[-2000:]
+            # sh() returns rather than raises on a non-zero exit, so without
+            # this a refused session (rate limit, auth, crash) reads as a
+            # repair the model simply failed.
+            st["session_ok"] = sess.returncode == 0
         except subprocess.TimeoutExpired:
             st["timed_out"], st["tail"] = True, "TIMEOUT"
         st["secs"] = round(time.time() - t0, 1)
@@ -227,7 +245,8 @@ def one(trap, distiller, draw, plugin_dir, task):
         # decision row for every REJECTED / SECRET BLOCKED / name collision.
         st["rejects"] = [r for r in st["rows"]["decisions"] if r["actor"] == "system"]
         st["outcome"] = outcome(st["repair_resolved"], st["timed_out"],
-                                st["draft_text"], len(st["rejects"]))
+                                st["draft_text"], len(st["rejects"]),
+                                st["session_ok"])
     except Exception as err:
         st["error"] = repr(err)
     finally:
@@ -260,6 +279,7 @@ def one(trap, distiller, draw, plugin_dir, task):
             "error": st["error"],
             "repair_resolved": st["repair_resolved"], "per_test": st["per_test"],
             "timed_out": st["timed_out"], "secs": st["secs"],
+            "session_ok": st["session_ok"],
             "skill_name": st["skill_name"],
             "chose_global_scope": leaked,
             "containment_rc": containment_rc,

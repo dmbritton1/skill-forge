@@ -700,6 +700,54 @@ def test_drift_still_reports_the_real_repo_s_entry_going_missing():
     in_home(check)
 
 
+
+def test_a_refused_session_is_not_a_repair_failure():
+    """A rate limit mid-batch returns non-zero without raising. Recorded as
+    repair_unresolved it becomes a false claim about the distiller, written
+    into the experiment's own evidence."""
+    assert distill.outcome(False, False, None, 0, session_ok=False) == "session_failed"
+
+
+def test_session_failed_outranks_every_other_outcome():
+    for args in ((False, False, None, 0), (True, True, None, 0),
+                 (True, False, "draft", 1), (True, False, "draft", 0)):
+        assert distill.outcome(*args, session_ok=False) == "session_failed", args
+
+
+def test_session_failed_is_not_probeable():
+    assert distill.probeable("session_failed") is False
+
+
+def test_outcome_defaults_to_a_healthy_session():
+    """The four-argument form must keep its old meaning for existing callers."""
+    assert distill.outcome(True, False, "draft", 0) == "saved"
+
+
+def test_distill_retries_a_refused_session():
+    """The archive guard must not lock a draw the API refused -- nothing was
+    seen, so pre-registration's bar on re-rolling does not apply."""
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as tmp:
+        real = distill.ARCHIVE
+        distill.ARCHIVE = pathlib.Path(tmp)
+        try:
+            d = distill.archive_dir("A", "learn", 1)
+            d.mkdir(parents=True)
+            (d / "meta.json").write_text(json.dumps(
+                {"outcome": "session_failed", "secs": 12.3, "session_ok": False}),
+                encoding="utf-8")
+            raised = False
+            try:
+                distill.one("A", "learn", 1, pathlib.Path("."),
+                            {"id": "x", "prompt": "p"})
+            except RuntimeError as err:
+                raised = "already archived" in str(err)
+            assert not raised, "a refused session must be retryable"
+        except Exception:
+            pass          # it fails later in prepare; that is fine
+        finally:
+            distill.ARCHIVE = real
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
