@@ -28,6 +28,14 @@ SUITES = {
     "sf-author-fingerprint-preexisting": "probe_fingerprint_preexisting.py",
 }
 
+# Expected probe count per suite file, known independently of any run's
+# output. A suite that dies partway (e.g. 5 of 6 probes reporting) must not
+# be scored on the partial denominator it happened to produce.
+SUITE_PROBE_COUNTS = {
+    "probe_response_text.py": 9,
+    "probe_fingerprint_preexisting.py": 11,
+}
+
 
 def suite_for(task):
     """Absolute path to the probe suite for `task`, or None if ungraded.
@@ -54,9 +62,23 @@ def parse_probe_output(out):
     return detail
 
 
-def summarize(detail):
-    """Passing count, total, and fraction. An empty run scores 0.0, not 1.0."""
+def summarize(detail, expected=None):
+    """Passing count, total, and fraction. An empty run scores 0.0, not 1.0.
+
+    If `expected` is given and the parsed count doesn't match it, the suite
+    died partway (crashed, timed out mid-run, whatever) and reporting the
+    partial fraction would be indistinguishable from a genuine score -- e.g.
+    5 of 6 probes reporting scores 0.833 exactly like a real 0.833 would.
+    Treat that as a failed run instead: 0 total, 0.0 score, same as an empty
+    run, and warn loudly since this failure mode is otherwise silent.
+    """
     total = len(detail)
+    if expected is not None and total != expected:
+        print("WARNING: probe suite reported %d/%d expected probes -- "
+              "treating as a failed run, not a partial score" %
+              (total, expected), file=sys.stderr)
+        return {"probe_passed": 0, "probe_total": 0, "probe_score": 0.0,
+                "probe_detail": detail}
     passed = sum(1 for v in detail.values() if v)
     return {"probe_passed": passed, "probe_total": total,
             "probe_score": (passed / total) if total else 0.0,
@@ -90,7 +112,8 @@ def probe(entry, clone):
     suite = suite_for(entry["task"])
     r = subprocess.run([sys.executable, suite, str(clone)],
                        capture_output=True, text=True, timeout=300)
-    return summarize(parse_probe_output(r.stdout + r.stderr))
+    expected = SUITE_PROBE_COUNTS.get(pathlib.Path(suite).name)
+    return summarize(parse_probe_output(r.stdout + r.stderr), expected=expected)
 
 
 def main(argv=None):

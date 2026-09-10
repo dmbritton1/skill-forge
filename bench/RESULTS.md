@@ -15,7 +15,7 @@ because nothing indexed the data — see "What the register caught".
 | E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Scoring floor removed 2026-09-10, not yet run.** Graded probes put control at 0.636 and 0.852, off the floor on both tasks. The blockage was the scorer, not the task | tasks defined (`sf-author-*-irrelevant`), never run; baselines in `bench/graded.jsonl` |
 | E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
-| Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half yes, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, control came off the floor, E4 unblocked. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
+| Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half partial, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, the scale is unpinned from zero, but the graded score reproduces the binary `resolved` verdict in 40 of 42 rows — the unblocking of E4 is provisional, not established. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1051,8 +1051,16 @@ Data: `bench/graded.jsonl`, 42 rows, one per surviving archived artifact.
 
 ## Headline
 
-**Binary scoring was the blocker, and replacing it unblocks E4.** Control now
-lands off the floor on both authoring tasks, with room to fall and room to rise.
+**Across 42 artifacts, the 20-probe suite adds one bit about two artifacts
+beyond what the binary `resolved` already reported.** Joining the graded rows
+to `results.jsonl` on task/arm/run matches 42 of 42. Every `resolved: false`
+artifact scores 0.636 (fingerprint) or 0.778 (response_text), without
+exception. Every `resolved: true` artifact scores 1.000, except exactly two at
+0.889 (`sf-author-response-text-treatment-plus-3` and
+`sf-author-response-text-umbrella-treatment-hot-2`). The scale is no longer
+pinned at zero — but no artifact has yet demonstrated a score below the
+observed floor, so whether an experiment run on this scale can detect a fall
+is untested, not established.
 
 **The judge half added nothing and its 42 sessions bought a negative result.**
 The three criteria discriminate between *tasks*, not between artifacts.
@@ -1090,30 +1098,43 @@ tuned. Result:
 | 0.889 | 2 |
 | 1.000 | 27 |
 
-15 of 42 land strictly between the endpoints. The subsumption invariant holds:
-every artifact whose latest matching run `resolved` also passes both of its
-trap probes, 0 violations.
+15 of 42 land strictly between the endpoints. The subsumption invariant holds
+on the rows where it's checkable: only **7 of 42** rows can be joined
+unambiguously to a `resolved` run in `results.jsonl` (several batches reuse the
+same task/arm/run triple, and the join can only resolve the unambiguous ones);
+of those 7, every artifact whose matching run `resolved` also passes both of
+its trap probes, 0 violations. The invariant is unrefuted, not fully checked.
 
-### Control comes off the floor
+### Control comes off zero, but not off its own floor
 
 | task | control (graded) | matched treatment | control (binary) |
 |---|---|---|---|
 | `fingerprint_preexisting` | 0.636, flat | 1.000 | 0/6 |
 | `response_text` | 0.778, 0.778, 1.000 | 1.000 | 1/6 |
 
-This is the result. E4 needed a baseline that is neither 0 nor 100%, and the
-blockage was **the scorer, not the task** — the diagnosis in the 09-09 handoff
-§3.2 was right.
+E4 needed a baseline that is neither 0 nor 100%, and the blockage was **the
+scorer, not the task** — the diagnosis in the 09-09 handoff §3.2 was right.
+But joining these 42 rows back to `results.jsonl` on task/arm/run (42 of 42
+match) shows every `resolved: false` artifact sitting at exactly 0.636 or
+0.778 and every `resolved: true` artifact at 1.000 except two at 0.889. Across
+the whole corpus, nothing has ever scored below that floor. The scale is
+unpinned from zero, but "room to fall" is asserted, not evidenced — no
+artifact has yet fallen, so whether this scale can detect a fall on a run
+where an intervention makes things worse is untested.
 
-Three things also became visible that binary scoring hid, all at n=3 and none
-claimed as findings:
+Two more things are visible in the graded numbers, at n=3 and not claimed as
+findings, but only one of them is *new*:
 
-- transfer sits **at** control on `fingerprint` (0.636) and **below** it on
-  `response_text` (0.778 against 0.852);
-- E6's R+I arm dips slightly on `response_text`, 0.963 against 1.000, where the
-  binary read was a flat 6/6 versus 6/6;
-- matched treatment **saturates** at 1.000 in every cell. The floor is fixed;
-  the ceiling is not.
+- **Not new:** transfer sits **at** control on `fingerprint` (0.636) and
+  **below** it on `response_text` (0.778 against 0.852). Binary scoring
+  already showed this — 0/3 versus 0/3 on `fingerprint`, 0/3 versus 1/3 on
+  `response_text` — the graded numbers just add decimal places.
+- **New:** E6's R+I arm dips slightly on `response_text`, 0.963 against 1.000,
+  where the binary read was a flat 6/6 versus 6/6. This is the one piece of
+  information the graded suite surfaced that binary scoring did not.
+
+Matched treatment saturates at 1.000 in every cell measured so far; the floor
+moved, the ceiling did not.
 
 ## The judge half — 42 sessions, one clean negative
 
@@ -1157,9 +1178,12 @@ same task confound. Functionally wrong control code scores 0.889 on
 
 This replicates the Q1 finding that a judge here reached the opposite
 conclusion from the scores, and it vindicates spec §3.3's refusal to merge the
-halves. The merged `graded` mean reads control 0.594 against matched treatment
-0.691, compressing a real 0.636-versus-1.000 probe gap into noise. **Do not
-quote `graded`.**
+halves. The merged `graded` mean reads control 0.594 (n=6) against **matched
+treatment alone** 0.778 (n=6) — filtering by arm and segment but not task, as
+an earlier pass here did, also pools the `-transfer` tasks into "matched
+treatment" and reads 0.691, which is not the matched-treatment figure.
+Either way, merging compresses a real 0.636-versus-1.000 probe gap into noise.
+**Do not quote `graded`.**
 
 ## What it cost, and the lesson
 
@@ -1187,9 +1211,24 @@ both contracts, and then calibration before spending again.
 4. **`response_text`'s probes carry a weaker derivation** than `fingerprint`'s:
    six of nine come from input-space enumeration rather than the contract,
    because the stub deliberately withholds the hazard.
-5. **The byte-cap probes move together.** After a fixture repair the two overlap,
-   so `fingerprint` carries ~10 independent degrees rather than 11.
-6. **A graded score does not by itself unblock E4.** It removes the scoring
+5. **The suite is far coarser than 11 (or 9) independent degrees.** Measured,
+   not estimated: `fingerprint` shows exactly **2** observed levels (0.636 and
+   1.000) across all 42 rows; `response_text` shows **3** (0.778, 0.889,
+   1.000). In every low-scoring `fingerprint` row the same four probes fail as
+   one block and never independently —
+   `test_examines_at_most_snapshot_max_files_candidates`,
+   `test_reads_at_most_snapshot_max_bytes_from_one_file`,
+   `test_unknown_when_match_past_file_cap`, and
+   `test_unknown_when_match_past_byte_cap` — because all four assert `is None`,
+   which only truncation-aware code returns; an implementation that honours
+   both caps perfectly but reports `0` instead of `None` fails all four. They
+   are one probe wearing four names, not four independent degrees.
+6. **Spec §3.1's prediction failed.** It predicted probes 1-9 would span the
+   middle of the scale while probes 10-11 sat at the top. The observed
+   distribution is bimodal at the block level (see item 5) — the middle is not
+   spanned, it's a single step. The spec is not edited to match; this failure
+   is recorded here only.
+7. **A graded score does not by itself unblock E4.** It removes the scoring
    floor. Whether an experiment run on this scale detects anything is untested.
 
 ## Reproducing

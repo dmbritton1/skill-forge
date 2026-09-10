@@ -26,6 +26,22 @@ def test_summarize_of_an_empty_run_scores_zero_not_one():
     assert r["probe_total"] == 0 and r["probe_score"] == 0.0
 
 
+def test_summarize_treats_a_short_denominator_as_a_failed_run_not_a_partial_score():
+    # A suite that dies partway (5 of 6 probes reporting) must not be scored
+    # as 0.833 -- indistinguishable from a genuine 0.833. It must fail outright.
+    detail = {"a": True, "b": True, "c": True, "d": True, "e": True}
+    r = regrade.summarize(detail, expected=6)
+    assert r["probe_total"] == 0 and r["probe_passed"] == 0
+    assert r["probe_score"] == 0.0
+
+
+def test_summarize_with_expected_count_matching_scores_normally():
+    detail = {"a": True, "b": False}
+    r = regrade.summarize(detail, expected=2)
+    assert r["probe_total"] == 2 and r["probe_passed"] == 1
+    assert abs(r["probe_score"] - 0.5) < 1e-9
+
+
 def test_probe_suite_is_chosen_by_task():
     assert regrade.suite_for("sf-author-response-text").endswith("probe_response_text.py")
     assert regrade.suite_for(
@@ -34,6 +50,15 @@ def test_probe_suite_is_chosen_by_task():
 
 def test_unknown_task_has_no_suite():
     assert regrade.suite_for("sf-escaping-breaks-symptom-match") is None
+
+
+def test_every_suite_file_has_an_expected_probe_count():
+    # probe() looks up SUITE_PROBE_COUNTS by suite filename -- a suite added
+    # to SUITES without a matching entry here would silently skip the guard.
+    for fname in regrade.SUITES.values():
+        assert fname in regrade.SUITE_PROBE_COUNTS, fname
+    assert regrade.SUITE_PROBE_COUNTS["probe_response_text.py"] == 9
+    assert regrade.SUITE_PROBE_COUNTS["probe_fingerprint_preexisting.py"] == 11
 
 
 def test_replay_removes_the_worktree_it_created_when_apply_fails():
@@ -101,15 +126,24 @@ def test_per_entry_exception_other_than_subprocess_or_os_error_does_not_abort_ba
         (authored / "manifest.json").write_text(json.dumps(entries), encoding="utf-8")
         out_path = pathlib.Path(tmp) / "graded.jsonl"
 
+        # main()'s finally block runs a REAL `git worktree prune` unless this
+        # is faked too -- against this checkout, which holds live worktrees
+        # for other work. A test suite must never touch real repo state.
+        def fake_subprocess_run(cmd, **kwargs):
+            return None
+
         orig_authored, orig_out = regrade.AUTHORED, regrade.OUT
         orig_replay, orig_probe = regrade.replay, regrade.probe
+        orig_subprocess_run = regrade.subprocess.run
         regrade.AUTHORED, regrade.OUT = authored, out_path
         regrade.replay, regrade.probe = fake_replay, fake_probe
+        regrade.subprocess.run = fake_subprocess_run
         try:
             regrade.main([])
         finally:
             regrade.AUTHORED, regrade.OUT = orig_authored, orig_out
             regrade.replay, regrade.probe = orig_replay, orig_probe
+            regrade.subprocess.run = orig_subprocess_run
 
         assert processed == ["clone-2", "clone-3"], (
             "a non-subprocess exception on one entry must not abort the "

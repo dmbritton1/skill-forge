@@ -1,11 +1,11 @@
-"""Tests for the probe runner. Run: python3 bench/probes/test_runner.py"""
+"""Tests for the probe runner. Run: python3 tests/test_probe_runner.py"""
 import contextlib
 import io
 import os
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "bench" / "probes"))
 import runner
 
 
