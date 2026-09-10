@@ -537,7 +537,7 @@ match), with a regression test asserting cwd is isolated and restored.
 ## Reproducing
 
 ```bash
-cd /Users/dwightbritton/Developer/skill-forge
+cd ~/Developer/skill-forge
 python3 bench/run.py --check      # expect: config ok: 10 task(s)
 
 # arm H -- standing native context, symptoms suppressed
@@ -683,7 +683,7 @@ not move them.
 ## Reproducing
 
 ```bash
-cd /Users/dwightbritton/Developer/skill-forge
+cd ~/Developer/skill-forge
 python3 bench/run.py --check      # expect: config ok: 10 task(s)
 python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-response-text-umbrella
 python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-fingerprint-preexisting-umbrella
@@ -878,7 +878,7 @@ paths fired in the first cell.
 ## Reproducing
 
 ```bash
-cd /Users/dwightbritton/Developer/skill-forge
+cd ~/Developer/skill-forge
 python3 bench/run.py --check
 python3 bench/distill.py --all --draws 3      # phase 1: 12 sessions
 python3 bench/dryrun.py                       # predictions, BEFORE probing

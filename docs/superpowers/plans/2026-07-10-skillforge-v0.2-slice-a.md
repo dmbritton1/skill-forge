@@ -6,9 +6,9 @@
 
 **Architecture:** Three new scripts (`ledger.py`, `trust.py`, `sync.py`) layered so sync→trust→ledger import downward with no cycles. `save_skill.py` grows integration calls (auto-trust, save event, sync-materialize) and validation for the new frontmatter fields. Native skill dirs become derived, gitignored cache written ONLY by `sync.py`; a SessionStart hook keeps them consistent with `trust.json` every session.
 
-**Tech Stack:** Python 3.9 stdlib only (`sqlite3`, `hashlib`, `json`, `re`, `argparse`). Tests are plain assert files with `__main__` runners (NO pytest on this machine). Existing repo: SkillForge v0.1 at `/Users/dwightbritton/Desktop/skill-forge` (see `scripts/save_skill.py`, `scripts/secscan.py`, `tests/test_save_skill.py` for established patterns).
+**Tech Stack:** Python 3.9 stdlib only (`sqlite3`, `hashlib`, `json`, `re`, `argparse`). Tests are plain assert files with `__main__` runners (NO pytest on this machine). Existing repo: SkillForge v0.1 at `~/Desktop/skill-forge` (see `scripts/save_skill.py`, `scripts/secscan.py`, `tests/test_save_skill.py` for established patterns).
 
-**Design doc:** `docs/superpowers/specs/2026-07-10-v0.2-slice-a-design.md`. Parent spec: `/Users/dwightbritton/Downloads/skillforge-architecture-v4.md` §4.3, 9.2, 11.2.
+**Design doc:** `docs/superpowers/specs/2026-07-10-v0.2-slice-a-design.md`. Parent spec: `~/Downloads/skillforge-architecture-v4.md` §4.3, 9.2, 11.2.
 
 ## Global Constraints
 
@@ -1187,7 +1187,7 @@ Expected in order: `saved:`/`materialized:` lines, `native OK`, `trusted`, `skil
 
 ```bash
 python3 -c "import json; json.load(open('hooks/hooks.json')); print('hooks.json valid')"
-claude --plugin-dir /Users/dwightbritton/Desktop/skill-forge -p "reply with just: ok" --max-turns 1 --debug 2>&1 | grep -i -m5 -E "skillforge|SessionStart|hook" || true
+claude --plugin-dir ~/Desktop/skill-forge -p "reply with just: ok" --max-turns 1 --debug 2>&1 | grep -i -m5 -E "skillforge|SessionStart|hook" || true
 ```
 Expected: `hooks.json valid`; the grep should show the SessionStart hook being registered/run (exact debug format varies by Claude Code version — the requirement is evidence the hook executed without error; if debug output shows nothing hook-related, run the hook's command manually from the repo root and confirm exit 0).
 

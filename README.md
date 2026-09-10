@@ -16,7 +16,7 @@ Engine (this plugin) and knowledge (learned skills) are separate:
 
 ## Install
 
-    claude plugin marketplace add /Users/dwightbritton/Developer/skill-forge
+    claude plugin marketplace add ~/Developer/skill-forge
     claude plugin install skillforge@skillforge
 
 Installing copies the tree into `~/.claude/plugins/cache/`, so edits to this

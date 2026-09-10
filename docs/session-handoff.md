@@ -226,7 +226,7 @@ takes a single exact name and cannot express that.
 ## 5. Where the work is
 
 Branch `claude/skillforge-hot-tier-validation-569edb`, in the worktree at
-`/Users/dwightbritton/Developer/skill-forge/.claude/worktrees/skillforge-hot-tier-validation-569edb`.
+`~/Developer/skill-forge/.claude/worktrees/skillforge-hot-tier-validation-569edb`.
 30 commits ahead of `main`. Run everything from the worktree.
 
 New this session, all tested (18 suites, 25 + 60 bench tests):

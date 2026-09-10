@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.9 stdlib only (no third-party deps; no PyYAML — minimal line-based frontmatter parsing). Tests are plain `assert` functions with a stdlib runner (pytest is NOT installed on this machine). Plugin structure per Claude Code plugin conventions (`.claude-plugin/plugin.json`, `commands/`, `skills/`, `scripts/`).
 
-**Spec:** `/Users/dwightbritton/Downloads/skillforge-architecture-v4.md` (draft 0.7). v0.1 scope is Section 13: "plugin scaffold, /learn + /learn-failure with the distillation engine skills, blocking secret scan on every save, storage layout, skills written to global/project stores, native triggering only. No hooks, no ledger."
+**Spec:** `~/Downloads/skillforge-architecture-v4.md` (draft 0.7). v0.1 scope is Section 13: "plugin scaffold, /learn + /learn-failure with the distillation engine skills, blocking secret scan on every save, storage layout, skills written to global/project stores, native triggering only. No hooks, no ledger."
 
 ## Global Constraints
 
@@ -62,7 +62,7 @@ skill-forge/                              # this repo = the plugin
 - [ ] **Step 1: Initialize git**
 
 ```bash
-cd /Users/dwightbritton/Desktop/skill-forge
+cd ~/Desktop/skill-forge
 git init -b main
 ```
 
@@ -109,7 +109,7 @@ Engine (this plugin) and knowledge (learned skills) are separate:
 
 ## Install (local development)
 
-    claude --plugin-dir /Users/dwightbritton/Desktop/skill-forge
+    claude --plugin-dir ~/Desktop/skill-forge
 
 ## Usage
 
@@ -1023,7 +1023,7 @@ Expected: `SECRET BLOCKED` line(s), exit 1, `find` lists nothing.
 - [ ] **Step 3: Verify the plugin loads in Claude Code**
 
 ```bash
-claude --plugin-dir /Users/dwightbritton/Desktop/skill-forge -p "/skillforge:learn" --max-turns 1 2>&1 | head -20
+claude --plugin-dir ~/Desktop/skill-forge -p "/skillforge:learn" --max-turns 1 2>&1 | head -20
 ```
 Expected: the command resolves (output shows the distillation prompt being
 acted on, not "unknown command"). If `--plugin-dir` is not a supported
