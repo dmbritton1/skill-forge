@@ -16,6 +16,8 @@ import subprocess
 import sys
 import tempfile
 
+import grade_judge
+
 ROOT = pathlib.Path(__file__).resolve().parent
 REPO = ROOT.parent
 AUTHORED = ROOT / "authored"
@@ -94,6 +96,8 @@ def probe(entry, clone):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--judge", action="store_true",
+                    help="also run the judge: ONE claude -p session per artifact")
     args = ap.parse_args(argv)
 
     entries = json.loads((AUTHORED / "manifest.json").read_text(encoding="utf-8"))
@@ -110,6 +114,12 @@ def main(argv=None):
                     clone = replay(e, work)
                     row = dict(e)
                     row.update(probe(e, clone))
+                    if args.judge:
+                        row.update(grade_judge.judge(clone, e["task"]))
+                        if row["judge_ok"] and row["probe_total"]:
+                            row["graded"] = (row["probe_score"] + row["judge_score"]) / 2
+                        else:
+                            row["graded"] = None
                     with OUT.open("a", encoding="utf-8") as fh:
                         fh.write(json.dumps(row) + "\n")
                     written += 1
