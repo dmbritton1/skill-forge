@@ -40,5 +40,16 @@
     "score": 3.7287,
     "matched": 10,
     "predicted": "deliver"
+  },
+  "judgement": {
+    "critique_verdict": "pass",
+    "critique_detail": "[{\"criterion\": \"fix_addresses_cause\", \"ok\": true, \"evidence\": \"Never serialize a haystack you intend to match against. Walk the structure\\nand collect its own string leaves, joined by real newlines:\", \"basis\": \"textual\", \"severity\": \"minor\", \"note\": \"The stated cause is that serialization escapes newlines into backslash-n; the Fix avoids serialization entirely and rejoins leaves with real newline characters, so the tokenizer again sees a real separator, and it explicitly extends the same reasoning to repr()/str()/%r.\"}, {\"criterion\": \"symptom_matchable\", \"ok\": true, \"evidence\": \"FAIL test_symptom_on_second_line_of_dict_response_injects: AssertionError()\", \"basis\": \"textual\", \"severity\": \"minor\", \"note\": \"Much of the Symptom is deliberately generic silence (\\\"prints nothing... the failure gives no error text to search for\\\"), but it anchors on a concrete, greppable pytest failure line plus assertion, which is recognisable tool output rather than error prose.\"}, {\"criterion\": \"trap_falsifiable\", \"ok\": true, \"evidence\": \"Flattening a structured tool response into one searchable string with\\n`json.dumps(resp, default=str)`\", \"basis\": \"textual\", \"severity\": \"minor\", \"note\": \"The Trap names a specific call and a specific, checkable failure mode (patterns crossing a line boundary stop matching because json.dumps turns a newline into backslash-n that a [a-z0-9_]+ tokenizer welds onto the next word), which could be directly demonstrated true or false.\"}]",
+    "symptom_shape": "signature",
+    "both_trigger_directions": true,
+    "verification_discriminates": null,
+    "fingerprints_in_fix": [
+      false,
+      false
+    ]
   }
 }

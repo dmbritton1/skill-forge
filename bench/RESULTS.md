@@ -10,6 +10,7 @@ because nothing indexed the data — see "What the register caught".
 |---|---|---|---|
 | Pilot (2026-08-11) | Does a matched skill change authoring behavior? Does a same-class one transfer? | **Done.** control 0/6, matched 5/6, transfer 0/6 | trap 1 rows in `results-round1.jsonl`; trap 2 rows in `results.jsonl` |
 | E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked. Re-measured 4/6 on 09-08 as E5's arm W — read 6/6 as one draw | `results.jsonl`, the 18 rows dated 09-05/09-06 with **no** `delivery` key |
+| Q1 (2026-09-09) | Does the distiller work end to end? (= brief Q1) | **Answered.** 4/12 draws emitted; those four scored 12/12 against a 1/6 floor. Bottleneck is emission, not delivery or content | `bench/distilled/` + the 24 rows dated 2026-09-09 |
 | E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Blocked.** Needs a task whose control is neither 0 nor 100%; no such task exists | tasks defined (`sf-author-*-irrelevant`), never run |
 | E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
@@ -22,8 +23,8 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 
 | Brief | Question | Where it stands |
 |---|---|---|
-| Q1 | Does the pipeline work end to end, or only the injection half? | **No experiment exists.** Every result in this file uses a *hand-authored* skill. The claim is session → distilled skill → later session improved, and the distiller is the untested link. This is the largest open question in the project |
-| Q2 | Is transfer real at any n? | **Partial.** Transfer 0/6 at n=3 in the pilot. Establishing transfer, or its absence at a convincing n, is unfinished |
+| Q1 | Does the pipeline work end to end, or only the injection half? | **Answered 2026-09-09.** Every result in this file uses a *hand-authored* skill. The claim is session → distilled skill → later session improved, and the distiller is the untested link. This is the largest open question in the project |
+| Q2 | Is transfer real at any n? | **Replicated null.** 0/6 in the pilot and 0/6 again on 2026-09-09, the second time against a floor measured in the same batch. Establishing transfer, or its absence at a convincing n, is unfinished |
 | Q3 | Does injection ever hurt? | = E4, blocked |
 | Q4 | Token cost per unit of benefit? | **No experiment exists** |
 | Q5 | Does the `trusted` gate predict anything? | **Not answered.** Critique calibration measures the rubric's *accuracy against known verdicts* — not whether skills that pass it outperform skills that fail it. That needs bench runs split on critique verdict, and nobody has done it |
@@ -690,3 +691,207 @@ python3 bench/run.py --arm treatment --runs 3 --force-hot --task sf-author-finge
 These six rows in `results.jsonl` carry `"delivery": "hot"` with `ts` on
 `2026-09-08`; E5's hot rows carry the same key on `2026-09-06`. Timestamp is
 still the only thing that separates batches.
+
+---
+
+# Q1 — does the distiller work end to end? (2026-09-09)
+
+## Headline
+
+**Yes, when it emits — and it emits a third of the time.** Twelve draws, four
+saved drafts, and every one of those four took its task from a control floor of
+**1/6** to **12/12**. The eight that produced nothing were refused by the
+novelty gate, not by a bug: every session fixed its bug, none timed out, none
+was refused by the API, and `save_skill` rejected nothing.
+
+The pipeline's bottleneck is **emission**, not delivery and not content. Q1 was
+designed to ask whether a distilled skill helps a later session. Two-thirds of
+the time there is no distilled skill.
+
+| Stage | Result |
+|---|---|
+| draws | 12 |
+| repair resolved | 12/12 |
+| draft written | 4/12 — the other 8 aborted on the novelty gate |
+| `save_skill` accepted | 4/4 |
+| delivered downstream | 12/12 probe runs, all `trigger: prompt`, all `tier: warm` |
+| task resolved | **12/12** |
+
+n=3 per cell. Say so before quoting any of these numbers.
+
+## The scores
+
+| Arm | response_text | fingerprint | Combined |
+|---|---|---|---|
+| **Distilled** | **9/9** (3 drafts × 3) | **3/3** (1 draft × 3) | **12/12** |
+| Control — this batch, pinned model | 1/3 | 0/3 | **1/6** |
+| Transfer *(secondary, brief Q2)* | 0/3 | 0/3 | **0/6** |
+| Hand-authored, matched *(2026-08-11, model unrecorded)* | 3/3 | 2/3 | 5/6 |
+| Hand-authored, matched *(2026-09-05)* | 3/3 | 3/3 | 6/6 |
+
+The ceiling comparison is **directional only**, as pre-registered. Distilled
+matches or exceeds the hand-authored cells on both traps, but the distilled
+column is 12 runs over 4 drafts against 6 runs over 2 skills, and this design's
+own resolution limit is one arm spanning 6/6 to 4/6.
+
+**The floor is not zero, and that matters.** The fresh control resolved 1 of 6 —
+`response_text` run 1 — where the 2026-08-11 figure was 0/6. Both are small n;
+the point is that these tasks are not strictly impossible cold, so 12/12 is a
+real gap rather than a comparison against an artificial floor.
+
+## Emission is a trap property, not a distiller property
+
+|  | `learn-failure` | `learn` |
+|---|---|---|
+| Trap A — `json.dumps` escaping | **3/3 saved** | 0/3 |
+| Trap B — truncated search | 0/3 | **1/3 saved** |
+
+The direction inverts between traps, which at n=3 would ordinarily read as
+noise. The archived reasoning says otherwise, and it is consistent within each
+cell.
+
+Trap A throws loud, distinctive assertion failures, so literal `symptoms:`
+exist to be written and the anti-skill distiller emitted every time. Trap B is
+silent. Every trap-B anti-skill draw refused on that ground, in its own words:
+
+> "This bug surfaces as a bare `AssertionError` and a wrong integer in a
+> database column. **Any `symptoms:` list would be invented**, and invented
+> triggers pollute the detection index that the PostToolUse hook matches
+> against."
+
+> "The trap's defining property is **silence**. It emits no exception and no
+> message."
+
+The distiller would rather emit nothing than invent a trigger. That is the
+anti-skill contract's symptom requirement doing exactly what it was written to
+do — and it means **the anti-skill path is structurally unavailable for
+symptomless traps**, which is a design finding, not a quality one.
+
+The `/learn` arm declined trap A three times, twice citing the contract's own
+step 8 — a verification that fails when the procedure is skipped would here be
+this repo's test command, which means nothing in another repo.
+
+## The aborts are unfalsifiable in this design
+
+"A fresh Claude would already know this" is a claim the model makes about
+itself. The only place it could be tested is this bench, and the eight rejected
+drafts are never probed. The gate could be systematically over- or
+under-refusing and Q1 cannot tell.
+
+There is a specific reason to suspect over-refusal: control resolves these
+tasks **1 in 6**. The distiller declined to record knowledge that the model
+demonstrably fails to apply five times out of six. Those are different
+epistemic positions — the distilling session had just fixed the bug with a
+failing test in front of it, the author session starts cold — but the tension
+is real and it is the most interesting thing this experiment surfaced.
+
+Testing it means saving a rejected draft anyway and probing it. That is a
+different experiment and nobody has specified it.
+
+## What the judge found
+
+All four drafts pass critique. Then it gets worse.
+
+| Draft | critique | symptom shape | verification discriminates | fingerprints in the real fix |
+|---|---|---|---|---|
+| A/`learn-failure`/1 | pass | signature | **no** | 0/2 |
+| A/`learn-failure`/2 | pass | signature | *(none declared)* | 0/2 |
+| A/`learn-failure`/3 | pass | signature | *(none declared)* | 0/2 |
+| B/`learn`/1 | pass | *(none — `kind: skill`)* | **no** | 1/3 |
+
+**Not one declared verification command discriminates.** Both point at this
+repo's own suite, and at `fix_commit~1` that suite *passes*, because the tests
+that expose the trap do not exist yet. The command proves nothing. This is the
+first time that bar has been checked by machine, and the distiller failed it
+twice out of two — after articulating the exact failure mode in the arm where
+it refused to emit at all.
+
+The two blanks are legitimate: `verification.command` is optional for
+anti-skills (`save_skill.py:145` requires it only for `kind: skill`), and all
+four hand-authored comparators declare none either.
+
+**Fingerprints are nearly all wrong.** One of nine appears in the reference
+fix's added lines. Fingerprint-based usage detection would be blind to these
+skills in production — they would be delivered, used, and invisible to outcome
+tracking.
+
+So: the drafts that scored 12/12 carry attribution machinery that does not
+work. Helpfulness and instrumentation came apart completely, which is precisely
+why the judge is reported beside the funnel and never merged into it.
+
+## Symptom shape, and an asymmetry the comparators lose
+
+Every trap-A draft emitted machine signatures — `assert injected_names(out) ==
+["widget-trap"]`, `FAIL test_... AssertionError` — as `distilling-failures`
+step 4 demands. Both hand-authored comparators are narration
+(`"confirmed absent without examining the full input"`), in violation of the
+same contract they are held against. Threat §7.9 predicted this from reading
+the code; it is now observed.
+
+It costs the distilled skills nothing here, because symptoms are structurally
+dead in author mode: the grading tests are not in the tree during a probe
+session, so no trap signature ever appears in tool output. Delivery fell to
+BM25 over `name + description`, as designed — and the pre-registered dry run
+predicted `deliver` for all four (9–14 matched terms against a threshold of 2)
+**before any probe ran**. All four delivered.
+
+## Secondaries
+
+**Transfer (brief Q2): 0/6**, against this batch's own 1/6 floor. A same-class
+skill from a different instance is indistinguishable from no skill, replicating
+the pilot's 0/6 — and for the first time against a floor measured in the same
+batch on the same pinned model, which is what folding it in here bought.
+
+**Q5 (does the `trusted` gate predict anything): no split available.** Critique
+passed all four distilled drafts, so there is no failing group to compare
+against. Pre-registered in spec §8 before any verdict existed; reported as
+uninformative rather than dropped.
+
+## Limits
+
+- **n=3 per cell**, and the emission counts are 3 per cell too — the 3/3 vs 0/3
+  inversion between traps rests on three draws each.
+- **Two traps, one repository**, both in SkillForge's own codebase.
+- **The eight aborts are untested**, see above. This is the largest gap.
+- **The distilled column is not n-matched to the ceiling column** (12 runs over
+  4 drafts vs 6 runs over 2 skills).
+- **Same-author curation is only half fixed.** The distiller wrote the skills;
+  the operator still wrote the tasks and chose the traps.
+- **The repair source hands over the answer** — a red assertion names the
+  condition — so a distilling session sees more than a cold one would.
+- Bench sessions inherit the operator's full plugin set (ponytail, superpowers).
+
+## Containment
+
+Sixty sessions. At close: global store empty, global index empty, `trust.json`
+holding exactly the operator's two skills. The operator's project index entries
+were clobbered by the clones' wholesale rewrites — the §7.7 leak, expected —
+and restored with the single `sync.sync(project_root=...)` that spec §4(d)
+prescribes. `drift()` clean afterwards.
+
+Four saves reached the real library and all four were reverted: one chose
+global scope and was removed with `library.py delete`; three chose project
+scope and left only a trust key, caught by `new_trust_keys`. Both containment
+paths fired in the first cell.
+
+## Reproducing
+
+```bash
+cd /Users/dwightbritton/Developer/skill-forge
+python3 bench/run.py --check
+python3 bench/distill.py --all --draws 3      # phase 1: 12 sessions
+python3 bench/dryrun.py                       # predictions, BEFORE probing
+python3 -c "..."                              # probes; see plan Task 9 Step 4
+python3 bench/run.py --arm control --runs 3 --task sf-author-response-text
+python3 bench/run.py --arm control --runs 3 --task sf-author-fingerprint-preexisting
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-response-text-transfer
+python3 bench/run.py --arm treatment --runs 3 --task sf-author-fingerprint-preexisting-transfer
+python3 bench/judge.py                        # 1 critique session per saved draft
+```
+
+Rows carry `skill_source: distilled` with `distiller` and `draw`; phase-1
+outcomes and the judge's verdicts are in `bench/distilled/*/*/*/meta.json`,
+committed. Twelve probe rows dated 2026-09-09 were preceded by twelve that
+never ran — `--skill-from` was passed relative and `install_skill` shells
+`save_skill.py` with `cwd` set to the clone, so every one died before its
+session started. No row was written; fixed in `skill_src`.

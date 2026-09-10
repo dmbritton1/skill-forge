@@ -40,5 +40,16 @@
     "score": 3.2467,
     "matched": 9,
     "predicted": "deliver"
+  },
+  "judgement": {
+    "critique_verdict": "pass",
+    "critique_detail": "[{\"criterion\": \"fix_addresses_cause\", \"ok\": true, \"evidence\": \"The rule generalizes: any serializer between text and a matcher (JSON,\", \"basis\": \"textual\", \"severity\": \"minor\", \"note\": \"The Cause is that json.dumps rewrites the newline the tokenizer splits on, and the Fix removes the serializer entirely by walking the structure and joining raw values, directly resolving that cause.\"}, {\"criterion\": \"symptom_matchable\", \"ok\": true, \"evidence\": \"AssertionError: assert [] == ['widget-trap']\", \"basis\": \"textual\", \"severity\": \"minor\", \"note\": \"The Symptom is a concrete pytest assertion failure showing an empty match list against a named expected match, recognisable in real test output rather than generic error prose.\"}, {\"criterion\": \"trap_falsifiable\", \"ok\": true, \"evidence\": \"`json.dumps` escapes a real newline into the two characters backslash and\", \"basis\": \"textual\", \"severity\": \"minor\", \"note\": \"The Trap makes the concrete, testable claims that json.dumps escapes newlines and that this passes only fixtures with the signature on the first line, either of which could be demonstrated false.\"}]",
+    "symptom_shape": "signature",
+    "both_trigger_directions": true,
+    "verification_discriminates": false,
+    "fingerprints_in_fix": [
+      false,
+      false
+    ]
   }
 }

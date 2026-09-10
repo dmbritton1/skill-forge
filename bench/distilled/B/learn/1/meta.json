@@ -40,5 +40,17 @@
     "score": 4.8495,
     "matched": 14,
     "predicted": "deliver"
+  },
+  "judgement": {
+    "critique_verdict": "pass",
+    "critique_detail": "[{\"criterion\": \"followable\", \"ok\": false, \"evidence\": \"If the probe list is longer than `SNAPSHOT_MAX_PROBES`, return `None`\", \"basis\": \"empirical\", \"severity\": \"blocking\", \"note\": \"The live tests/test_retrieve.py that verification.command runs contains test_snapshot_over_budget_still_probes_and_finds_match, which asserts an over-budget entry is probed up to the budget and reports 1, so an instance that follows step 4's immediate None return fails the skill's own verification command.\"}, {\"criterion\": \"preconditions\", \"ok\": false, \"evidence\": \"verification.command: \\\"python3 tests/test_retrieve.py\\\"\", \"basis\": \"empirical\", \"severity\": \"blocking\", \"note\": \"The procedure never states which revision of retrieve.py / tests/test_retrieve.py it targets or that SNAPSHOT_MAX_PROBES must already be defined; on the project's current tree the probe-cap test semantics have been inverted relative to step 4, so the assumed tree state is unstated and, in this repo, false.\"}, {\"criterion\": \"checkable\", \"ok\": false, \"evidence\": \"prints 26 `PASS` lines and exits 0.\", \"basis\": \"empirical\", \"severity\": \"blocking\", \"note\": \"The file the command runs now has 41 test functions, contains no test_snapshot_probe_cap_records_unknown (the test the Verification says discriminates for step 4), and includes test_snapshot_over_budget_still_probes_and_finds_match which fails when the procedure is followed, so the stated result cannot be reproduced.\"}]",
+    "symptom_shape": "none",
+    "both_trigger_directions": true,
+    "verification_discriminates": false,
+    "fingerprints_in_fix": [
+      true,
+      false,
+      false
+    ]
   }
 }
