@@ -244,6 +244,30 @@ def test_backfill_preserves_every_other_field():
             assert row[k] == v, (k, row.get(k), v)
 
 
+
+def test_skill_src_is_absolute_even_when_skill_from_is_relative():
+    """install_skill runs save_skill.py with cwd set to the clone, so a
+    relative path resolves against the clone and is not there. Twelve probes
+    died on this."""
+    _reset()
+    bench_run.SKILL_FROM = "bench/distilled/A/learn-failure/1/SKILL.md"
+    try:
+        got = bench_run.skill_src({"skill": "unused"})
+        assert got.is_absolute(), got
+        assert str(got).endswith("bench/distilled/A/learn-failure/1/SKILL.md"), got
+    finally:
+        _reset()
+
+
+def test_skill_path_recorded_on_the_row_is_absolute():
+    _reset()
+    bench_run.SKILL_FROM = "bench/distilled/A/learn-failure/1/SKILL.md"
+    try:
+        keys = bench_run.source_keys("treatment", {"skill": "unused"}, "warm")
+        assert pathlib.Path(keys["skill_path"]).is_absolute(), keys["skill_path"]
+    finally:
+        _reset()
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -152,8 +152,16 @@ def apply_hidden_tests(task, dest):
 
 
 def skill_src(task):
-    """The SKILL.md install_skill saves: the task's own, or Q1's override."""
-    return Path(SKILL_FROM) if SKILL_FROM else ROOT / "skills" / (task["skill"] + ".md")
+    """The SKILL.md install_skill saves: the task's own, or Q1's override.
+
+    ABSOLUTE, always. install_skill shells save_skill.py with `cwd=dest` -- the
+    throwaway clone -- so a relative --skill-from resolves against the clone and
+    is not there. Twelve probes died on that before any session started, and it
+    also kept `skill_path` on the result row relative, which is worthless
+    provenance once the cwd that gave it meaning is gone.
+    """
+    return (Path(SKILL_FROM).resolve() if SKILL_FROM
+            else ROOT / "skills" / (task["skill"] + ".md"))
 
 
 def distilled_parts():
