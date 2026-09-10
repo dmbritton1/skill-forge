@@ -2,6 +2,7 @@
 import json
 import pathlib
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "bench"))
 import regrade
@@ -33,6 +34,88 @@ def test_probe_suite_is_chosen_by_task():
 
 def test_unknown_task_has_no_suite():
     assert regrade.suite_for("sf-escaping-breaks-symptom-match") is None
+
+
+def test_replay_removes_the_worktree_it_created_when_apply_fails():
+    # git worktree add succeeds, git apply fails: replay must not leak the
+    # worktree it just created. Drive it without real git by faking
+    # subprocess.run, and assert removal targets the EXACT path replay made.
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        if cmd[:3] == ["git", "worktree", "add"]:
+            return None
+        if cmd[:2] == ["git", "apply"]:
+            raise regrade.subprocess.CalledProcessError(1, cmd)
+        if cmd[:3] == ["git", "worktree", "remove"]:
+            return None
+        raise AssertionError("unexpected subprocess call: %r" % (cmd,))
+
+    orig_run = regrade.subprocess.run
+    regrade.subprocess.run = fake_run
+    try:
+        entry = {"clone": "clone-1", "base_commit": "deadbeef", "diff": "x.diff"}
+        raised = False
+        try:
+            regrade.replay(entry, "/tmp/regrade-test-work")
+        except regrade.subprocess.CalledProcessError:
+            raised = True
+        assert raised, "replay must propagate the apply failure, not swallow it"
+    finally:
+        regrade.subprocess.run = orig_run
+
+    expected_path = str(pathlib.Path("/tmp/regrade-test-work") / "clone-1")
+    remove_calls = [c for c in calls if c[:3] == ["git", "worktree", "remove"]]
+    assert len(remove_calls) == 1, (
+        "expected exactly one worktree remove call, got %r" % (remove_calls,))
+    assert expected_path in remove_calls[0], (
+        "worktree remove must target the exact path replay created: %r" % (remove_calls[0],))
+
+
+def test_per_entry_exception_other_than_subprocess_or_os_error_does_not_abort_batch():
+    # A malformed manifest entry (KeyError, say) must not skip every entry
+    # after it -- one bad artifact cannot be allowed to lose the whole batch.
+    entries = [
+        {"task": "sf-author-response-text", "clone": "clone-bad",
+         "base_commit": "x", "diff": "x.diff"},
+        {"task": "sf-author-response-text", "clone": "clone-2",
+         "base_commit": "x", "diff": "x.diff"},
+        {"task": "sf-author-response-text", "clone": "clone-3",
+         "base_commit": "x", "diff": "x.diff"},
+    ]
+    processed = []
+
+    def fake_replay(entry, workdir):
+        if entry["clone"] == "clone-bad":
+            raise KeyError("malformed manifest entry")
+        return pathlib.Path(workdir) / entry["clone"]
+
+    def fake_probe(entry, clone):
+        processed.append(entry["clone"])
+        return regrade.summarize({"probe": True})
+
+    with tempfile.TemporaryDirectory() as tmp:
+        authored = pathlib.Path(tmp) / "authored"
+        authored.mkdir()
+        (authored / "manifest.json").write_text(json.dumps(entries), encoding="utf-8")
+        out_path = pathlib.Path(tmp) / "graded.jsonl"
+
+        orig_authored, orig_out = regrade.AUTHORED, regrade.OUT
+        orig_replay, orig_probe = regrade.replay, regrade.probe
+        regrade.AUTHORED, regrade.OUT = authored, out_path
+        regrade.replay, regrade.probe = fake_replay, fake_probe
+        try:
+            regrade.main([])
+        finally:
+            regrade.AUTHORED, regrade.OUT = orig_authored, orig_out
+            regrade.replay, regrade.probe = orig_replay, orig_probe
+
+        assert processed == ["clone-2", "clone-3"], (
+            "a non-subprocess exception on one entry must not abort the "
+            "rest of the batch: %r" % (processed,))
+        rows = [json.loads(line) for line in out_path.read_text(encoding="utf-8").splitlines()]
+        assert [r["clone"] for r in rows] == ["clone-2", "clone-3"]
 
 
 if __name__ == "__main__":

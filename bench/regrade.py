@@ -62,14 +62,25 @@ def summarize(detail):
 
 
 def replay(entry, workdir):
-    """Check out the base commit and apply the artifact's scripts/ changes."""
+    """Check out the base commit and apply the artifact's scripts/ changes.
+
+    If the apply fails after the worktree is created, remove that exact
+    worktree before re-raising -- otherwise it leaks and only the trailing
+    `git worktree prune` (after the whole batch) ever sweeps it up.
+    """
     clone = pathlib.Path(workdir) / entry["clone"]
     subprocess.run(["git", "worktree", "add", "--detach", str(clone),
                     entry["base_commit"]], cwd=str(REPO),
                    check=True, stdout=subprocess.DEVNULL,
                    stderr=subprocess.DEVNULL)
-    subprocess.run(["git", "apply", "--include=scripts/*",
-                    str(AUTHORED / entry["diff"])], cwd=str(clone), check=True)
+    try:
+        subprocess.run(["git", "apply", "--include=scripts/*",
+                        str(AUTHORED / entry["diff"])], cwd=str(clone), check=True)
+    except Exception:
+        subprocess.run(["git", "worktree", "remove", "--force", str(clone)],
+                       cwd=str(REPO), stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL)
+        raise
     return clone
 
 
@@ -91,28 +102,35 @@ def main(argv=None):
         entries = entries[:args.limit]
 
     written = 0
-    with tempfile.TemporaryDirectory() as work:
-        for e in entries:
-            clone = None
-            try:
-                clone = replay(e, work)
-                row = dict(e)
-                row.update(probe(e, clone))
-                with OUT.open("a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(row) + "\n")
-                written += 1
-                print("%-58s %d/%d" % (e["clone"], row["probe_passed"],
-                                       row["probe_total"]))
-            except (subprocess.SubprocessError, OSError) as err:
-                print("ERROR %s: %r" % (e["clone"], err), file=sys.stderr)
-            finally:
-                if clone:
-                    subprocess.run(["git", "worktree", "remove", "--force",
-                                    str(clone)], cwd=str(REPO),
-                                   stdout=subprocess.DEVNULL,
-                                   stderr=subprocess.DEVNULL)
-    subprocess.run(["git", "worktree", "prune"], cwd=str(REPO),
-                   stdout=subprocess.DEVNULL)
+    try:
+        with tempfile.TemporaryDirectory() as work:
+            for e in entries:
+                clone = None
+                try:
+                    clone = replay(e, work)
+                    row = dict(e)
+                    row.update(probe(e, clone))
+                    with OUT.open("a", encoding="utf-8") as fh:
+                        fh.write(json.dumps(row) + "\n")
+                    written += 1
+                    print("%-58s %d/%d" % (e["clone"], row["probe_passed"],
+                                           row["probe_total"]))
+                except Exception as err:
+                    # Broad on purpose: a malformed manifest entry (KeyError)
+                    # or anything else must not abort the rest of the batch.
+                    # Print it, don't swallow it -- same precedent as run.py.
+                    print("ERROR %s: %r" % (e.get("clone", "?"), err),
+                          file=sys.stderr)
+                finally:
+                    if clone:
+                        subprocess.run(["git", "worktree", "remove", "--force",
+                                        str(clone)], cwd=str(REPO),
+                                       stdout=subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
+    finally:
+        # Guaranteed even if the loop above exits abnormally.
+        subprocess.run(["git", "worktree", "prune"], cwd=str(REPO),
+                       stdout=subprocess.DEVNULL)
     print("wrote %d row(s) to %s" % (written, OUT))
     return 0
 
