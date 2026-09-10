@@ -1,0 +1,44 @@
+{
+  "trap": "A",
+  "distiller": "learn-failure",
+  "draw": 1,
+  "task": "sf-escaping-breaks-symptom-match",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_symptom_on_second_line_of_dict_response_injects": true,
+    "test_symptom_in_nested_dict_response_injects": true,
+    "test_symptom_injection_records_preexisting_fingerprint_in_git_repo": true
+  },
+  "timed_out": false,
+  "secs": 179.9,
+  "session_ok": true,
+  "skill_name": "json-dumps-breaks-token-matching",
+  "chose_global_scope": [],
+  "containment_rc": 0,
+  "pruned_trust": [
+    "json-dumps-breaks-token-matching"
+  ],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "json-dumps-breaks-token-matching",
+      "outcome": "saved",
+      "ts": "2026-09-10T00:18:57+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "All 22 tests in the detection suite pass, and the full suite is 135 passed. Two real bugs, both in `scripts/detect.py`.\n\n**Symptom matching was defeated by JSON escaping.** The hook flattened a dict tool response with `json.dumps`, which turns a real newline into backslash plus `n`. The tokenizer accepts `n` but not the backslash, so `...test\\nWidgetFlushedError` tokenized as `test` then `nwidgetflushederror`, and the pattern's first token no longer existed. Any error signature that starts a line missed silently. The fix walks the structure and joins raw values with newlines instead of serializing.\n\n**Injection events never carried the fingerprint snapshot.** The symptom path logged injections without `preexisting_fingerprint`, so every symptom-triggered injection recorded unknown. It now reuses `retrieve.fingerprint_preexisting` under the same probe cap the prompt path uses.\n\nOne supporting change outside the tests: `scripts/sync.py` now copies each skill's fingerprints into the compiled `triggers.json` symptom entries. Without it the new snapshot code is unreachable in production, since only the tests hand-build entries that carry fingerprints.\n\nDistillation ran and produced one anti-skill, saved at project scope after self-review.\n\n```\n.claude/skillforge/antiskills/json-dumps-breaks-token-matching/SKILL.md\n```\n\nIt passed the novelty gate on the grounds that `json.dumps` is the natural first implementation, the failure is silent rather than an exception, and single-line test fixtures hide it. Its verification command fails when the fix is absent, and its fingerprints are the lines of the corrected flattener. It landed in the warm tier as unproven.\n",
+  "test_tail": "onse_injects\nPASS test_symptom_injection_records_preexisting_fingerprint_in_git_repo\nPASS test_symptom_injection_records_unknown_fingerprint_outside_git_repo\nPASS test_symptom_on_second_line_of_dict_response_injects\nPASS test_tampered_antiskill_not_injected\nPASS test_two_antiskill_cap_per_call\nPASS test_verification_duplicate_skill_entry_detected_once\nPASS test_verification_failure_outcome\nPASS test_verification_hit_logs_outcome\nPASS test_verification_ignores_non_bash_tools\nPASS test_verification_outcome_unknown_without_flag\nskillforge: detect failed: Expecting value: line 1 column 1 (char 0)\n",
+  "ts": "2026-09-09T20:19:12",
+  "delivery_prediction": {
+    "score": 3.2467,
+    "matched": 9,
+    "predicted": "deliver"
+  }
+}

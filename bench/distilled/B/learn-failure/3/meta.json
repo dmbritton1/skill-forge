@@ -1,0 +1,30 @@
+{
+  "trap": "B",
+  "distiller": "learn-failure",
+  "draw": 3,
+  "task": "sf-truncation-reports-absent",
+  "model": "claude-opus-5",
+  "outcome": "aborted",
+  "probeable": false,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_snapshot_unknown_when_match_past_file_cap": true,
+    "test_snapshot_unknown_when_match_past_byte_cap": true,
+    "test_snapshot_probe_cap_records_unknown": true
+  },
+  "timed_out": false,
+  "secs": 111.5,
+  "session_ok": true,
+  "skill_name": null,
+  "chose_global_scope": [],
+  "containment_rc": 0,
+  "pruned_trust": [],
+  "drafts_found": 0,
+  "ledger_rows": [],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "ther can honestly report absence. Each now sets the unknown flag. A failed file read did the same thing and now also sets it. I added a probe budget constant so an entry carrying more fingerprint patterns than the budget returns unknown up front rather than partially probing.\n\nThe one judgment call worth flagging: the probe cap short-circuits before any probing, rather than probing up to the budget and marking the remainder unknown. The test requires this, since its patterns would all match if examined.\n\n**Why I aborted the anti-skill.** Two reasons, either sufficient.\n\n- **The trap has no symptom.** The format is symptom-triggered, and the `symptoms:` field is the machine trigger built from literal observed error text. This bug throws nothing and logs nothing. It writes a wrong integer into a ledger and stays silent forever. The only signatures this session produced were a bare assertion failure and a missing-constant error naming one file, neither of which generalizes. Writing that field would mean inventing error strings nobody will ever see, which puts noise in the trigger index rather than a usable trigger.\n- **No time was lost here to distill.** The failing tests stated the intended behavior outright, so the diagnosis took about two minutes. The mistake lives in a prior commit, not in this session's reasoning, and the procedure asks for a dead-end from the current session.\n\nUnderneath both, the lesson states as \"a truncated search that found nothing means unknown, not absent,\" which a fresh Claude agrees with on sight. The real failure mode is attention drifting while adding a performance cap, and an injected skill does not catch that at the moment someone types a slice. The tests already in this repo do, permanently.\n\nOne near-duplicate supports the call. A prior session in this repo left a critique lock named for lossy transforms producing false negatives, which is the same trap family.\n\nNothing is committed. Say the word if you want the change on a branch.\n",
+  "test_tail": "est_same_name_in_both_stores_delivered_once\nPASS test_search_no_match_says_so\nPASS test_search_prints_hot_and_warm\nPASS test_session_dedupe\nPASS test_single_matched_term_rejected\nPASS test_snapshot_probe_cap_records_unknown\nPASS test_snapshot_records_absent_fingerprint\nPASS test_snapshot_records_preexisting_fingerprint\nPASS test_snapshot_unknown_outside_git_repo\nPASS test_snapshot_unknown_when_entry_has_no_fingerprints\nPASS test_snapshot_unknown_when_match_past_byte_cap\nPASS test_snapshot_unknown_when_match_past_file_cap\nPASS test_tampered_warm_body_not_injected\nPASS test_tokenize_drops_noise\n",
+  "ts": "2026-09-09T20:41:30"
+}
