@@ -1,0 +1,144 @@
+diff --git a/scripts/retrieve.py b/scripts/retrieve.py
+index 6ea104b..e3e7b7d 100644
+--- a/scripts/retrieve.py
++++ b/scripts/retrieve.py
+@@ -31,6 +31,9 @@ INJECT_BUDGET_TOKENS = 1200
+ GIT_TIMEOUT_S = 0.15
+ SNAPSHOT_MAX_FILES = 20
+ SNAPSHOT_MAX_BYTES = 200 * 1024
++# git grep probes per hook: 150ms each in a blocking hook, and a skill carries
++# 2-3 fingerprints, so this pays for two full entries before reporting unknown
++SNAPSHOT_MAX_PROBES = 6
+ 
+ TOKEN_RX = re.compile(r"[a-z0-9]+")
+ 
+@@ -149,24 +152,30 @@ def eligible(e, cwd):
+     return e.get("tier") == "warm" and in_scope(e.get("root", ""), cwd)
+ 
+ 
+-def fingerprint_preexisting(fingerprints, cwd):
++def fingerprint_preexisting(fingerprints, cwd, budget=None):
+     """1 if any fingerprint is already in the repo, 0 if none are, None if unknown.
+ 
+     Two stages: `git grep` on the pattern's longest literal token narrows to
+     candidate files at C speed, then the token matcher confirms. Unknown is
+     reported as None rather than guessed -- a false "preexisting" silently
+-    suppresses a real usage credit later (spec 9.1).
++    suppresses a real usage credit later (spec 9.1). Every cap below (probes,
++    files, bytes) truncates the search, and a truncated search that found
++    nothing proves nothing: it reports unknown, never absent.
+ 
+     ponytail: 150ms subprocess ceiling because this runs inside a blocking
+     hook; a repo big enough to blow it reports unknown instead of stalling.
+     """
+-    if not fingerprints:
++    pats = [t for t in fingerprints if t]
++    if not pats:
+         return None
++    if budget is None:
++        budget = [SNAPSHOT_MAX_PROBES]
++    if len(pats) > budget[0]:
++        return None          # cannot scan them all; don't spend the budget on a partial answer
+     unknown = False
+-    for tokens in fingerprints:
+-        if not tokens:
+-            continue
++    for tokens in pats:
+         literal = max(tokens, key=len)
++        budget[0] -= 1
+         try:
+             proc = subprocess.run(["git", "grep", "-F", "-i", "-l", "--", literal],
+                                   cwd=str(cwd), stdout=subprocess.PIPE,
+@@ -178,13 +187,18 @@ def fingerprint_preexisting(fingerprints, cwd):
+             unknown = True
+             continue
+         names = [f for f in proc.stdout.decode("utf-8", "replace").splitlines() if f]
++        if len(names) > SNAPSHOT_MAX_FILES:
++            unknown = True
+         for rel in names[:SNAPSHOT_MAX_FILES]:
+             try:
+                 text = (Path(cwd) / rel).read_text(encoding="utf-8", errors="replace")
+             except OSError:
++                unknown = True
+                 continue
+             if patterns.matches(tokens, patterns.tokenize(text[:SNAPSHOT_MAX_BYTES])):
+                 return 1
++            if len(text) > SNAPSHOT_MAX_BYTES:
++                unknown = True
+     return None if unknown else 0
+ 
+ 
+@@ -200,6 +214,7 @@ def run_hook(data):
+     picked = []
+     skills = 0
+     budget = INJECT_BUDGET_TOKENS
++    probes = [SNAPSHOT_MAX_PROBES]
+     for e, score, matched in rank(prompt, warm):
+         name = e.get("name")
+         if not name or score <= 0 or matched < MIN_MATCHED_TERMS:
+@@ -220,7 +235,7 @@ def run_hook(data):
+         if cost > budget:
+             continue
+         budget -= cost
+-        picked.append((name, body, fingerprint_preexisting(e.get("fingerprints") or [], cwd)))
++        picked.append((name, body, fingerprint_preexisting(e.get("fingerprints") or [], cwd, probes)))
+         seen.add(name)
+         if e.get("kind") != "antiskill":
+             skills += 1
+diff --git a/tests/test_retrieve.py b/tests/test_retrieve.py
+index f260be3..541625d 100644
+--- a/tests/test_retrieve.py
++++ b/tests/test_retrieve.py
+@@ -383,6 +383,52 @@ def test_fingerprint_preexisting_matches_across_formatting():
+     in_sandbox(check)
+ 
+ 
++def test_snapshot_unknown_when_match_past_file_cap():
++    def check(home):
++        files = {}
++        # SNAPSHOT_MAX_FILES decoys containing the literal token but not the full
++        # pattern, sorted (alphabetically, by git grep) ahead of the one file that
++        # actually has the match -- it never gets examined.
++        for i in range(retrieve.SNAPSHOT_MAX_FILES):
++            files["decoy%02d.js" % i] = "application settings only, nothing else here"
++        files["zzz_real.js"] = "express.raw({type:'application/json'})"
++        repo = git_repo(home, files)
++        result = retrieve.fingerprint_preexisting(
++            [["express", "raw", "type", "application", "json"]], str(repo))
++        assert result is None
++    in_sandbox(check)
++
++
++def test_snapshot_unknown_when_match_past_byte_cap():
++    def check(home):
++        # padding exceeds SNAPSHOT_MAX_BYTES, pushing the real match out of the
++        # window that gets read and tokenized.
++        padding = "pad " * 60000
++        content = padding + "express.raw({type:'application/json'})"
++        repo = git_repo(home, {"big.js": content})
++        result = retrieve.fingerprint_preexisting(
++            [["express", "raw", "type", "application", "json"]], str(repo))
++        assert result is None
++    in_sandbox(check)
++
++
++def test_snapshot_probe_cap_records_unknown():
++    def check(home):
++        repo = git_repo(home, {"app.js": "app.use(express.raw({ type: 'application/json' }))"})
++        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
++        # more fingerprint patterns than the per-hook probe budget allows; this
++        # would confirm a match (1) if actually checked, so None here proves the
++        # cap short-circuited rather than coincidentally finding nothing.
++        e["fingerprints"] = [["express", "raw", "type", "application", "json"]] * \
++            (retrieve.SNAPSHOT_MAX_PROBES + 1)
++        write_index(home, [e])
++        rc, out = run_hook_capture(
++            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
++        assert injected_names(out) == ["stripe-webhook"]
++        assert preexisting_values("stripe-webhook") == [None]
++    in_sandbox(check)
++
++
+ if __name__ == "__main__":
+     failures = 0
+     for name in sorted(list(globals())):

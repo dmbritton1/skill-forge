@@ -1,0 +1,212 @@
+diff --git a/scripts/detect.py b/scripts/detect.py
+index c92dbbd..aeef80e 100644
+--- a/scripts/detect.py
++++ b/scripts/detect.py
+@@ -61,13 +61,35 @@ def _log(*args, **kwargs):
+         print("skillforge: ledger write failed: %s" % err, file=sys.stderr)
+ 
+ 
++def _strings(obj):
++    """Every leaf of a tool response, in order, as raw text."""
++    if isinstance(obj, str):
++        yield obj
++    elif isinstance(obj, dict):
++        for v in obj.values():
++            yield from _strings(v)
++    elif isinstance(obj, (list, tuple)):
++        for v in obj:
++            yield from _strings(v)
++    else:
++        yield str(obj)
++
++
+ def response_text(resp):
+-    if isinstance(resp, str):
+-        return resp[:MAX_OUTPUT_CHARS]
+-    try:
+-        return json.dumps(resp, default=str)[:MAX_OUTPUT_CHARS]
+-    except (TypeError, ValueError):
+-        return str(resp)[:MAX_OUTPUT_CHARS]
++    """Flatten a tool response to raw text for matching.
++
++    ponytail: no json.dumps. It escapes real newlines to backslash-n, and
++    the tokenizer then glues that "n" onto the next line's first token --
++    silently defeating every symptom whose signature starts a line.
++    """
++    parts = []
++    total = 0
++    for s in _strings(resp):
++        parts.append(s)
++        total += len(s) + 1
++        if total >= MAX_OUTPUT_CHARS:
++            break
++    return "\n".join(parts)[:MAX_OUTPUT_CHARS]
+ 
+ 
+ def run(data):
+@@ -98,6 +120,7 @@ def run(data):
+     detected = set()
+     picked = []
+     budget = INJECT_BUDGET_TOKENS
++    probes_left = retrieve.SNAPSHOT_MAX_PROBES
+     for s in idx.get("symptoms", []):
+         name = s.get("skill")
+         if not name or not retrieve.in_scope(s.get("root", ""), cwd):
+@@ -121,13 +144,15 @@ def run(data):
+         if cost > budget:
+             continue
+         budget -= cost
+-        picked.append((name, body))
++        preexisting, probes_left = retrieve.snapshot(
++            s.get("fingerprints") or [], cwd, probes_left)
++        picked.append((name, body, preexisting))
+         seen.add(name)
+ 
+     if not picked:
+         return 0
+     parts = ["--- SkillForge anti-skill '%s' (symptom matched in tool output): ---\n%s"
+-             % (name, body) for name, body in picked]
++             % (name, body) for name, body, _ in picked]
+     print(json.dumps({"hookSpecificOutput": {
+         "hookEventName": "PostToolUse",
+         "additionalContext": "\n\n".join(parts)}}))
+@@ -135,8 +160,9 @@ def run(data):
+         retrieve.save_state(session, seen)
+     except Exception as err:
+         print("skillforge: state write failed: %s" % err, file=sys.stderr)
+-    for name, _ in picked:
+-        _log("injection", name, tier="warm", trigger="symptom", session=session)
++    for name, _, preexisting in picked:
++        _log("injection", name, tier="warm", trigger="symptom", session=session,
++             preexisting_fingerprint=preexisting)
+     return 0
+ 
+ 
+diff --git a/scripts/retrieve.py b/scripts/retrieve.py
+index 5b152b7..eb0a8c2 100644
+--- a/scripts/retrieve.py
++++ b/scripts/retrieve.py
+@@ -195,6 +195,16 @@ def fingerprint_preexisting(fingerprints, cwd):
+     return None if unknown else 0
+ 
+ 
++def snapshot(fingerprints, cwd, probes_left):
++    """Fingerprint snapshot under a per-call probe budget -> (value, probes_left).
++
++    One place for the budget rule, shared by the prompt and symptom hooks.
++    """
++    if not fingerprints or len(fingerprints) > probes_left:
++        return None, probes_left
++    return fingerprint_preexisting(fingerprints, cwd), probes_left - len(fingerprints)
++
++
+ def run_hook(data):
+     prompt = data.get("prompt", "")
+     session = sanitize_session(data.get("session_id"))
+@@ -228,12 +238,7 @@ def run_hook(data):
+         if cost > budget:
+             continue
+         budget -= cost
+-        fps = e.get("fingerprints") or []
+-        if fps and len(fps) <= probes_left:
+-            preexisting = fingerprint_preexisting(fps, cwd)
+-            probes_left -= len(fps)
+-        else:
+-            preexisting = None
++        preexisting, probes_left = snapshot(e.get("fingerprints") or [], cwd, probes_left)
+         picked.append((name, body, preexisting))
+         seen.add(name)
+         if e.get("kind") != "antiskill":
+diff --git a/scripts/sync.py b/scripts/sync.py
+index c942ec7..5d13221 100644
+--- a/scripts/sync.py
++++ b/scripts/sync.py
+@@ -115,7 +115,7 @@ def _write_triggers(items):
+     p = Path.home() / ".claude" / "skillforge" / "triggers.json"
+     p.parent.mkdir(parents=True, exist_ok=True)
+     syms = [{"skill": s["name"], "path": str(s["path"]), "root": str(s["base"]),
+-             "tokens": toks}
++             "tokens": toks, "fingerprints": s["fingerprints"]}
+             for s in items for toks in s["symptoms"]]
+     vers = [{"skill": s["name"], "root": str(s["base"]), "tokens": toks}
+             for s in items for toks in s["verification"]]
+diff --git a/tests/test_detect.py b/tests/test_detect.py
+index 0bcd483..2502216 100644
+--- a/tests/test_detect.py
++++ b/tests/test_detect.py
+@@ -315,6 +315,75 @@ def test_corrupt_triggers_file_silent():
+     in_sandbox(check)
+ 
+ 
++def test_symptom_on_second_line_of_dict_response_injects():
++    def check(home):
++        path = put_antiskill(home, "widget-trap")
++        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
++        # This is the normal shape of tool output: the error signature starts
++        # a line, not offset 0 of the whole response. json.dumps() would
++        # escape the real newline to backslash-n and glue it onto the next
++        # line's first token, silently defeating the match.
++        resp = {"stdout": "Running webhook test...\n"
++                          "WidgetFlushedError: the widget was already flushed"}
++        data = {"session_id": "sess1", "cwd": str(home), "tool_name": "Bash",
++                "tool_input": {"command": ""}, "tool_response": resp}
++        rc, out = run_capture(data)
++        assert injected_names(out) == ["widget-trap"]
++    in_sandbox(check)
++
++
++def test_symptom_in_nested_dict_response_injects():
++    def check(home):
++        path = put_antiskill(home, "widget-trap")
++        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
++        resp = {"file": {"content": "line one\n"
++                                    "WidgetFlushedError: the widget was already flushed"}}
++        data = {"session_id": "sess1", "cwd": str(home), "tool_name": "Bash",
++                "tool_input": {"command": ""}, "tool_response": resp}
++        rc, out = run_capture(data)
++        assert injected_names(out) == ["widget-trap"]
++    in_sandbox(check)
++
++
++def test_symptom_injection_records_preexisting_fingerprint_in_git_repo():
++    def check(home):
++        import subprocess
++        repo = home / "repo"
++        repo.mkdir()
++        (repo / "app.js").write_text(
++            "await widget.flush({ force: true })", encoding="utf-8")
++        subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
++        subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
++        path = put_antiskill(home, "widget-trap")
++        entry = symptom_entry(home, "widget-trap", path)
++        entry["fingerprints"] = [["await", "widget", "flush", "force", "true"]]
++        write_triggers(home, symptoms=[entry])
++        data = tool_data(repo, "WidgetFlushedError: the widget was already flushed")
++        rc, out = run_capture(data)
++        assert injected_names(out) == ["widget-trap"]
++        vals = [r[0] for r in ledger.connect().execute(
++            "SELECT preexisting_fingerprint FROM events "
++            "WHERE event_type='injection' AND skill='widget-trap'").fetchall()]
++        assert vals == [1]
++    in_sandbox(check)
++
++
++def test_symptom_injection_records_unknown_fingerprint_outside_git_repo():
++    def check(home):
++        path = put_antiskill(home, "widget-trap")
++        entry = symptom_entry(home, "widget-trap", path)
++        entry["fingerprints"] = [["await", "widget", "flush", "force", "true"]]
++        write_triggers(home, symptoms=[entry])
++        rc, out = run_capture(tool_data(
++            home, "WidgetFlushedError: the widget was already flushed"))
++        assert injected_names(out) == ["widget-trap"]
++        vals = [r[0] for r in ledger.connect().execute(
++            "SELECT preexisting_fingerprint FROM events "
++            "WHERE event_type='injection' AND skill='widget-trap'").fetchall()]
++        assert vals == [None]
++    in_sandbox(check)
++
++
+ def test_malformed_stdin_exits_zero():
+     def check(home):
+         old = sys.stdin

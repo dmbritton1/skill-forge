@@ -1,0 +1,138 @@
+diff --git a/scripts/detect.py b/scripts/detect.py
+index c92dbbd..200f8ec 100644
+--- a/scripts/detect.py
++++ b/scripts/detect.py
+@@ -26,6 +26,7 @@ import trust
+ MAX_OUTPUT_CHARS = 64 * 1024
+ MAX_ANTISKILLS = 2
+ INJECT_BUDGET_TOKENS = 1200
++MAX_DEPTH = 6
+ 
+ 
+ def triggers_path():
+@@ -62,13 +63,39 @@ def _log(*args, **kwargs):
+ 
+ 
+ def response_text(resp):
+-    if isinstance(resp, str):
+-        return resp[:MAX_OUTPUT_CHARS]
+-    try:
+-        return json.dumps(resp, default=str)[:MAX_OUTPUT_CHARS]
+-    except (TypeError, ValueError):
+-        return str(resp)[:MAX_OUTPUT_CHARS]
++    """Return searchable text for a PostToolUse tool_response.
++
++    `resp` is whatever the harness put in tool_response: a plain string for
++    some tools, and for most tools a structured object.
+ 
++    The result is handed to patterns.tokenize() and matched against
++    anti-skill symptom patterns. Truncate the result to MAX_OUTPUT_CHARS.
++
++    Flattened by walking the structure, never serialized: json.dumps/repr/str
++    escape control characters, so a real newline arrives as backslash-n and
++    the tokenizer glues that `n` onto the next word -- every symptom whose
++    first token starts a line would silently stop matching.
++    """
++    parts = []
++
++    def walk(node, depth):
++        if isinstance(node, str):
++            parts.append(node)
++        elif depth >= MAX_DEPTH:
++            # ponytail: escaped fallback past the depth cap -- some signal
++            # beats none that deep, and real tool output is never nested here.
++            parts.append(str(node))
++        elif isinstance(node, dict):
++            for value in node.values():
++                walk(value, depth + 1)
++        elif isinstance(node, (list, tuple)):
++            for value in node:
++                walk(value, depth + 1)
++        else:
++            parts.append(str(node))
++
++    walk(resp, 0)
++    return "\n".join(parts)[:MAX_OUTPUT_CHARS]
+ 
+ def run(data):
+     idx = load_triggers()
+diff --git a/tests/test_detect.py b/tests/test_detect.py
+index 0bcd483..2502216 100644
+--- a/tests/test_detect.py
++++ b/tests/test_detect.py
+@@ -315,6 +315,75 @@ def test_corrupt_triggers_file_silent():
+     in_sandbox(check)
+ 
+ 
++def test_symptom_on_second_line_of_dict_response_injects():
++    def check(home):
++        path = put_antiskill(home, "widget-trap")
++        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
++        # This is the normal shape of tool output: the error signature starts
++        # a line, not offset 0 of the whole response. json.dumps() would
++        # escape the real newline to backslash-n and glue it onto the next
++        # line's first token, silently defeating the match.
++        resp = {"stdout": "Running webhook test...\n"
++                          "WidgetFlushedError: the widget was already flushed"}
++        data = {"session_id": "sess1", "cwd": str(home), "tool_name": "Bash",
++                "tool_input": {"command": ""}, "tool_response": resp}
++        rc, out = run_capture(data)
++        assert injected_names(out) == ["widget-trap"]
++    in_sandbox(check)
++
++
++def test_symptom_in_nested_dict_response_injects():
++    def check(home):
++        path = put_antiskill(home, "widget-trap")
++        write_triggers(home, symptoms=[symptom_entry(home, "widget-trap", path)])
++        resp = {"file": {"content": "line one\n"
++                                    "WidgetFlushedError: the widget was already flushed"}}
++        data = {"session_id": "sess1", "cwd": str(home), "tool_name": "Bash",
++                "tool_input": {"command": ""}, "tool_response": resp}
++        rc, out = run_capture(data)
++        assert injected_names(out) == ["widget-trap"]
++    in_sandbox(check)
++
++
++def test_symptom_injection_records_preexisting_fingerprint_in_git_repo():
++    def check(home):
++        import subprocess
++        repo = home / "repo"
++        repo.mkdir()
++        (repo / "app.js").write_text(
++            "await widget.flush({ force: true })", encoding="utf-8")
++        subprocess.run(["git", "init", "-q"], cwd=str(repo), check=True)
++        subprocess.run(["git", "add", "-A"], cwd=str(repo), check=True)
++        path = put_antiskill(home, "widget-trap")
++        entry = symptom_entry(home, "widget-trap", path)
++        entry["fingerprints"] = [["await", "widget", "flush", "force", "true"]]
++        write_triggers(home, symptoms=[entry])
++        data = tool_data(repo, "WidgetFlushedError: the widget was already flushed")
++        rc, out = run_capture(data)
++        assert injected_names(out) == ["widget-trap"]
++        vals = [r[0] for r in ledger.connect().execute(
++            "SELECT preexisting_fingerprint FROM events "
++            "WHERE event_type='injection' AND skill='widget-trap'").fetchall()]
++        assert vals == [1]
++    in_sandbox(check)
++
++
++def test_symptom_injection_records_unknown_fingerprint_outside_git_repo():
++    def check(home):
++        path = put_antiskill(home, "widget-trap")
++        entry = symptom_entry(home, "widget-trap", path)
++        entry["fingerprints"] = [["await", "widget", "flush", "force", "true"]]
++        write_triggers(home, symptoms=[entry])
++        rc, out = run_capture(tool_data(
++            home, "WidgetFlushedError: the widget was already flushed"))
++        assert injected_names(out) == ["widget-trap"]
++        vals = [r[0] for r in ledger.connect().execute(
++            "SELECT preexisting_fingerprint FROM events "
++            "WHERE event_type='injection' AND skill='widget-trap'").fetchall()]
++        assert vals == [None]
++    in_sandbox(check)
++
++
+ def test_malformed_stdin_exits_zero():
+     def check(home):
+         old = sys.stdin

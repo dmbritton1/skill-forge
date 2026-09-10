@@ -1,0 +1,542 @@
+[
+  {
+    "clone": "sf-author-fingerprint-preexisting-control-1",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "control",
+    "segment": "",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-control-1.diff",
+    "diff_lines": 142
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-control-2",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "control",
+    "segment": "",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-control-2.diff",
+    "diff_lines": 138
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-control-3",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "control",
+    "segment": "",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-control-3.diff",
+    "diff_lines": 143
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-transfer-treatment-1",
+    "task": "sf-author-fingerprint-preexisting-transfer",
+    "arm": "treatment",
+    "segment": "",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-transfer-treatment-1.diff",
+    "diff_lines": 132
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-transfer-treatment-2",
+    "task": "sf-author-fingerprint-preexisting-transfer",
+    "arm": "treatment",
+    "segment": "",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-transfer-treatment-2.diff",
+    "diff_lines": 153
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-transfer-treatment-3",
+    "task": "sf-author-fingerprint-preexisting-transfer",
+    "arm": "treatment",
+    "segment": "",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-transfer-treatment-3.diff",
+    "diff_lines": 148
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-1",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-1.diff",
+    "diff_lines": 118
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-2",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-2.diff",
+    "diff_lines": 159
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-3",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-3.diff",
+    "diff_lines": 150
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-1",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-d-learn-1-1.diff",
+    "diff_lines": 93
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-2",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-d-learn-1-2.diff",
+    "diff_lines": 145
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-3",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-d-learn-1-3.diff",
+    "diff_lines": 119
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-plus-1",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-plus",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-plus-1.diff",
+    "diff_lines": 151
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-plus-2",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-plus",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-plus-2.diff",
+    "diff_lines": 142
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-plus-3",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-plus",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-treatment-plus-3.diff",
+    "diff_lines": 144
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-umbrella-treatment-hot-1",
+    "task": "sf-author-fingerprint-preexisting-umbrella",
+    "arm": "treatment",
+    "segment": "-hot",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-umbrella-treatment-hot-1.diff",
+    "diff_lines": 145
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-umbrella-treatment-hot-2",
+    "task": "sf-author-fingerprint-preexisting-umbrella",
+    "arm": "treatment",
+    "segment": "-hot",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-umbrella-treatment-hot-2.diff",
+    "diff_lines": 141
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-umbrella-treatment-hot-3",
+    "task": "sf-author-fingerprint-preexisting-umbrella",
+    "arm": "treatment",
+    "segment": "-hot",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-author-fingerprint-preexisting-umbrella-treatment-hot-3.diff",
+    "diff_lines": 134
+  },
+  {
+    "clone": "sf-author-response-text-control-1",
+    "task": "sf-author-response-text",
+    "arm": "control",
+    "segment": "",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-control-1.diff",
+    "diff_lines": 118
+  },
+  {
+    "clone": "sf-author-response-text-control-2",
+    "task": "sf-author-response-text",
+    "arm": "control",
+    "segment": "",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-control-2.diff",
+    "diff_lines": 99
+  },
+  {
+    "clone": "sf-author-response-text-control-3",
+    "task": "sf-author-response-text",
+    "arm": "control",
+    "segment": "",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-control-3.diff",
+    "diff_lines": 99
+  },
+  {
+    "clone": "sf-author-response-text-transfer-treatment-1",
+    "task": "sf-author-response-text-transfer",
+    "arm": "treatment",
+    "segment": "",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-transfer-treatment-1.diff",
+    "diff_lines": 99
+  },
+  {
+    "clone": "sf-author-response-text-transfer-treatment-2",
+    "task": "sf-author-response-text-transfer",
+    "arm": "treatment",
+    "segment": "",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-transfer-treatment-2.diff",
+    "diff_lines": 99
+  },
+  {
+    "clone": "sf-author-response-text-transfer-treatment-3",
+    "task": "sf-author-response-text-transfer",
+    "arm": "treatment",
+    "segment": "",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-transfer-treatment-3.diff",
+    "diff_lines": 99
+  },
+  {
+    "clone": "sf-author-response-text-treatment-1",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-1.diff",
+    "diff_lines": 142
+  },
+  {
+    "clone": "sf-author-response-text-treatment-2",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-2.diff",
+    "diff_lines": 139
+  },
+  {
+    "clone": "sf-author-response-text-treatment-3",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-3.diff",
+    "diff_lines": 128
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-1-1",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-1",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-1-1.diff",
+    "diff_lines": 116
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-1-2",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-1",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-1-2.diff",
+    "diff_lines": 117
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-1-3",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-1",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-1-3.diff",
+    "diff_lines": 116
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-2-1",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-2",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-2-1.diff",
+    "diff_lines": 121
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-2-2",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-2",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-2-2.diff",
+    "diff_lines": 122
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-2-3",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-2",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-2-3.diff",
+    "diff_lines": 123
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-3-1",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-3",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-3-1.diff",
+    "diff_lines": 116
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-3-2",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-3",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-3-2.diff",
+    "diff_lines": 115
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnfailure-3-3",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnfailure-3",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-d-learnfailure-3-3.diff",
+    "diff_lines": 116
+  },
+  {
+    "clone": "sf-author-response-text-treatment-plus-1",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-plus",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-plus-1.diff",
+    "diff_lines": 136
+  },
+  {
+    "clone": "sf-author-response-text-treatment-plus-2",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-plus",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-plus-2.diff",
+    "diff_lines": 140
+  },
+  {
+    "clone": "sf-author-response-text-treatment-plus-3",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-plus",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-treatment-plus-3.diff",
+    "diff_lines": 134
+  },
+  {
+    "clone": "sf-author-response-text-umbrella-treatment-hot-1",
+    "task": "sf-author-response-text-umbrella",
+    "arm": "treatment",
+    "segment": "-hot",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-umbrella-treatment-hot-1.diff",
+    "diff_lines": 117
+  },
+  {
+    "clone": "sf-author-response-text-umbrella-treatment-hot-2",
+    "task": "sf-author-response-text-umbrella",
+    "arm": "treatment",
+    "segment": "-hot",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-umbrella-treatment-hot-2.diff",
+    "diff_lines": 131
+  },
+  {
+    "clone": "sf-author-response-text-umbrella-treatment-hot-3",
+    "task": "sf-author-response-text-umbrella",
+    "arm": "treatment",
+    "segment": "-hot",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-author-response-text-umbrella-treatment-hot-3.diff",
+    "diff_lines": 138
+  },
+  {
+    "clone": "sf-escaping-breaks-symptom-match-distill-learn-1",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-escaping-breaks-symptom-match-distill-learn-1.diff",
+    "diff_lines": 169
+  },
+  {
+    "clone": "sf-escaping-breaks-symptom-match-distill-learn-2",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-escaping-breaks-symptom-match-distill-learn-2.diff",
+    "diff_lines": 155
+  },
+  {
+    "clone": "sf-escaping-breaks-symptom-match-distill-learn-3",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-escaping-breaks-symptom-match-distill-learn-3.diff",
+    "diff_lines": 212
+  },
+  {
+    "clone": "sf-escaping-breaks-symptom-match-distill-learn-failure-1",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-escaping-breaks-symptom-match-distill-learn-failure-1.diff",
+    "diff_lines": 165
+  },
+  {
+    "clone": "sf-escaping-breaks-symptom-match-distill-learn-failure-2",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-escaping-breaks-symptom-match-distill-learn-failure-2.diff",
+    "diff_lines": 158
+  },
+  {
+    "clone": "sf-escaping-breaks-symptom-match-distill-learn-failure-3",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "sf-escaping-breaks-symptom-match-distill-learn-failure-3.diff",
+    "diff_lines": 152
+  },
+  {
+    "clone": "sf-truncation-reports-absent-distill-learn-1",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-truncation-reports-absent-distill-learn-1.diff",
+    "diff_lines": 117
+  },
+  {
+    "clone": "sf-truncation-reports-absent-distill-learn-2",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-truncation-reports-absent-distill-learn-2.diff",
+    "diff_lines": 107
+  },
+  {
+    "clone": "sf-truncation-reports-absent-distill-learn-3",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-truncation-reports-absent-distill-learn-3.diff",
+    "diff_lines": 95
+  },
+  {
+    "clone": "sf-truncation-reports-absent-distill-learn-failure-1",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-truncation-reports-absent-distill-learn-failure-1.diff",
+    "diff_lines": 112
+  },
+  {
+    "clone": "sf-truncation-reports-absent-distill-learn-failure-2",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-truncation-reports-absent-distill-learn-failure-2.diff",
+    "diff_lines": 144
+  },
+  {
+    "clone": "sf-truncation-reports-absent-distill-learn-failure-3",
+    "task": null,
+    "arm": null,
+    "segment": null,
+    "run": null,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "sf-truncation-reports-absent-distill-learn-failure-3.diff",
+    "diff_lines": 98
+  }
+]
