@@ -23,11 +23,11 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 
 | Brief | Question | Where it stands |
 |---|---|---|
-| Q1 | Does the pipeline work end to end, or only the injection half? | **Answered 2026-09-09.** Every result in this file uses a *hand-authored* skill. The claim is session → distilled skill → later session improved, and the distiller is the untested link. This is the largest open question in the project |
-| Q2 | Is transfer real at any n? | **Replicated null.** 0/6 in the pilot and 0/6 again on 2026-09-09, the second time against a floor measured in the same batch. Establishing transfer, or its absence at a convincing n, is unfinished |
+| Q1 | Does the pipeline work end to end, or only the injection half? | **Answered 2026-09-09.** It works when it emits, and it emits 4 times in 12. The four that emitted scored 12/12 against a 1/6 floor. The distiller is no longer the untested link — but the 8 novelty-gate refusals are never probed, so whether the gate is right is a new open question |
+| Q2 | Is transfer real at any n? | **Replicated null, still open.** 0/6 in the pilot and 0/6 again on 2026-09-09, the second time against a floor measured in the same batch on the same pinned model. Two nulls at n=6 is not absence at a convincing n |
 | Q3 | Does injection ever hurt? | = E4, blocked |
 | Q4 | Token cost per unit of benefit? | **No experiment exists** |
-| Q5 | Does the `trusted` gate predict anything? | **Not answered.** Critique calibration measures the rubric's *accuracy against known verdicts* — not whether skills that pass it outperform skills that fail it. That needs bench runs split on critique verdict, and nobody has done it |
+| Q5 | Does the `trusted` gate predict anything? | **Attempted 2026-09-09, no split available.** Pre-registered as a Q1 secondary and run: critique passed all 4 distilled drafts, so there is no failing group to compare against. Still unanswered, and now known to need drafts the gate *rejects* — which this design does not produce |
 
 ## Where the raw rows are
 
