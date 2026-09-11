@@ -757,14 +757,20 @@ Expected: `frontmatter ok`
 
 - [ ] **Step 3: Fix the documentation bug**
 
-In `commands/library.md`, the bucket explanation currently says `trusted`
-needs "two clean sessions". `scripts/ledger.py` counts
-`COUNT(DISTINCT project)` and requires `success_projects >= 2`. Replace the
-phrase `two clean sessions` with `two clean sessions in two different
-projects`.
+`commands/library.md` tells users that `trusted` needs "two clean sessions".
+`scripts/ledger.py` counts `COUNT(DISTINCT project)` and requires
+`success_projects >= 2` — two clean sessions in ONE project is one, not two.
 
-Run: `grep -n "two clean sessions" commands/library.md`
-Expected: one line, now reading `two clean sessions in two different projects`.
+The phrase appears **twice**, at lines 15 and 23. Change both. Line 15 reads
+"plus either two clean sessions or a passing `executable` run"; line 23 reads
+"two clean sessions, once critique has passed". In each, replace
+`two clean sessions` with `two clean sessions in two different projects`.
+
+Run: `grep -c "two clean sessions in two different projects" commands/library.md`
+Expected: `2`.
+
+Run: `grep -n "two clean sessions" commands/library.md | grep -v "two different projects"`
+Expected: no output — no unfixed occurrence left behind.
 
 - [ ] **Step 4: Run the whole suite**
 
