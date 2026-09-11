@@ -10,9 +10,23 @@
 #
 # Check the session meter BEFORE running this; `claude -p` exits 1 when the
 # session allowance is gone, and a truncated batch is postponed, not answered.
+#
+# Arms M and C carry no budget segment, so 12 of the 24 clone names reuse
+# Q1/E9 names -- accepted: prepare() rmtrees those /tmp copies, extracted
+# evidence is unaffected. Analyses must join on (clone, batch), not clone alone.
 set -u
 R="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$R"
+
+# The bench passes --plugin-dir "$R", so the hook that fires inside every
+# session is THIS tree's scripts/retrieve.py. Run from a tree without the
+# budget lever and P and S silently run at 1200 while every row still
+# records 2000 -- 24 sessions of data that looks valid and is not.
+python3 -c "
+import os,sys; sys.path.insert(0,'scripts'); import inspect, retrieve
+src = inspect.getsource(retrieve.run_hook)
+sys.exit(0 if 'SKILLFORGE_INJECT_BUDGET' in src else 1)
+" || { echo "FATAL: retrieve.run_hook does not read SKILLFORGE_INJECT_BUDGET"; exit 1; }
 
 # --skill-from must be ABSOLUTE: install_skill shells save_skill.py with cwd
 # set to the clone, so a relative path resolves against the clone.

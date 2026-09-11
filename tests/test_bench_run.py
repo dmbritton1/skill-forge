@@ -80,6 +80,9 @@ def test_arm_segment_records_the_injection_budget():
         assert bench_run.arm_segment("control") == ""
         bench_run.PLUS_SKILL = ["/x/bench/distilled/trapB/consolidated/1/SKILL.md"]
         assert bench_run.arm_segment("treatment") == "-plus-b2000"
+        bench_run.PLUS_SKILL = None
+        bench_run.SKILL_FROM = "/x/bench/distilled/A/learn-failure/1/SKILL.md"
+        assert bench_run.arm_segment("treatment") == "-d-learnfailure-1-b2000"
     finally:
         _reset()
 
