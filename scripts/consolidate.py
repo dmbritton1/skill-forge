@@ -13,8 +13,14 @@ shared parent pattern.
 
 Design: docs/superpowers/specs/2026-09-11-consolidate-design.md
 """
+import argparse
+import json
 import pathlib
 import sys
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+import library
+import save_skill
 
 #: Highest first. A merged skill inherits its best member's NAME, because the
 #: organic half of the record (successes, failures, last_used) is keyed by
@@ -99,3 +105,82 @@ def merge_patterns(members, field):
                 seen.add(v)
                 out.append(v)
     return out
+
+
+def load_metas():
+    """One meta per indexed skill, index metadata joined to its frontmatter.
+
+    `library.rows()` has the live bucket and confidence but not the
+    verification command: `sync._write_index` stores only a tokenized form and
+    omits the raw string. So the command, fingerprints and symptoms are read
+    back out of each skill's own file, via the parser save_skill already owns.
+
+    A skill whose file has gone missing is skipped rather than fatal -- the
+    index can outlive a hand-deleted store, and one bad row must not stop the
+    user seeing the rest of their library.
+    """
+    out = []
+    for r in library.rows():
+        try:
+            text = pathlib.Path(r["path"]).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        fm, _ = save_skill.parse_frontmatter(text)
+        if not fm:
+            continue
+        fps = fm.get("fingerprints")
+        syms = fm.get("symptoms")
+        out.append({"name": r["name"], "kind": r["kind"], "scope": r["scope"],
+                    "bucket": r["bucket"], "successes": r["successes"],
+                    "last_used": r["last_used"], "path": r["path"],
+                    "command": fm.get("verification.command"),
+                    "fingerprints": fps if isinstance(fps, list) else [],
+                    "symptoms": syms if isinstance(syms, list) else []})
+    return out
+
+
+def proposal(metas, name=None):
+    """{"clusters": [...], "unclustered": [...]} -- what a merge would do.
+
+    Members carry name, bucket, successes and path and nothing else. This dict
+    is printed for a model to read, and a skill's BODY is untrusted data that
+    must not ride along in it.
+    """
+    cls, unclustered = clusters(metas)
+    out = []
+    for c in cls:
+        if name is not None and not any(m["name"] == name for m in c["members"]):
+            continue
+        out.append({
+            "command": c["command"], "kind": c["kind"], "scope": c["scope"],
+            "keep": inherit_name(c["members"]),
+            "members": [{"name": m["name"], "bucket": m["bucket"],
+                         "successes": m["successes"], "path": m["path"]}
+                        for m in c["members"]],
+            "fingerprints": merge_patterns(c["members"], "fingerprints"),
+            "symptoms": merge_patterns(c["members"], "symptoms"),
+        })
+    if name is not None:
+        unclustered = [u for u in unclustered if u["name"] == name]
+    return {"clusters": out, "unclustered": unclustered}
+
+
+def cmd_propose(name=None):
+    print(json.dumps(proposal(load_metas(), name=name), indent=2))
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    pr = sub.add_parser("propose")
+    pr.add_argument("--name", default=None,
+                    help="only the cluster containing this skill")
+    args = ap.parse_args(argv)
+    if args.cmd == "propose":
+        return cmd_propose(args.name)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

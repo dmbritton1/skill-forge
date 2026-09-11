@@ -154,6 +154,49 @@ def test_a_member_missing_the_field_entirely_is_skipped_not_fatal():
     assert consolidate.merge_patterns(ms, "fingerprints") == ["x"]
 
 
+def test_the_proposal_names_what_to_keep_and_unions_the_patterns():
+    ms = [meta("a", '"python3 tests/x.py"', bucket="working",
+               fingerprints=["x"], symptoms=["boom"]),
+          meta("b", '"python3 tests/x.py"', bucket="unproven",
+               fingerprints=["y"], symptoms=["boom"])]
+    p = consolidate.proposal(ms)
+    assert len(p["clusters"]) == 1, p
+    c = p["clusters"][0]
+    assert c["keep"] == "a", c
+    assert c["fingerprints"] == ["x", "y"], c
+    assert c["symptoms"] == ["boom"], c
+    assert [m["name"] for m in c["members"]] == ["a", "b"], c
+
+
+def test_the_proposal_is_json_serialisable():
+    """cmd_propose prints it for the command file to read back."""
+    import json
+    ms = [meta("a", '"python3 tests/x.py"'), meta("b", '"python3 tests/x.py"')]
+    json.dumps(consolidate.proposal(ms))
+
+
+def test_filtering_by_name_keeps_only_that_skills_cluster():
+    ms = [meta("a", '"python3 tests/x.py"'), meta("b", '"python3 tests/x.py"'),
+          meta("c", '"python3 tests/y.py"'), meta("d", '"python3 tests/y.py"')]
+    p = consolidate.proposal(ms, name="c")
+    assert len(p["clusters"]) == 1, p
+    assert sorted(m["name"] for m in p["clusters"][0]["members"]) == ["c", "d"]
+
+
+def test_filtering_by_a_name_in_no_cluster_returns_nothing():
+    ms = [meta("solo", '"python3 tests/x.py"')]
+    p = consolidate.proposal(ms, name="solo")
+    assert p["clusters"] == [], p
+
+
+def test_members_carry_only_what_the_command_file_needs():
+    """The proposal is printed to a model. Skill BODIES are untrusted data and
+    must not ride along in it."""
+    ms = [meta("a", '"python3 tests/x.py"'), meta("b", '"python3 tests/x.py"')]
+    m = consolidate.proposal(ms)["clusters"][0]["members"][0]
+    assert set(m) == {"name", "bucket", "successes", "path"}, m
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
