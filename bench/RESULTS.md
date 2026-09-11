@@ -20,6 +20,7 @@ because nothing indexed the data — see "What the register caught".
 | E8 (2026-09-11) | Does retrieval survive a library of ten? | **Answered, and the mechanism is not the one predicted.** M 3/3, L 3/3, C 0/3 on **both** tasks. On `response_text` the prompt path delivered a **wrong-trap** skill 3/3 and the **symptom path rescued it** 3/3. The rescue rides on anti-skills, which cannot exist for a silent trap — so the dangerous case was never tested. First attempt refused at the session limit and excluded | `results.jsonl`, the 18 rows dated 2026-09-11 after 00:50 carrying `extra_skills` of 9 or 0; 18 `batch: e8` rows in `bench/graded.jsonl`; the 13 refused + 5 valid rows of the 00:41–00:46 attempt are **excluded** (spec §4.1) |
 | E9 (2026-09-11) | Does a consolidated skill still work? | **Answered: yes, and it fits.** Merges compressed 3 and 2 skills to **44%** and **54%** of their concatenation, landing at 1095 and 1088 tokens against a 1200 budget. R 3/3, K 3/3, C 0/3 on both tasks, zero exclusions. n=3 per cell, and every trap-A member was already at ceiling so that half could only hold or fall | `bench/distilled/*/consolidated/1/`, the 18 rows in `results.jsonl` dated 2026-09-11 after 15:10, 18 `batch: e9` rows in `bench/graded.jsonl` |
 | E8 follow-up (2026-09-11) | Does consolidating the library fix E8's ranking failure? | **No — it makes the ranking worse.** The correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. `/consolidate` works as a feature (E9) but does not fix the problem that motivated building it | `bench/rank_check.py` — deterministic, 0 sessions |
+| Budget derivation (2026-09-11) | What injection budget delivers a *correct* skill? | **3000 works; the curve is not monotonic.** At 1200 (today) the wrong skill wins `response_text`. At 2000 the right one slips in. **At 2400 it is crowded back out.** Greedy skip-and-continue means more budget can deliver a strictly worse set | `bench/budget_sweep.py` — deterministic, 0 sessions |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1718,3 +1719,80 @@ numbers — the rank ordering is the claim, not the magnitudes.
 Only two of the three clusters were merged. The third is global-scope and E9
 did not produce a merge for it, so the `after` pool understates consolidation
 rather than flattering it.
+
+
+# Budget derivation — what budget delivers a correct skill? (2026-09-11)
+
+Reproduce with `python3 bench/budget_sweep.py`. Deterministic, no sessions.
+
+The E8 follow-up left the blocker as the injection budget: one skill fits, and
+on `sf-author-response-text` it is a skill about the wrong bug. E6 separately
+found an irrelevant skill riding alongside a relevant one cost nothing
+measurable (R 6/6, R+I 6/6, n=3 per cell). So the fix might just be making two
+fit. This asks at what budget that happens.
+
+Criterion, fixed before the first run: at each candidate budget, does a skill
+from the **matching trap** get delivered on **both** tasks?
+
+## Result — and the curve goes the wrong way in the middle
+
+Against the ten-skill pool E8 installed:
+
+| budget | `response_text` (wants A) | `fingerprint` (wants B) | both correct |
+|---|---|---|---|
+| **1200** (today) | 1 skill, **wrong** | 1 skill, right | no |
+| 1600 | 1 skill, **wrong** | 1 skill, right | no |
+| 2000 | 2 skills, right | 2 skills, right | **yes** |
+| **2400** | 2 skills, **wrong** | 2 skills, right | **no** |
+| 3000 | 3 skills, right | 3 skills, right | **yes** |
+| 3600 | 3 skills, right | 3 skills, right | **yes** |
+
+**Raising the budget from 2000 to 2400 removes the correct skill.** That is not
+a typo and not noise — it is deterministic, and the trace explains it:
+
+| rank | skill | trap | cost | at 2000 | at 2400 |
+|---|---|---|---|---|---|
+| 1 | `truncation-reports-unknown` | B | 957 | taken, 1043 left | taken, 1443 left |
+| 2 | `capped-scan-reports-unknown-not-absent` | B | 1072 | **skipped**, 1072 > 1043 | **taken**, 371 left |
+| 3 | `flatten-structured-output-for-token-matching` | **A** | 869 | **taken** | **skipped**, 869 > 371 |
+
+`retrieve.inject` walks the ranked list and `continue`s past anything over the
+remaining budget. So at 2000 the second wrong-trap skill does not fit, and the
+correct skill slips in behind it. At 2400 it does fit, and crowds the correct
+skill out.
+
+**Greedy skip-and-continue over a rank-ordered list is not monotonic in
+budget.** More budget can deliver a strictly worse set. The 2000 result is
+therefore an accident of two costs straddling a threshold, not a property to
+rely on — and the same accident is what makes 2400 a regression.
+
+The consolidated seven-skill pool has no such dip (2400 is fine there), which
+is coincidence rather than a virtue of consolidation: different costs, the
+straddle lands elsewhere.
+
+## What follows
+
+**3000 is the first budget that delivers a correct skill on both tasks without
+depending on a cost coincidence** — at that point three skills fit and
+`MAX_SKILLS = 3` becomes the binding cap instead, which makes the outcome
+stable rather than accidental.
+
+**That is 2.5× today's budget, and it is past the evidence.** E6 measured
+no-harm with **two** skills totalling ~1118 tokens. Three skills at ~2900
+tokens is extrapolation from that, not a finding. Whether that much injected
+context costs anything is exactly the kind of question E6's design answers for
+one payload and not for three.
+
+**The non-monotonicity is worth fixing regardless of the budget chosen.** A
+selector that considered the ranked candidates as a set rather than greedily
+in order would not have a range where more budget is worse. Nothing here
+establishes what that selector should be, and changing it is a change, not a
+measurement.
+
+## Limits
+
+Ten skills, two traps, one repository, all operator-written, and BM25 scores
+are corpus-relative — the ranks are the claim, not the magnitudes. The sweep
+models the **prompt path only**; `detect.py` carries its own separate 1200
+budget for symptom-triggered delivery (E8 §4.1), and E8 measured that path
+rescuing exactly this failure when the trap is loud enough to produce symptoms.
