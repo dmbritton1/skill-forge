@@ -72,52 +72,51 @@ four drafts, so there is no failing group to split on. It needs drafts the gate
 
 ---
 
-## 2. START HERE — E7 and E8 are both answered, and together they set the next question
+## 2. START HERE — the blocker is the injection budget, not the library
 
-**E7: the novelty self-gate was refusing skills that work.** Emission 1/6 →
-6/6 with step 2 suspended; those drafts scored 16/18 against a same-batch
-control of 0/6, every one of the six beating the floor. Write-up in
-`bench/RESULTS.md`.
+Three things landed on 2026-09-11 and together they redirect the project.
 
-**E8: a library of ten did not hurt — but not for the reason predicted, and
-the dangerous case was never tested.**
+**E9: `/consolidate` works.** A machine-written merge of three skills about one
+bug, compressed to **44%** of their combined size, held its member's ceiling:
+R 3/3, K 3/3, C 0/3 on both tasks, 18 rows, zero exclusions. Both merges fit
+the 1200-token budget (1095 and 1088) and pass `save_skill.validate` clean.
 
-| task | matched alone | all ten | control |
-|---|---|---|---|
-| `response_text` | 3/3 | 3/3 | 0/3 |
-| `fingerprint` | 3/3 | 3/3 | 0/3 |
+**E8 follow-up: consolidation does NOT fix what it was built to fix, and makes
+it worse.** Reproduce free with `python3 bench/rank_check.py`.
 
-The mechanism is the finding. On `response_text` the prompt path delivered a
-**wrong-trap** skill 3 times of 3, exactly as the spec predicted from BM25
-ranks. The **symptom path rescued it 3 times of 3** — `scripts/detect.py`
-carries its own 1200-token budget, independent of `scripts/retrieve.py`'s.
+| pool | best trap-A entry on the `response_text` prompt |
+|---|---|
+| E8's ten | rank **3**, score **8.40** |
+| consolidated seven | rank **5**, score **4.70** |
 
-**Read these three limits before using E8 for anything:**
+A description covering three skills matches any one prompt less specifically
+than a single-purpose one. BM25 rewards specificity and merging spends it —
+**E2's transfer null reappearing one layer down**, and nothing in the
+`/consolidate` design anticipated it.
 
-- **Only `response_text` tested depth.** On `fingerprint`, arm L's prompt path
-  delivered the *same single skill* as arm M, so adding nine changed nothing
-  that arrived. That arm is a null by construction, not evidence.
-- **The rescue cannot exist for a silent trap.** Only the three trap-A
-  **anti-skills** declare `symptoms:`; all seven `learn` skills declare none.
-  Q1 established the anti-skill path is structurally unavailable for a
-  symptomless trap — invented triggers pollute the index. E8 never ran
-  ranking-failure-on-a-silent-trap, because ranking happened not to fail there.
-- **n=3 per cell.**
+**The real blocker is the injection budget.** In the consolidated pool rank 1
+costs 1088 of 1200, leaving 112. The four entries at ranks 2–5 are all the
+*correct* bug and cost 759 to 1095. None fits. So retrieval is winner-take-all
+on a BM25 score over `name + description`, and E6 already showed that score
+ranking an unrelated `arrow` timezone skill above a matched one.
 
-**So do not relax the novelty gate on this evidence.** The safety margin E8
-measured is supplied by anti-skills the distiller *cannot write* for silent
-traps, and a library grown under a relaxed gate would be thin in exactly those.
+**Do not reach for more consolidation.** E9 says the feature is sound; the
+follow-up says the thread it was on is not where the problem lives. The three
+untested moves are: raise `INJECT_BUDGET_TOKENS`; make skills cheaper (every
+distilled skill costs **759–1192** against a **1200** budget); or rank on
+something better than `name + description`. Nothing says which.
 
-**Two things are settled that were not:**
+**Still settled, still worth not relearning:**
 
-- **The graded scorer is finished and adds nothing on these tasks.** It
-  reproduced the binary verdict in 40 of 42 rows (2026-09-10), 24 of 24 (E7)
-  and 18 of 18 (E8). These tasks are single-trap. **Do not build more probes
-  for them.**
-- **`MAX_SKILLS = 3` is not the binding cap, and neither budget is the whole
-  story.** Delivery is two independent paths with a 1200-token budget each.
-  Any future claim about what gets delivered must account for both; the E8
-  spec's §2.1 got this wrong and is kept in place, falsified, as the record.
+- **The graded scorer adds nothing on these tasks.** It reproduced the binary
+  verdict in 40 of 42 rows (2026-09-10), 24 of 24 (E7), 18 of 18 (E8) and
+  18 of 18 (E9). These tasks are single-trap. **Do not build more probes.**
+- **Delivery is two independent 1200-token budgets**, `retrieve.py` for the
+  prompt path and `detect.py` for the symptom path. `MAX_SKILLS = 3` never
+  binds; the budget binds at one skill.
+- **`save_skill` enforces no size limit.** An oversized skill saves cleanly,
+  indexes cleanly, and silently never injects. E9's merges fit by drafting
+  luck, not by design.
 
 ## 3. Next steps, in priority order
 
