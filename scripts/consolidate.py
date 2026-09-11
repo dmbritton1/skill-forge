@@ -68,3 +68,34 @@ def clusters(metas):
         out.append({"command": cmd, "kind": kind, "scope": scope,
                     "members": members})
     return out, unclustered
+
+
+def inherit_name(members):
+    """The name the merged skill takes: the best member's.
+
+    Three stable sorts rather than one composite key, because two of the
+    fields sort descending (bucket, successes, recency) and one ascending
+    (name), and `last_used` is a string-or-None that cannot be negated.
+    Sorting is stable, so applying the weakest key first and the strongest
+    last produces the intended precedence.
+
+    The name tie-break is not cosmetic: without it the inherited name depends
+    on index order, and the same library proposes a different merge on two
+    consecutive runs.
+    """
+    ms = sorted(members, key=lambda m: m["name"])
+    ms.sort(key=lambda m: (m.get("last_used") or ""), reverse=True)
+    ms.sort(key=lambda m: (BUCKET_ORDER.get(m.get("bucket"), -1),
+                           m.get("successes") or 0), reverse=True)
+    return ms[0]["name"]
+
+
+def merge_patterns(members, field):
+    """Deduplicated union of one list field, in first-seen order."""
+    out, seen = [], set()
+    for m in members:
+        for v in (m.get(field) or []):
+            if v not in seen:
+                seen.add(v)
+                out.append(v)
+    return out

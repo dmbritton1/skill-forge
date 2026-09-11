@@ -92,6 +92,68 @@ def test_a_singleton_reason_names_the_command():
     assert un[0]["reason"] == "only skill with this verification.command", un
 
 
+def test_the_highest_bucket_member_lends_its_name():
+    """Organic history is keyed by NAME and Tier A verdicts by content hash,
+    so inheriting the best name keeps the successes and loses only the
+    verdicts -- `working` rather than `unproven`."""
+    ms = [meta("low", "c", bucket="unproven"),
+          meta("high", "c", bucket="trusted"),
+          meta("mid", "c", bucket="working")]
+    assert consolidate.inherit_name(ms) == "high", ms
+
+
+def test_successes_break_a_bucket_tie():
+    ms = [meta("few", "c", bucket="working", successes=1),
+          meta("many", "c", bucket="working", successes=4)]
+    assert consolidate.inherit_name(ms) == "many"
+
+
+def test_recency_breaks_a_successes_tie():
+    ms = [meta("old", "c", bucket="working", successes=2,
+               last_used="2026-01-01T00:00:00"),
+          meta("new", "c", bucket="working", successes=2,
+               last_used="2026-09-01T00:00:00")]
+    assert consolidate.inherit_name(ms) == "new"
+
+
+def test_a_never_used_member_loses_to_a_used_one_on_recency():
+    """last_used is None for a skill no session has ever fired. That must sort
+    as older than any real timestamp, not crash and not win."""
+    ms = [meta("never", "c", bucket="working", successes=2, last_used=None),
+          meta("once", "c", bucket="working", successes=2,
+               last_used="2026-01-01T00:00:00")]
+    assert consolidate.inherit_name(ms) == "once"
+
+
+def test_the_final_tie_breaks_on_name_so_the_choice_is_deterministic():
+    """Otherwise the inherited name depends on index order, and the same
+    library proposes a different merge on two consecutive runs."""
+    ms = [meta("zebra", "c"), meta("apple", "c")]
+    assert consolidate.inherit_name(ms) == "apple"
+    assert consolidate.inherit_name(list(reversed(ms))) == "apple"
+
+
+def test_an_unknown_bucket_never_outranks_a_known_one():
+    ms = [meta("weird", "c", bucket=""), meta("plain", "c", bucket="unproven")]
+    assert consolidate.inherit_name(ms) == "plain"
+
+
+def test_patterns_are_unioned_with_order_preserved_and_duplicates_dropped():
+    ms = [meta("a", "c", fingerprints=["x", "y"]),
+          meta("b", "c", fingerprints=["y", "z"])]
+    assert consolidate.merge_patterns(ms, "fingerprints") == ["x", "y", "z"]
+
+
+def test_symptoms_union_the_same_way():
+    ms = [meta("a", "c", symptoms=["boom"]), meta("b", "c", symptoms=["boom", "bang"])]
+    assert consolidate.merge_patterns(ms, "symptoms") == ["boom", "bang"]
+
+
+def test_a_member_missing_the_field_entirely_is_skipped_not_fatal():
+    ms = [{"name": "a"}, meta("b", "c", fingerprints=["x"])]
+    assert consolidate.merge_patterns(ms, "fingerprints") == ["x"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
