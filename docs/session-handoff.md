@@ -72,35 +72,56 @@ four drafts, so there is no failing group to split on. It needs drafts the gate
 
 ---
 
-## 2. START HERE — E6 ran; the next move is a decision, not a command
+## 2. START HERE — E7 is half-run and the resume is one command
 
-**E6 is answered (2026-09-10).** An irrelevant skill riding along with a
-relevant one cost nothing measurable: arm R 6/6, arm R+I 6/6, all 12 sessions
-valid, zero excluded. Every R+I run injected **both** skills at `trigger:
-prompt`, so no run measured crowd-out and the §5 separate-reporting rule had
-nothing to report. Write-up in `bench/RESULTS.md`, section "E6 — does an
-irrelevant skill dilute a relevant one?".
+**E7 phase 1 is done and answered its question. Phase 2 is 1 of 24 sessions
+in and was stopped by hand to stay inside a usage limit.**
 
-Read the limit before you use the result: **n=3 per cell**. Both arms at 6/6
-rules out a large dilution only. If R+I's true rate were 75% it would still
-read 6/6 about 18% of the time. This is "no large effect", not "no effect".
+Spec and pre-registration: `docs/superpowers/specs/2026-09-10-e7-novelty-gate-design.md`.
+Read §5.1 before running anything — it is an amendment written while phase 2
+was stopped, and it binds the resume.
 
-Two things worth carrying forward:
+**Phase 1 result.** Six bypass draws, three per trap, `learn` distiller only,
+novelty self-gate suspended by `--no-novelty-gate`. **All six emitted.** Q1's
+same cell with the gate on emitted 1 of 6. Every draw: `session_ok` true,
+repair resolved, one draft, zero `save_skill` rejections, containment
+reverted, global store left clean. Delivery predicted before probing — all six
+`deliver`, BM25 2.479 to 3.767. Archived under `bench/distilled/*/learn-nogate/`.
 
-- **The design understated its own bad case.** Its §3 table has the irrelevant
-  payload losing narrowly to the relevant skill on `fingerprint`. Re-derived
-  against the pool each arm actually installs, the irrelevant skill ranks first
-  on **both** tasks. BM25 is corpus-relative and the two tables rank different
-  pools, so they do not conflict — but the experiment is a stronger test than
-  it was written to be, not a weaker one.
-- **E6 does not answer E4** and never could; different comparator (§3.2).
+Step 8 stopped nothing. Two of the five refusals E7 targets had cited the
+verification-command requirement alongside novelty, so a partial yield was
+expected and §5 carries a rule for reporting it. That rule has nothing to
+report: suspending step 2 alone moved emission from 1/6 to 6/6.
 
-**There is no single next command.** §3 is a genuine priority decision now, and
-its three live items differ in kind: §3.2 is a scorer to write (it reframes E4
-from "we need a task that does not exist" to "we need a grader we have not
-written"), §3.3 is a cheap experiment nobody has specified, §3.4 is the v0.3
-feature the whole experimental programme was gating. Pick deliberately.
-§3.1 is gone because it was "run E6".
+**What phase 1 does NOT show.** Whether those six drafts work. Emission is not
+efficacy, and the whole point of E7 is that the gate's claim is about
+knowledge the model already has. A draft that emits and then scores at control
+vindicates the gate. Phase 2 is the experiment.
+
+**To resume — run the whole of phase 2, not the remainder.** §5.1 excludes the
+single orphan control row from the killed batch (`sf-author-response-text`,
+control, `resolved: false`, 2026-09-10T21:01:40) and requires all 24 sessions
+in one batch. Check the session meter first (§0), then:
+
+```
+bash /tmp/e7-phase2.sh          # regenerate it from the block below if gone
+```
+
+It runs, in this order, control interleaved rather than trailing as §5
+requires: control `sf-author-response-text` ×3; each of
+`bench/distilled/A/learn-nogate/{1,2,3}/SKILL.md` as `--skill-from` against
+`sf-author-response-text` ×3; control `sf-author-fingerprint-preexisting` ×3;
+each of `bench/distilled/B/learn-nogate/{1,2,3}/SKILL.md` against
+`sf-author-fingerprint-preexisting` ×3. **`--skill-from` must be absolute**
+(§4). 24 sessions, roughly an hour.
+
+Afterwards: extract the phase-2 clones into `bench/authored/` and run
+`bench/regrade.py` for the secondary graded score (§3.3) — zero sessions.
+Report probe score beside binary `resolved`, never instead of it. The judge is
+out of scope (§8).
+
+**Everything else on this branch is committed and the suite is green**
+(731 tests). Branch `claude/e7-novelty-gate-bypass`, 5 commits ahead of `main`.
 
 ## 3. Next steps, in priority order
 
