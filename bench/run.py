@@ -202,8 +202,13 @@ def arm_segment(arm):
     if SKILL_FROM:
         distiller, draw = distilled_parts()
         seg = "-d-%s-%s" % (distiller.replace("-", ""), draw)
-    if PLUS_SKILL:
-        seg += "-plus"
+    # "-plus" for exactly one extra, which is what E6's twelve archived clones
+    # and their manifest entries are named. E8 installs nine, and letting it
+    # share E6's segment would put two arms under one clone path -- how E5
+    # lost a batch.
+    n = len(PLUS_SKILL or ())
+    if n:
+        seg += "-plus" + (str(n) if n > 1 else "")
     return seg
 
 
@@ -290,8 +295,12 @@ def _save_one(src, dest, plugin_dir):
 
 
 def extra_skill_names():
-    """Names of any skill installed BESIDE the task's own (E6), else []."""
-    return [skill_name(Path(PLUS_SKILL).resolve())] if PLUS_SKILL else []
+    """Names of every skill installed BESIDE the task's own, else [].
+
+    E6 installed one; E8 installs nine. This list is the only record on the
+    row of what the arm actually put in the library.
+    """
+    return [skill_name(Path(p).resolve()) for p in (PLUS_SKILL or ())]
 
 
 def install_skill(task, dest, plugin_dir):
@@ -303,8 +312,8 @@ def install_skill(task, dest, plugin_dir):
     the case E6 exists to test.
     """
     notes = [_save_one(skill_src(task), dest, plugin_dir)]
-    if PLUS_SKILL:
-        notes.append(_save_one(Path(PLUS_SKILL).resolve(), dest, plugin_dir))
+    for extra in (PLUS_SKILL or ()):
+        notes.append(_save_one(Path(extra).resolve(), dest, plugin_dir))
     return "\n".join(notes)
 
 
@@ -433,9 +442,10 @@ def main(argv=None):
     ap.add_argument("--force-hot", action="store_true",
                     help="E5 arm H: deliver the treatment skill hot, with its"
                          " symptom triggers suppressed (test-only)")
-    ap.add_argument("--plus-skill", default=None,
-                    help="E6: install this SKILL.md IN ADDITION to the task's"
-                         " own, to test dilution (test-only)")
+    ap.add_argument("--plus-skill", action="append", default=None,
+                    help="install this SKILL.md IN ADDITION to the task's own."
+                         " Repeatable: E6 passed one, E8 passes nine"
+                         " (test-only)")
     ap.add_argument("--skill-from", default=None,
                     help="Q1: install this SKILL.md instead of the task's own."
                          " The path decides the clone segment (test-only)")

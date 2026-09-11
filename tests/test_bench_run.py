@@ -275,7 +275,7 @@ def test_plus_skill_gets_its_own_clone_segment():
     share a clone AND a per-run ledger, which is how E5 lost a batch."""
     _reset()
     plain = bench_run.arm_segment("treatment")
-    bench_run.PLUS_SKILL = "bench/skills/arrow-tzinfo-string-trap.md"
+    bench_run.PLUS_SKILL = ["bench/skills/arrow-tzinfo-string-trap.md"]
     try:
         assert bench_run.arm_segment("treatment") == "-plus"
         assert bench_run.arm_segment("treatment") != plain
@@ -287,7 +287,7 @@ def test_plus_skill_gets_its_own_clone_segment():
 def test_plus_skill_composes_with_skill_from():
     _reset()
     bench_run.SKILL_FROM = "/x/bench/distilled/trapA/learn/1/SKILL.md"
-    bench_run.PLUS_SKILL = "bench/skills/arrow-tzinfo-string-trap.md"
+    bench_run.PLUS_SKILL = ["bench/skills/arrow-tzinfo-string-trap.md"]
     try:
         assert bench_run.arm_segment("treatment") == "-d-learn-1-plus"
     finally:
@@ -297,11 +297,68 @@ def test_plus_skill_composes_with_skill_from():
 def test_extra_skill_names_reads_the_frontmatter():
     _reset()
     assert bench_run.extra_skill_names() == []
-    bench_run.PLUS_SKILL = "bench/skills/arrow-tzinfo-string-trap.md"
+    bench_run.PLUS_SKILL = ["bench/skills/arrow-tzinfo-string-trap.md"]
     try:
         assert bench_run.extra_skill_names() == ["arrow-tzinfo-string-trap"]
     finally:
         _reset()
+
+
+# --- E8: a library, not a pair ---------------------------------------------
+
+
+def _segment_with_plus(paths):
+    """Segment only -- it must not depend on the files existing."""
+    real = bench_run.PLUS_SKILL
+    bench_run.PLUS_SKILL = paths
+    try:
+        return bench_run.arm_segment("treatment")
+    finally:
+        bench_run.PLUS_SKILL = real
+
+
+def _names_with_plus(paths):
+    real = bench_run.PLUS_SKILL
+    bench_run.PLUS_SKILL = paths
+    try:
+        return bench_run.extra_skill_names()
+    finally:
+        bench_run.PLUS_SKILL = real
+
+
+def test_one_plus_skill_still_produces_e6s_archived_segment():
+    """E6's twelve clones and their diffs are archived under `-plus`. Renaming
+    the one-extra case would orphan them from their manifest entries."""
+    assert _segment_with_plus(["/tmp/x/SKILL.md"]) == "-plus"
+
+
+def test_no_plus_skill_leaves_the_segment_alone():
+    for empty in ([], None):
+        assert _segment_with_plus(empty) == "", empty
+        assert _names_with_plus(empty) == [], empty
+
+
+def test_many_plus_skills_carry_the_count_in_the_segment():
+    """E8 installs nine extras. Sharing `-plus` with E6 would put two
+    different arms under one clone path, which is how E5 lost a batch."""
+    assert _segment_with_plus(
+        ["/tmp/%d/SKILL.md" % i for i in range(9)]) == "-plus9"
+
+
+def test_every_extra_skill_is_named_on_the_row():
+    """extra_skills is the only record of what arm L actually installed."""
+    import tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = []
+        for i in range(3):
+            d = pathlib.Path(tmp) / str(i)
+            d.mkdir()
+            md = d / "SKILL.md"
+            md.write_text("---\nname: skill-%d\nkind: skill\n---\n" % i,
+                          encoding="utf-8")
+            paths.append(str(md))
+        names = _names_with_plus(paths)
+    assert names == ["skill-0", "skill-1", "skill-2"], names
 
 if __name__ == "__main__":
     failures = 0
