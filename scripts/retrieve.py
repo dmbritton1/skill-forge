@@ -315,7 +315,10 @@ def run_hook(data):
     seen = load_state(session)
     picked = []
     skills = 0
-    budget = INJECT_BUDGET_TOKENS
+    # Test-only lever (bench/run.py --inject-budget, E10 spec section 3.3):
+    # a budget arm needs a per-run override. Read here rather than at import
+    # so the in-process tests see it; unset or empty means the shipped 1200.
+    budget = int(os.environ.get("SKILLFORGE_INJECT_BUDGET") or INJECT_BUDGET_TOKENS)
     probes_left = SNAPSHOT_MAX_PROBES
     for e, score, matched in rank(prompt, warm):
         name = e.get("name")

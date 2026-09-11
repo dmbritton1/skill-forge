@@ -213,6 +213,30 @@ def test_budget_skips_oversized_entry():
     in_sandbox(check)
 
 
+def test_budget_override_env_admits_a_second_entry():
+    """Bench-only lever (E10 spec section 3.3): the prompt path honours
+    SKILLFORGE_INJECT_BUDGET. The two entries cost 812 and 810 tokens, so at
+    the shipped 1200 only the first fits and at 2000 both do."""
+    def check(home):
+        write_index(home, [
+            entry(home, "terraform-registry-a",
+                  "terraform module registry publishing", pad=3100),
+            entry(home, "terraform-registry-b",
+                  "terraform module registry basics", pad=3100)])
+        prompt = "publish a terraform module registry entry"
+        rc, out = run_hook_capture(hook_data(home, prompt))
+        assert len(injected_names(out)) == 1
+
+        os.environ["SKILLFORGE_INJECT_BUDGET"] = "2000"
+        try:
+            rc, out = run_hook_capture(hook_data(home, prompt, session="sess2"))
+            assert sorted(injected_names(out)) == ["terraform-registry-a",
+                                                   "terraform-registry-b"]
+        finally:
+            del os.environ["SKILLFORGE_INJECT_BUDGET"]
+    in_sandbox(check)
+
+
 def test_session_dedupe():
     def check(home):
         write_index(home, [entry(home, "stripe-webhook",
