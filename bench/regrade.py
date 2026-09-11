@@ -50,6 +50,19 @@ def suite_for(task):
     return None
 
 
+def select_entries(entries, batch):
+    """Gradable manifest entries, optionally narrowed to one batch.
+
+    graded.jsonl appends, so grading a new batch without this re-grades every
+    artifact already in the file and writes a second copy of each. E7 adds 24
+    entries beside the 42 that are already there.
+    """
+    out = [e for e in entries if suite_for(e.get("task") or "")]
+    if batch is not None:
+        out = [e for e in out if e.get("batch") == batch]
+    return out
+
+
 def parse_probe_output(out):
     """{probe_name: passed} from the repo's PASS/FAIL line format."""
     detail = {}
@@ -119,12 +132,15 @@ def probe(entry, clone):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--limit", type=int, default=None)
+    ap.add_argument("--batch",
+                    help="grade only manifest entries carrying this batch "
+                         "label (E7: e7). Default is every gradable entry.")
     ap.add_argument("--judge", action="store_true",
                     help="also run the judge: ONE claude -p session per artifact")
     args = ap.parse_args(argv)
 
     entries = json.loads((AUTHORED / "manifest.json").read_text(encoding="utf-8"))
-    entries = [e for e in entries if suite_for(e.get("task") or "")]
+    entries = select_entries(entries, args.batch)
     if args.limit:
         entries = entries[:args.limit]
 

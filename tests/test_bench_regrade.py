@@ -152,6 +152,34 @@ def test_per_entry_exception_other_than_subprocess_or_os_error_does_not_abort_ba
         assert [r["clone"] for r in rows] == ["clone-2", "clone-3"]
 
 
+
+# --- E7: batch selection ----------------------------------------------------
+
+
+def test_no_batch_filter_selects_everything_gradable():
+    """The default must stay what it was: the whole manifest, minus the
+    distillation clones that have no suite."""
+    entries = [{"task": "sf-author-response-text"},
+               {"task": "sf-author-response-text", "batch": "e7"},
+               {"task": None}]
+    got = regrade.select_entries(entries, None)
+    assert len(got) == 2, got
+
+
+def test_a_batch_filter_selects_only_that_batch():
+    """graded.jsonl APPENDS. Without this, grading E7's artifacts re-grades the
+    42 already in the file and writes a second copy of every one of them."""
+    entries = [{"task": "sf-author-response-text"},
+               {"task": "sf-author-response-text", "batch": "e7"},
+               {"task": "sf-author-response-text", "batch": "e8"}]
+    got = regrade.select_entries(entries, "e7")
+    assert got == [{"task": "sf-author-response-text", "batch": "e7"}], got
+
+
+def test_an_ungradable_entry_is_dropped_whatever_its_batch():
+    entries = [{"task": None, "batch": "e7"}]
+    assert regrade.select_entries(entries, "e7") == []
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
