@@ -18,6 +18,7 @@ because nothing indexed the data — see "What the register caught".
 | Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half partial, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, the scale is unpinned from zero, but the graded score reproduces the binary `resolved` verdict in 40 of 42 rows — the unblocking of E4 is provisional, not established. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
 | E7 (2026-09-11) | Is the distiller's novelty self-gate over-refusing? | **Answered: yes.** Suspending step 2 alone took emission from 1/6 to **6/6**. Those six drafts scored **16/18** against a same-batch control of **0/6** — every one of the six beat the floor. n=3 per cell, and the 18 runs are 6 artifacts × 3, not 18 independent draws | `bench/distilled/*/learn-nogate/` (6 draws), the 24 rows in `results.jsonl` dated 2026-09-11, 24 `batch: e7` rows in `bench/graded.jsonl`; the 2026-09-10T21:01 control row is **excluded** (spec §5.1) |
 | E8 (2026-09-11) | Does retrieval survive a library of ten? | **Answered, and the mechanism is not the one predicted.** M 3/3, L 3/3, C 0/3 on **both** tasks. On `response_text` the prompt path delivered a **wrong-trap** skill 3/3 and the **symptom path rescued it** 3/3. The rescue rides on anti-skills, which cannot exist for a silent trap — so the dangerous case was never tested. First attempt refused at the session limit and excluded | `results.jsonl`, the 18 rows dated 2026-09-11 after 00:50 carrying `extra_skills` of 9 or 0; 18 `batch: e8` rows in `bench/graded.jsonl`; the 13 refused + 5 valid rows of the 00:41–00:46 attempt are **excluded** (spec §4.1) |
+| E9 (2026-09-11) | Does a consolidated skill still work? | **Answered: yes, and it fits.** Merges compressed 3 and 2 skills to **44%** and **54%** of their concatenation, landing at 1095 and 1088 tokens against a 1200 budget. R 3/3, K 3/3, C 0/3 on both tasks, zero exclusions. n=3 per cell, and every trap-A member was already at ceiling so that half could only hold or fall | `bench/distilled/*/consolidated/1/`, the 18 rows in `results.jsonl` dated 2026-09-11 after 15:10, 18 `batch: e9` rows in `bench/graded.jsonl` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1524,4 +1525,115 @@ they are observations of what injected rather than scores.
 bash bench/e8_batch.sh                     # 18 sessions, M/L/C per task
 python3 bench/extract.py --batch e8 <clone>...
 python3 bench/regrade.py --batch e8        # graded half, 0 sessions
+```
+
+
+# E9 — does a consolidated skill still work? (2026-09-11)
+
+Spec and pre-registration:
+`docs/superpowers/specs/2026-09-11-e9-consolidation-design.md`.
+
+**Yes, on both tasks, and the merged skills fit the delivery budget with room
+to spare.**
+
+`/consolidate` shipped earlier the same day. Its own spec put this question out
+of scope until the feature existed (consolidate spec §7). It exists now.
+
+## The question the viability pass turned this into
+
+E8 measured the delivery budget: `INJECT_BUDGET_TOKENS` is 1200 and
+`retrieve.inject` costs an entry at `max(1, len(whole file) // 4)`. The
+clusters do not remotely fit:
+
+| cluster | members | member costs | concatenated |
+|---|---|---|---|
+| `test_detect.py`, project | 3 | 798, 869, 817 | 2484 |
+| `test_retrieve.py`, project | 2 | 957, 1072 | 2029 |
+| `test_retrieve.py`, global | 2 | 1192, 1096 | 2288 |
+
+So a merge must compress several skills into roughly the size of **one**, or
+it can never be injected. **And `save_skill.validate` enforces no size limit** —
+checked, there is none. An oversized merge saves cleanly, indexes cleanly,
+reports as a healthy library entry, and silently never arrives. That, not a
+lower score, was the failure worth looking for.
+
+## Phase 1 — the compression, recorded before any probing
+
+Each merge was written by a fresh subagent that read only the member files and
+`commands/consolidate.md` step 4, was told the character ceiling, and **was
+told nothing about any member's score**. A merger that knew which member
+scored best would be curating, not consolidating.
+
+| cluster | members | concatenated | merged | share | fits 1200 |
+|---|---|---|---|---|---|
+| A | 3 | 2484 | **1095** | 44% | yes |
+| B | 2 | 2029 | **1088** | 54% | yes |
+
+Both also pass `save_skill.validate` with zero errors, which closes half of
+spec threat 1: these drafts would survive the enforced save path, not merely
+be written. Both predicted `deliver` before probing, BM25 3.411 and 4.562.
+
+Neither merger was re-run to get a smaller or better draft — §4 forbids it,
+and the first draft each produced is the artifact reported here.
+
+## Phase 2 — the merge holds the ceiling
+
+| task | R — named member | K — consolidated | C — control |
+|---|---|---|---|
+| `response_text` | 3/3 | **3/3** | 0/3 |
+| `fingerprint` | 3/3 | **3/3** | 0/3 |
+
+18 rows, **zero exclusions**. Arm R reproduced its ceiling on both tasks,
+which §4 made a precondition. Every treatment run injected exactly one skill
+at `trigger: prompt`, so §4's non-delivery rule had nothing to report. Graded
+probe scores agree exactly: 1.000 for every treatment cell against 0.778 and
+0.636 for control — the binary verdict reproduced in 18 of 18 rows, after 40
+of 42 (2026-09-10), 24 of 24 (E7) and 18 of 18 (E8).
+
+**One reading artifact worth naming.** On `fingerprint`, arms R and K inject
+the *same skill name* — `capped-scan-reports-unknown-not-absent` — because the
+merge inherits its highest-bucket member's name and that member is arm R. The
+two arms differ in file content, not in name, and are told apart on the row by
+`skill_path`. That is name inheritance working as designed (consolidate spec
+§2.2), not a mix-up.
+
+## What this does and does not establish
+
+**Does:** a machine-written merge of three skills about one bug, compressed to
+44% of their combined size, performs like the member it replaced and fits the
+budget. The ranking failure E8 measured — six near-duplicates splitting a BM25
+field and handing the task a skill about the wrong bug — has a fix that works.
+
+**Does not:** say whether a merge matches its *best* member or its *average*.
+§2 established that is not answerable here: all three trap-A members already
+scored 3/3, so that cluster had no headroom by construction, and the trap-B
+cluster spans 2/3 to 3/3, a spread of one run at n=3.
+
+**Does not** exercise the shipped command end to end. E9 measures the artifact
+the drafting step produces; `/consolidate` also installs into a real library
+and saves through `save_skill.py`. That plumbing has tests (31 of them) but no
+integration run.
+
+**The size result generalizes worse than the score result.** Two clusters, of
+three and two members, both compressing to about half. A cluster of eight, or
+one whose members genuinely disagree, might not compress without losing
+something the score would catch. Nothing here bounds that.
+
+## A gap this leaves open
+
+`save_skill` accepts a skill of any size, and an oversized one is
+undeliverable but indistinguishable from a healthy entry in `library.py list`.
+E9's merges fit, so the gap did not bite — but it was luck of the drafting,
+not a property of the system. A size warning at save time, or a check in the
+command file, would make it visible. That is a change, not a measurement, and
+is out of scope here (§7).
+
+## Reproducing
+
+```bash
+# phase 1 drafts are archived under bench/distilled/<trap>/consolidated/1/
+python3 bench/dryrun.py                  # delivery prediction, before probing
+bash bench/e9_batch.sh                   # 18 sessions, R/K/C per task
+python3 bench/extract.py --batch e9 <clone>...
+python3 bench/regrade.py --batch e9      # graded half, 0 sessions
 ```
