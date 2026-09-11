@@ -20,7 +20,9 @@ import trust
 # The real function is saved first: the env-inspection tests at the bottom
 # call it directly (with subprocess.Popen itself stubbed out) to check what
 # it builds, and would otherwise see this inert lambda instead.
-_REAL_SPAWN_VALIDATION = sync._spawn_validation
+# Not `sync._spawn_validation` -- by the time this module is imported,
+# tests/test_guard.py has already stubbed it inert. See tests/conftest.py.
+from conftest import REAL_SPAWN_VALIDATION as _REAL_SPAWN_VALIDATION
 sync._spawn_validation = lambda name, mode: None
 
 SKILL = """---
