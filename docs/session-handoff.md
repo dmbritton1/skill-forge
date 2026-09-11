@@ -104,7 +104,7 @@ control, `resolved: false`, 2026-09-10T21:01:40) and requires all 24 sessions
 in one batch. Check the session meter first (§0), then:
 
 ```
-bash /tmp/e7-phase2.sh          # regenerate it from the block below if gone
+bash bench/e7_phase2.sh
 ```
 
 It runs, in this order, control interleaved rather than trailing as §5
