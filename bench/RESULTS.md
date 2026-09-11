@@ -19,6 +19,7 @@ because nothing indexed the data — see "What the register caught".
 | E7 (2026-09-11) | Is the distiller's novelty self-gate over-refusing? | **Answered: yes.** Suspending step 2 alone took emission from 1/6 to **6/6**. Those six drafts scored **16/18** against a same-batch control of **0/6** — every one of the six beat the floor. n=3 per cell, and the 18 runs are 6 artifacts × 3, not 18 independent draws | `bench/distilled/*/learn-nogate/` (6 draws), the 24 rows in `results.jsonl` dated 2026-09-11, 24 `batch: e7` rows in `bench/graded.jsonl`; the 2026-09-10T21:01 control row is **excluded** (spec §5.1) |
 | E8 (2026-09-11) | Does retrieval survive a library of ten? | **Answered, and the mechanism is not the one predicted.** M 3/3, L 3/3, C 0/3 on **both** tasks. On `response_text` the prompt path delivered a **wrong-trap** skill 3/3 and the **symptom path rescued it** 3/3. The rescue rides on anti-skills, which cannot exist for a silent trap — so the dangerous case was never tested. First attempt refused at the session limit and excluded | `results.jsonl`, the 18 rows dated 2026-09-11 after 00:50 carrying `extra_skills` of 9 or 0; 18 `batch: e8` rows in `bench/graded.jsonl`; the 13 refused + 5 valid rows of the 00:41–00:46 attempt are **excluded** (spec §4.1) |
 | E9 (2026-09-11) | Does a consolidated skill still work? | **Answered: yes, and it fits.** Merges compressed 3 and 2 skills to **44%** and **54%** of their concatenation, landing at 1095 and 1088 tokens against a 1200 budget. R 3/3, K 3/3, C 0/3 on both tasks, zero exclusions. n=3 per cell, and every trap-A member was already at ceiling so that half could only hold or fall | `bench/distilled/*/consolidated/1/`, the 18 rows in `results.jsonl` dated 2026-09-11 after 15:10, 18 `batch: e9` rows in `bench/graded.jsonl` |
+| E8 follow-up (2026-09-11) | Does consolidating the library fix E8's ranking failure? | **No — it makes the ranking worse.** The correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. `/consolidate` works as a feature (E9) but does not fix the problem that motivated building it | `bench/rank_check.py` — deterministic, 0 sessions |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1637,3 +1638,83 @@ bash bench/e9_batch.sh                   # 18 sessions, R/K/C per task
 python3 bench/extract.py --batch e9 <clone>...
 python3 bench/regrade.py --batch e9      # graded half, 0 sessions
 ```
+
+
+# E8 follow-up — does consolidation fix the ranking failure? (2026-09-11)
+
+**No. It makes it worse.** Reproduce with `python3 bench/rank_check.py` — the
+check is deterministic BM25 over the archived skills and costs no sessions.
+
+## Why this was asked
+
+E8 installed ten skills and watched the prompt path hand
+`sf-author-response-text` a skill about a **different bug** on all three runs,
+because six near-duplicates about one lesson split the field. `/consolidate`
+was prioritised as the fix for exactly that, built, and validated by E9. This
+closes the loop.
+
+Criterion, fixed before the first run: on each task, does a skill from the
+**matching trap** win rank 1 and inject within budget?
+
+## Result
+
+| pool | `response_text` (wants trap A) | `fingerprint` (wants trap B) |
+|---|---|---|
+| **before** — E8's ten | `truncation-reports-unknown` (**trap B**) | `capped-scan-reports-unknown-not-absent` (trap B) ✓ |
+| **after** — consolidated, seven | `capped-scan-reports-unknown-not-absent` (**trap B**) | same ✓ |
+
+The `before` row reproduces E8's live observation exactly, which is what
+licenses reading the `after` row.
+
+On `response_text` the wrong-trap skill still wins. Consolidation changed
+*which* trap-B skill wins, not *that* one does.
+
+## Two mechanisms, and the second is the surprise
+
+**Merging lowered the correct skill's rank.**
+
+| pool | best trap-A entry on the `response_text` prompt |
+|---|---|
+| before | rank **3**, score **8.40** (`flatten-structured-output-for-token-matching`) |
+| after | rank **5**, score **4.70** (the merge that replaced it and two siblings) |
+
+A description covering three skills matches any one probe prompt less
+specifically than a single-purpose description does. BM25 rewards specificity,
+and merging spends it. **This is E2's transfer null reappearing one layer
+down** — E2 found abstract same-class knowledge did not help on a different
+bug; this finds general descriptions do not rank. Same principle, different
+mechanism, and nothing in the `/consolidate` design anticipated it.
+
+**The budget makes rank 1 the only rank that matters.** In the consolidated
+pool, rank 1 costs 1088 of 1200, leaving 112. The next four entries are all
+trap A — the correct bug — at ranks 2 through 5, and they cost 759, 979, 998
+and 1095. **None can fit in 112 tokens.** So even a ranking that put the right
+skill second would deliver nothing.
+
+## What this changes
+
+`/consolidate` is not withdrawn: E9 measured it doing what it claims — a merge
+of three skills holds its member's ceiling at 44% of the size (3/3 against a
+0/3 control, n=3 per cell). The feature works. **The justification for
+prioritising it does not survive.**
+
+The real blocker is the injection budget, not library sprawl. One skill fits.
+Until that changes, retrieval is a winner-take-all contest decided by a BM25
+score over `name + description`, and E6 already showed that score ranking an
+unrelated `arrow` timezone skill above a matched one.
+
+So the next move on this thread is **not** more consolidation. It is one of:
+raise `INJECT_BUDGET_TOKENS`; make skills cheaper (every distilled skill costs
+759–1192 against a 1200 budget); or rank on something better than
+`name + description`. Nothing here says which, and all three are untested.
+
+## Limits
+
+Seven skills in the consolidated pool, from one repository, two traps, both
+written by the operator. BM25 is corpus-relative, so both the before and after
+scores are properties of *these* pools and do not transfer as absolute
+numbers — the rank ordering is the claim, not the magnitudes.
+
+Only two of the three clusters were merged. The third is global-scope and E9
+did not produce a merge for it, so the `after` pool understates consolidation
+rather than flattering it.
