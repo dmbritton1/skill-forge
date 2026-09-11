@@ -16,6 +16,7 @@ because nothing indexed the data — see "What the register caught".
 | E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
 | Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half partial, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, the scale is unpinned from zero, but the graded score reproduces the binary `resolved` verdict in 40 of 42 rows — the unblocking of E4 is provisional, not established. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
+| E7 (2026-09-11) | Is the distiller's novelty self-gate over-refusing? | **Answered: yes.** Suspending step 2 alone took emission from 1/6 to **6/6**. Those six drafts scored **16/18** against a same-batch control of **0/6** — every one of the six beat the floor. n=3 per cell, and the 18 runs are 6 artifacts × 3, not 18 independent draws | `bench/distilled/*/learn-nogate/` (6 draws), the 24 rows in `results.jsonl` dated 2026-09-11, 24 `batch: e7` rows in `bench/graded.jsonl`; the 2026-09-10T21:01 control row is **excluded** (spec §5.1) |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1249,3 +1250,153 @@ rm -f bench/graded.jsonl && python3 bench/regrade.py --judge         # + judge, 
 
 `bench/regrade.py` **appends**. Delete `bench/graded.jsonl` before any re-run
 or the corpus doubles, which corrupts every n without changing any mean.
+
+
+# E7 — is the novelty gate over-refusing? (2026-09-11)
+
+Spec and pre-registration:
+`docs/superpowers/specs/2026-09-10-e7-novelty-gate-design.md`.
+
+**Yes. The gate refused skills that work.**
+
+Q1's distiller emitted 4 times in 12 and refused 8, every refusal on the same
+self-assessment — *a fresh Claude already knows this*. Nothing had ever tested
+it, because a refused draft is never written. E7 suspended that one step and
+probed what came out.
+
+## What was run
+
+`--no-novelty-gate` replaces one clause of the bench prompt: step 2 of the
+distilling contract is suspended, every other step stays in force. **No
+product code changed** — neither `skills/distilling-skills/SKILL.md` nor
+`save_skill.py` — so the gate under test ships exactly as it is.
+
+| Phase | Arm | Sessions |
+|---|---|---|
+| 1 | 6 bypass draws, 3 per trap, `learn` only | 6 |
+| 2 | control, both tasks | 6 |
+| 2 | the 6 emitted drafts, 3 probes each | 18 |
+
+## Phase 1 — the gate was the only thing stopping emission
+
+| | gate on (Q1) | gate suspended (E7) |
+|---|---|---|
+| `learn` draws that emitted | **1 of 6** | **6 of 6** |
+
+Every draw: `session_ok` true, repair resolved, exactly one draft, zero
+`save_skill` rejections, containment reverted, global store left clean. Two
+draws chose global scope and were removed by the containment path.
+
+**Step 8 stopped nothing.** Two of the five refusals E7 targets had cited the
+verification-command requirement alongside novelty, so a partial yield was
+expected and §5 carries a rule for reporting a draw that aborts elsewhere.
+That rule had nothing to report.
+
+Delivery was predicted before probing, per Q1's rule that a null must never be
+allowed to mean "never arrived". All six predicted `deliver`, BM25 2.479 to
+3.767, 6 to 11 terms matched.
+
+## Phase 2 — the drafts work
+
+| arm | binary | graded probe score |
+|---|---|---|
+| control, `response_text` | 0/3 | 0.778 |
+| `A/learn-nogate/1` | 3/3 | 1.000 |
+| `A/learn-nogate/2` | 3/3 | 1.000 |
+| `A/learn-nogate/3` | 3/3 | 1.000 |
+| control, `fingerprint` | 0/3 | 0.636 |
+| `B/learn-nogate/1` | 2/3 | 0.879 |
+| `B/learn-nogate/2` | 3/3 | 1.000 |
+| `B/learn-nogate/3` | 2/3 | 0.879 |
+| **bypassed, pooled** | **16/18** | |
+| **control, pooled** | **0/6** | |
+
+24 rows, **zero exclusions**. Every treatment run injected exactly one skill
+at `trigger: prompt`, so §5's non-delivery rule had nothing to report and the
+two `fingerprint` misses are genuine misses rather than a draft that never
+arrived.
+
+§5 declared over-refusal in advance as arm B scoring above arm C. It does, on
+both tasks, and **every one of the six drafts individually beat the floor**.
+
+## How far this goes, and where it stops
+
+**n=3 per cell.** Every statement here inherits that.
+
+**The 18 treatment runs are 6 artifacts × 3 runs, not 18 independent draws.**
+Pooling them gives Fisher exact p = 0.0002, and that figure is quoted only to
+be discounted: it assumes an independence the design does not have. The honest
+statement is the artifact-level one — six drafts, six floors cleared, the
+weakest at 2 of 3 against a control that scored 0 of 6 in the same batch.
+
+**Re-running is not recovering.** The five refused drafts were never written;
+`drafts_found` is 0 on every aborted draw. E7 measures drafts the gate *would*
+refuse, drawn fresh from the same cells, not the specific eight Q1 declined.
+
+**Suspending a gate changes more than the gate** (spec §7.3). A session told
+to skip its own quality check may write a worse draft for reasons step 2 was
+not the only thing preventing. That confound runs against the observed
+direction, not with it: these drafts cleared the floor *despite* it.
+
+**One orphan row is excluded.** Phase 2 was stopped by hand after one session
+on 2026-09-10 to stay inside a usage limit, then restarted whole. That row
+(`sf-author-response-text`, control, unresolved, 21:01:40) is excluded under
+spec §5.1, a ruling written while the batch was stopped rather than after. It
+sat at the floor either way.
+
+## The graded scorer added nothing, again
+
+The 20-probe suite reproduced the binary verdict in **24 of 24** E7 rows. The
+two `fingerprint` artifacts that scored 7/11 are exactly the two runs that
+failed; nothing else moved off 1.000. This is the 2026-09-10 finding
+replicated on fresh artifacts: 40 of 42 then, 24 of 24 now. **These tasks are
+single-trap — a session either sees the trap or it does not — and no scorer
+can manufacture middle ground the work does not contain.** The instrument
+works; there is nothing here for it to resolve.
+
+Control did come off zero (0.636 and 0.778) and no artifact scored below that
+floor, so the floor remains observed rather than probed.
+
+**The `response_text` control graded 0.852 on 2026-09-10 and 0.778 here, and
+the difference is not noise.** The earlier cell was one artifact at 1.000 and
+two at 0.778 — the 1.000 is the single resolved control run behind that task's
+1/6. E7's control cell contains no resolved run, so it sits flat at 0.778. The
+E4 register row quotes 0.852; both figures are correct for their own batch,
+and 0.778 is the cleaner floor because nothing in it resolved.
+
+This is also why `--batch` exists. E7's control clones reuse Q1's clone names
+and overwrote them in `/tmp`; the 2026-09-10 artifacts survive only because
+their diffs were already extracted under the unprefixed filenames, and the new
+extraction was forbidden from writing over them.
+
+## What this changes
+
+The gate's justification is that junk saves pollute the library. E6 measured
+that pollution as close to free: an irrelevant skill that arrived, outranked
+the relevant one and took 93% of the injection budget cost nothing detectable.
+E7 measures the other side: refusal costs a working skill, six times out of
+six.
+
+`/consolidate` was blocked because the library is empty, the library is empty
+because the distiller rarely emits, and the distiller rarely emits because of
+this gate. That chain now has a measured break in it.
+
+**What E7 does not say** is what should replace the gate. It measures that a
+self-assessment of "the model already knows this" is wrong on these two traps.
+It does not establish that no gate is needed, and a library with no filter at
+all is untested in either direction.
+
+## Reproducing
+
+```bash
+python3 bench/distill.py --trap A --distiller learn --draws 3 --no-novelty-gate
+python3 bench/distill.py --trap B --distiller learn --draws 3 --no-novelty-gate
+python3 bench/dryrun.py                    # delivery prediction, before probing
+bash bench/e7_phase2.sh                    # 24 sessions, control interleaved
+python3 bench/extract.py --batch e7 <clone>...
+python3 bench/regrade.py --batch e7        # graded half, 0 sessions
+```
+
+`bench/distill.py` refuses to re-roll an archived draw. `bench/regrade.py`
+appends, so `--batch` is what keeps a second grading run from writing a
+duplicate copy of every row already in the file.

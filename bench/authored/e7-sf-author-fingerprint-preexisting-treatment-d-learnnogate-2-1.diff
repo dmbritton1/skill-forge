@@ -1,0 +1,136 @@
+diff --git a/scripts/retrieve.py b/scripts/retrieve.py
+index 6ea104b..f6c0fd4 100644
+--- a/scripts/retrieve.py
++++ b/scripts/retrieve.py
+@@ -150,41 +150,51 @@ def eligible(e, cwd):
+ 
+ 
+ def fingerprint_preexisting(fingerprints, cwd):
+-    """1 if any fingerprint is already in the repo, 0 if none are, None if unknown.
++    """Was any of these fingerprints already in the repo at `cwd`?
+ 
+-    Two stages: `git grep` on the pattern's longest literal token narrows to
+-    candidate files at C speed, then the token matcher confirms. Unknown is
+-    reported as None rather than guessed -- a false "preexisting" silently
+-    suppresses a real usage credit later (spec 9.1).
++    `fingerprints` is a list of pre-tokenized patterns (each a list of
++    tokens, as produced by patterns.tokenize). Use `git grep` to narrow to
++    candidate files, then patterns.matches() to confirm a candidate really
++    contains the pattern.
+ 
+-    ponytail: 150ms subprocess ceiling because this runs inside a blocking
+-    hook; a repo big enough to blow it reports unknown instead of stalling.
++    Returns 1 if any fingerprint is already present, 0 if none are, and None
++    when the answer is unknown (not a git repo, git missing, or the
++    subprocess timeout fired).
++
++    This runs inside a blocking hook, so bound the work: pass
++    GIT_TIMEOUT_S as the subprocess timeout, examine at most
++    SNAPSHOT_MAX_FILES of the candidate files git reports, and read at most
++    SNAPSHOT_MAX_BYTES from any one file.
+     """
+     if not fingerprints:
+         return None
+     unknown = False
+-    for tokens in fingerprints:
+-        if not tokens:
++    for fp in fingerprints:
++        if not fp:
+             continue
+-        literal = max(tokens, key=len)
++        # one grep per fingerprint on its longest (rarest-ish) token; matches()
++        # does the real confirming, git only narrows the candidate set
+         try:
+-            proc = subprocess.run(["git", "grep", "-F", "-i", "-l", "--", literal],
+-                                  cwd=str(cwd), stdout=subprocess.PIPE,
+-                                  stderr=subprocess.DEVNULL, timeout=GIT_TIMEOUT_S)
++            p = subprocess.run(["git", "grep", "-l", "-i", "-F", "-e", max(fp, key=len)],
++                               cwd=cwd, capture_output=True, text=True,
++                               timeout=GIT_TIMEOUT_S)
+         except (OSError, subprocess.SubprocessError):
+-            unknown = True
+-            continue
+-        if proc.returncode not in (0, 1):   # 1 = no match; anything else = not a usable repo
+-            unknown = True
+-            continue
+-        names = [f for f in proc.stdout.decode("utf-8", "replace").splitlines() if f]
++            return None
++        if p.returncode > 1:  # not a repo, or git itself failed
++            return None
++        names = [n for n in p.stdout.splitlines() if n]
++        if len(names) > SNAPSHOT_MAX_FILES:
++            unknown = True  # candidates we never looked at could hold the match
+         for rel in names[:SNAPSHOT_MAX_FILES]:
+             try:
+                 text = (Path(cwd) / rel).read_text(encoding="utf-8", errors="replace")
+             except OSError:
++                unknown = True
+                 continue
+-            if patterns.matches(tokens, patterns.tokenize(text[:SNAPSHOT_MAX_BYTES])):
++            if patterns.matches(fp, patterns.tokenize(text[:SNAPSHOT_MAX_BYTES])):
+                 return 1
++            if len(text) > SNAPSHOT_MAX_BYTES:
++                unknown = True
+     return None if unknown else 0
+ 
+ 
+diff --git a/tests/test_retrieve.py b/tests/test_retrieve.py
+index f260be3..0abeebf 100644
+--- a/tests/test_retrieve.py
++++ b/tests/test_retrieve.py
+@@ -383,6 +383,55 @@ def test_fingerprint_preexisting_matches_across_formatting():
+     in_sandbox(check)
+ 
+ 
++def test_snapshot_unknown_when_match_past_file_cap():
++    def check(home):
++        files = {}
++        # Every decoy carries ALL the pattern's tokens, so any narrowing
++        # strategy -- single-token grep or --all-match -- returns them and
++        # the cap bites. Reversed order means patterns.matches() refuses
++        # them, so none is a real hit.
++        for i in range(retrieve.SNAPSHOT_MAX_FILES + 1):
++            files["decoy%02d.js" % i] = "json application type raw express"
++        # The genuine occurrence sorts last, so it is past the cap.
++        files["zzz_real.js"] = "express.raw({type:'application/json'})"
++        repo = git_repo(home, files)
++        result = retrieve.fingerprint_preexisting(
++            [["express", "raw", "type", "application", "json"]], str(repo))
++        # It IS present, but not within the examined window: 0 would be
++        # factually wrong and 1 would mean reading past the cap.
++        assert result is None
++    in_sandbox(check)
++
++def test_snapshot_unknown_when_match_past_byte_cap():
++    def check(home):
++        # padding exceeds SNAPSHOT_MAX_BYTES, pushing the real match out of the
++        # window that gets read and tokenized.
++        padding = "pad " * 60000
++        content = padding + "express.raw({type:'application/json'})"
++        repo = git_repo(home, {"big.js": content})
++        result = retrieve.fingerprint_preexisting(
++            [["express", "raw", "type", "application", "json"]], str(repo))
++        assert result is None
++    in_sandbox(check)
++
++
++def test_snapshot_probe_cap_records_unknown():
++    def check(home):
++        repo = git_repo(home, {"app.js": "app.use(express.raw({ type: 'application/json' }))"})
++        e = entry(home, "stripe-webhook", "stripe webhook signature verification")
++        # more fingerprint patterns than the per-hook probe budget allows; this
++        # would confirm a match (1) if actually checked, so None here proves the
++        # cap short-circuited rather than coincidentally finding nothing.
++        e["fingerprints"] = [["express", "raw", "type", "application", "json"]] * \
++            (retrieve.SNAPSHOT_MAX_PROBES + 1)
++        write_index(home, [e])
++        rc, out = run_hook_capture(
++            {"prompt": "add a stripe webhook endpoint", "session_id": "s", "cwd": str(repo)})
++        assert injected_names(out) == ["stripe-webhook"]
++        assert preexisting_values("stripe-webhook") == [None]
++    in_sandbox(check)
++
++
+ if __name__ == "__main__":
+     failures = 0
+     for name in sorted(list(globals())):
