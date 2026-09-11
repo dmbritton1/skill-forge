@@ -1,0 +1,45 @@
+{
+  "trap": "B",
+  "distiller": "learn",
+  "draw": 3,
+  "novelty_gate": false,
+  "task": "sf-truncation-reports-absent",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_snapshot_unknown_when_match_past_file_cap": true,
+    "test_snapshot_unknown_when_match_past_byte_cap": true,
+    "test_snapshot_probe_cap_records_unknown": true
+  },
+  "timed_out": false,
+  "secs": 197.1,
+  "session_ok": true,
+  "skill_name": "truncation-reports-unknown",
+  "chose_global_scope": [],
+  "containment_rc": 0,
+  "pruned_trust": [
+    "truncation-reports-unknown"
+  ],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "truncation-reports-unknown",
+      "outcome": "saved",
+      "ts": "2026-09-11T00:58:54+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "Both parts are done.\n\n**The fix.** `fingerprint_preexisting` in `scripts/retrieve.py` returned 0, meaning \"fingerprint absent\", after any cap cut the scan short. Three caps now report unknown instead: a truncated candidate file list, a file body longer than the byte cap, and a fingerprint list longer than the new probe budget. Truncation is detected by reading one character past the cap rather than comparing lengths to it. A candidate skipped for an unreadable file also reports unknown, same reasoning. All 26 tests in `python3 tests/test_retrieve.py` pass, and the other seven suites still pass.\n\n**The skill.** Saved as `truncation-reports-unknown` at project scope, warm tier.\n\n```\n/private/tmp/skillforge-bench/sf-truncation-reports-absent-distill-learn-nogate-3/.claude/skillforge/skills/truncation-reports-unknown/SKILL.md\n```\n\nThree contract points worth flagging, since I reviewed the draft myself with no human in the loop.\n\n- **Scope is project, not global.** The lesson generalizes, but the verification command and all three fingerprints name this repo's tests and constants, which is the rule's trigger for project scope. The body is written generically so it still reads in another codebase.\n- **I omitted `provenance.introduced_by`.** The fix is uncommitted, so there is no commit that introduced the behavior. The contract says omit rather than guess. Validation will run critique-only at HEAD rather than rewinding.\n- **The verification discriminates.** Three tests place the match past each cap and assert unknown. They failed before this change with two assertion errors and one attribute error, so the check does not pass when the procedure is skipped.\n\nI did not commit anything. The working tree still holds the change to `scripts/retrieve.py` plus the new skill file.\n",
+  "test_tail": "est_same_name_in_both_stores_delivered_once\nPASS test_search_no_match_says_so\nPASS test_search_prints_hot_and_warm\nPASS test_session_dedupe\nPASS test_single_matched_term_rejected\nPASS test_snapshot_probe_cap_records_unknown\nPASS test_snapshot_records_absent_fingerprint\nPASS test_snapshot_records_preexisting_fingerprint\nPASS test_snapshot_unknown_outside_git_repo\nPASS test_snapshot_unknown_when_entry_has_no_fingerprints\nPASS test_snapshot_unknown_when_match_past_byte_cap\nPASS test_snapshot_unknown_when_match_past_file_cap\nPASS test_tampered_warm_body_not_injected\nPASS test_tokenize_drops_noise\n",
+  "ts": "2026-09-10T20:59:07",
+  "delivery_prediction": {
+    "score": 3.4983,
+    "matched": 9,
+    "predicted": "deliver"
+  }
+}

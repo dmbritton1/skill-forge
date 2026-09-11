@@ -1,0 +1,45 @@
+{
+  "trap": "A",
+  "distiller": "learn",
+  "draw": 1,
+  "novelty_gate": false,
+  "task": "sf-escaping-breaks-symptom-match",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_symptom_on_second_line_of_dict_response_injects": true,
+    "test_symptom_in_nested_dict_response_injects": true,
+    "test_symptom_injection_records_preexisting_fingerprint_in_git_repo": true
+  },
+  "timed_out": false,
+  "secs": 164.6,
+  "session_ok": true,
+  "skill_name": "matching-text-in-tool-payloads",
+  "chose_global_scope": [],
+  "containment_rc": 0,
+  "pruned_trust": [
+    "matching-text-in-tool-payloads"
+  ],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "matching-text-in-tool-payloads",
+      "outcome": "saved",
+      "ts": "2026-09-11T00:44:02+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "Both tasks are done.\n\n**The fix.** Twenty-two of twenty-two tests in the detection suite pass, and the other seven suites are unchanged at 135 passing. Two independent root causes in `scripts/detect.py`:\n\n- The function building match text serialized the tool response, so a newline became an escape sequence and the tokenizer absorbed the escape letter into the next word. An error signature that starts a line could never match. It now walks the payload and joins the string leaves, which fixes the nested-payload case as well.\n- The symptom injection path logged its ledger row without the fingerprint snapshot, while the prompt injection path in `scripts/retrieve.py` recorded it. The symptom path now reuses that same helper under the same probe budget.\n\n**The distillation.** The skill saved at `.claude/skillforge/skills/matching-text-in-tool-payloads/SKILL.md`, indexed warm. Scope is project, because the procedure and its check both name files in this repo.\n\nTwo contract steps came out differently than the default, and both are worth flagging:\n\n1. `provenance.introduced_by` is omitted. The behaviour the skill teaches is the fix I just made, which is uncommitted, so there is no commit to name. The contract says omit rather than guess.\n2. Step 3, the duplicate check, found both skill stores empty, so nothing to update.\n\nNo step stopped the save. The novelty gate was the only one skipped, as you instructed.\n",
+  "test_tail": "onse_injects\nPASS test_symptom_injection_records_preexisting_fingerprint_in_git_repo\nPASS test_symptom_injection_records_unknown_fingerprint_outside_git_repo\nPASS test_symptom_on_second_line_of_dict_response_injects\nPASS test_tampered_antiskill_not_injected\nPASS test_two_antiskill_cap_per_call\nPASS test_verification_duplicate_skill_entry_detected_once\nPASS test_verification_failure_outcome\nPASS test_verification_hit_logs_outcome\nPASS test_verification_ignores_non_bash_tools\nPASS test_verification_outcome_unknown_without_flag\nskillforge: detect failed: Expecting value: line 1 column 1 (char 0)\n",
+  "ts": "2026-09-10T20:44:14",
+  "delivery_prediction": {
+    "score": 3.2629,
+    "matched": 9,
+    "predicted": "deliver"
+  }
+}

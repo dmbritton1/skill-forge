@@ -1,0 +1,45 @@
+{
+  "trap": "A",
+  "distiller": "learn",
+  "draw": 3,
+  "novelty_gate": false,
+  "task": "sf-escaping-breaks-symptom-match",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_symptom_on_second_line_of_dict_response_injects": true,
+    "test_symptom_in_nested_dict_response_injects": true,
+    "test_symptom_injection_records_preexisting_fingerprint_in_git_repo": true
+  },
+  "timed_out": false,
+  "secs": 181.0,
+  "session_ok": true,
+  "skill_name": "flatten-not-json-dumps-before-token-matching",
+  "chose_global_scope": [],
+  "containment_rc": 0,
+  "pruned_trust": [
+    "flatten-not-json-dumps-before-token-matching"
+  ],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "flatten-not-json-dumps-before-token-matching",
+      "outcome": "saved",
+      "ts": "2026-09-11T00:50:58+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "All 22 tests in the detection suite pass, and the seven other suites still pass (135 tests total).\n\nTwo root causes, both in `scripts/`:\n\n- **JSON-encoding the tool response destroyed every multi-line match.** The haystack came from `json.dumps()`, which writes a newline as backslash plus `n`. The tokenizer's character class drops the backslash and fuses the `n` onto the next word, so `WidgetFlushedError` at the start of a line became `nwidgetflushederror`. `response_text` now walks the response and joins the raw strings with a real newline, which fixes the nested-dict case for free.\n- **Symptom injections never recorded the fingerprint probe.** The prompt path computed it, the detection path did not. I lifted that block out of the prompt hook into a shared `probe_fingerprints` helper and called it from both, so the two paths cannot drift again.\n\nDistilled the first lesson as a project-scoped skill, `flatten-not-json-dumps-before-token-matching`, saved at the store path the tool printed and indexed in the warm tier. Its verification is the detect suite, which does fail if the JSON encoding comes back. I reviewed it against every contract criterion except novelty, as instructed, and nothing else blocked. The fingerprint-recording gap was the smaller, repo-local half and is not in the skill.\n\nCode changes are uncommitted. Say the word and I'll commit them.\n",
+  "test_tail": "onse_injects\nPASS test_symptom_injection_records_preexisting_fingerprint_in_git_repo\nPASS test_symptom_injection_records_unknown_fingerprint_outside_git_repo\nPASS test_symptom_on_second_line_of_dict_response_injects\nPASS test_tampered_antiskill_not_injected\nPASS test_two_antiskill_cap_per_call\nPASS test_verification_duplicate_skill_entry_detected_once\nPASS test_verification_failure_outcome\nPASS test_verification_hit_logs_outcome\nPASS test_verification_ignores_non_bash_tools\nPASS test_verification_outcome_unknown_without_flag\nskillforge: detect failed: Expecting value: line 1 column 1 (char 0)\n",
+  "ts": "2026-09-10T20:51:09",
+  "delivery_prediction": {
+    "score": 3.5102,
+    "matched": 9,
+    "predicted": "deliver"
+  }
+}

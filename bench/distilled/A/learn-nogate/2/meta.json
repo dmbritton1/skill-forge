@@ -1,0 +1,45 @@
+{
+  "trap": "A",
+  "distiller": "learn",
+  "draw": 2,
+  "novelty_gate": false,
+  "task": "sf-escaping-breaks-symptom-match",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_symptom_on_second_line_of_dict_response_injects": true,
+    "test_symptom_in_nested_dict_response_injects": true,
+    "test_symptom_injection_records_preexisting_fingerprint_in_git_repo": true
+  },
+  "timed_out": false,
+  "secs": 230.3,
+  "session_ok": true,
+  "skill_name": "flatten-structured-output-for-token-matching",
+  "chose_global_scope": [],
+  "containment_rc": 0,
+  "pruned_trust": [
+    "flatten-structured-output-for-token-matching"
+  ],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "flatten-structured-output-for-token-matching",
+      "outcome": "saved",
+      "ts": "2026-09-11T00:47:51+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "All 22 tests in the detection suite pass, and the full suite is green at 135 passed. Two root causes, both in `scripts/detect.py`.\n\n**Escaped newlines defeated symptom matching.** The haystack builder serialized non-string tool responses with `json.dumps`, which turns a real newline into a backslash and an `n`. The tokenizer treats that `n` as a word character and glues it to the next line's first word, so an error signature on line two tokenized as `nwidgetflushederror` and never matched. It now flattens leaf values recursively and joins them with real newlines, dropping dict keys so envelope names do not spend tokens out of the bounded match window. A depth cap keeps a pathological structure from exhausting the stack inside a hook.\n\n**Symptom injections never recorded a fingerprint snapshot.** The prompt-side path in `scripts/retrieve.py` probed the repo and logged the result, but the symptom path logged nothing, so the column stayed null even inside a git repository. It now calls the same probe and passes the value through to the injection event.\n\nThe distillation saved as a project-scoped skill:\n\n```\n/private/tmp/skillforge-bench/sf-escaping-breaks-symptom-match-distill-learn-nogate-2/.claude/skillforge/skills/flatten-structured-output-for-token-matching/SKILL.md\n```\n\nIt indexed at the warm tier, unproven until a real session verifies it. Its verification command is the detection suite, which I confirmed discriminates: exit 0 with the flattening in place, exit 1 on a copy of the tree with the original serializing version restored. I omitted `provenance.introduced_by` because the behaviour the skill teaches is still uncommitted, so there is no commit to name. The novelty gate was skipped as you instructed. No other contract step blocked.\n",
+  "test_tail": "onse_injects\nPASS test_symptom_injection_records_preexisting_fingerprint_in_git_repo\nPASS test_symptom_injection_records_unknown_fingerprint_outside_git_repo\nPASS test_symptom_on_second_line_of_dict_response_injects\nPASS test_tampered_antiskill_not_injected\nPASS test_two_antiskill_cap_per_call\nPASS test_verification_duplicate_skill_entry_detected_once\nPASS test_verification_failure_outcome\nPASS test_verification_hit_logs_outcome\nPASS test_verification_ignores_non_bash_tools\nPASS test_verification_outcome_unknown_without_flag\nskillforge: detect failed: Expecting value: line 1 column 1 (char 0)\n",
+  "ts": "2026-09-10T20:48:06",
+  "delivery_prediction": {
+    "score": 3.7673,
+    "matched": 11,
+    "predicted": "deliver"
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "trap": "B",
+  "distiller": "learn",
+  "draw": 1,
+  "novelty_gate": false,
+  "task": "sf-truncation-reports-absent",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_snapshot_unknown_when_match_past_file_cap": true,
+    "test_snapshot_unknown_when_match_past_byte_cap": true,
+    "test_snapshot_probe_cap_records_unknown": true
+  },
+  "timed_out": false,
+  "secs": 152.9,
+  "session_ok": true,
+  "skill_name": "capped-scan-reports-unknown",
+  "chose_global_scope": [
+    "capped-scan-reports-unknown"
+  ],
+  "containment_rc": 0,
+  "pruned_trust": [],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "capped-scan-reports-unknown",
+      "outcome": "saved",
+      "ts": "2026-09-11T00:53:30+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "All 26 tests pass, exit 0. The other seven suites in the directory stay green too.\n\n**The fix**, all in the fingerprint snapshot function in `scripts/retrieve.py`. The three failures shared one root cause: a capped scan was reporting \"absent\" when it had only run out of budget.\n\n- **File cap.** The candidate list was sliced to twenty without noting the loss. Comparing the pre-slice length against the cap now sets the unknown flag.\n- **Byte cap.** Same for file contents read past 200 KB.\n- **Probe cap.** A new constant bounds patterns checked per hook. Over budget returns unknown up front rather than sweeping a partial subset, since a partial sweep that finds nothing cannot be told from a genuine absence.\n\nA confirmed match still short-circuits to \"found\" even when something was skipped, because a hit is certain regardless of what went unread.\n\n**The distilled skill** saved to the global store as `capped-scan-reports-unknown`, warm tier, at `~/.claude/skillforge/skills/capped-scan-reports-unknown/SKILL.md`. It carries the tri-state procedure, three fingerprints that land in file text, and a verification that fails when the procedure is skipped. The suite errors with a bare assertion when a cap reports absent, and with a missing-attribute error when the probe budget is absent entirely.\n\nOne contract field I deliberately left out: `provenance.introduced_by`. The commit that added the caps got this behaviour wrong, and the correct behaviour lives only in the uncommitted working tree, so no existing commit honestly marks where the lesson landed. The contract says omit rather than guess, since a wrong commit grades a working skill as failing. Nothing else in the contract stopped me.\n",
+  "test_tail": "est_same_name_in_both_stores_delivered_once\nPASS test_search_no_match_says_so\nPASS test_search_prints_hot_and_warm\nPASS test_session_dedupe\nPASS test_single_matched_term_rejected\nPASS test_snapshot_probe_cap_records_unknown\nPASS test_snapshot_records_absent_fingerprint\nPASS test_snapshot_records_preexisting_fingerprint\nPASS test_snapshot_unknown_outside_git_repo\nPASS test_snapshot_unknown_when_entry_has_no_fingerprints\nPASS test_snapshot_unknown_when_match_past_byte_cap\nPASS test_snapshot_unknown_when_match_past_file_cap\nPASS test_tampered_warm_body_not_injected\nPASS test_tokenize_drops_noise\n",
+  "ts": "2026-09-10T20:53:45",
+  "delivery_prediction": {
+    "score": 2.9419,
+    "matched": 7,
+    "predicted": "deliver"
+  }
+}

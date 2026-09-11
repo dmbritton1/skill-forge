@@ -73,8 +73,12 @@ def main():
             desc, name, prompts[PROBES[meta["trap"]]])
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
         updated += 1
+        # The PATH segment, not meta["distiller"]. E7 archives its bypass draws
+        # under `<distiller>-nogate` while still recording the plain distiller
+        # name on the row, so labelling by the field printed two different
+        # drafts as "B/learn/1".
         print("%s/%s/%s -> %s (score %.3f, matched %d)" % (
-            meta["trap"], meta["distiller"], meta["draw"],
+            meta["trap"], meta_path.parent.parent.name, meta["draw"],
             meta["delivery_prediction"]["predicted"],
             meta["delivery_prediction"]["score"],
             meta["delivery_prediction"]["matched"]))
