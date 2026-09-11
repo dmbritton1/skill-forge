@@ -1,0 +1,14 @@
+{
+  "trap": "A",
+  "distiller": "consolidated",
+  "draw": 1,
+  "note": "E9: machine-merged from the A cluster by a subagent following commands/consolidate.md step 4. Not a distiller draw. Lives here because bench/run.py --skill-from validates the <...>/distilled/<trap>/<distiller>/<draw>/SKILL.md shape.",
+  "outcome": "saved",
+  "probeable": true,
+  "session_ok": true,
+  "delivery_prediction": {
+    "score": 3.4111,
+    "matched": 9,
+    "predicted": "deliver"
+  }
+}
