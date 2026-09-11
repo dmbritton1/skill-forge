@@ -72,42 +72,52 @@ four drafts, so there is no failing group to split on. It needs drafts the gate
 
 ---
 
-## 2. START HERE — E7 is answered, and it changes the priority list
+## 2. START HERE — E7 and E8 are both answered, and together they set the next question
 
-**The novelty self-gate was refusing skills that work.** Full write-up in
-`bench/RESULTS.md`, section "E7 — is the novelty gate over-refusing?".
-Pre-registration: `docs/superpowers/specs/2026-09-10-e7-novelty-gate-design.md`.
+**E7: the novelty self-gate was refusing skills that work.** Emission 1/6 →
+6/6 with step 2 suspended; those drafts scored 16/18 against a same-batch
+control of 0/6, every one of the six beating the floor. Write-up in
+`bench/RESULTS.md`.
 
-| | gate on (Q1) | gate suspended (E7) |
-|---|---|---|
-| `learn` draws that emitted | 1 of 6 | **6 of 6** |
-| those drafts, probed | — | **16/18**, against same-batch control **0/6** |
+**E8: a library of ten did not hurt — but not for the reason predicted, and
+the dangerous case was never tested.**
 
-Zero exclusions across 24 phase-2 rows. Every treatment run injected exactly
-one skill at `trigger: prompt`. Every one of the six drafts individually beat
-the floor; the weakest was 2 of 3.
+| task | matched alone | all ten | control |
+|---|---|---|---|
+| `response_text` | 3/3 | 3/3 | 0/3 |
+| `fingerprint` | 3/3 | 3/3 | 0/3 |
 
-Read the limits before using it. **n=3 per cell.** The 18 treatment runs are
-6 artifacts × 3 runs, not 18 independent draws — the pooled Fisher p of 0.0002
-is in the write-up only to be discounted. And E7 re-ran the draws rather than
-recovering Q1's refused drafts, which were never written.
+The mechanism is the finding. On `response_text` the prompt path delivered a
+**wrong-trap** skill 3 times of 3, exactly as the spec predicted from BM25
+ranks. The **symptom path rescued it 3 times of 3** — `scripts/detect.py`
+carries its own 1200-token budget, independent of `scripts/retrieve.py`'s.
 
-**What E7 does NOT say is what replaces the gate.** It measures that "a fresh
-Claude already knows this" is wrong on these two traps. A library with no
-filter at all is untested in either direction, and that is now the open
-question rather than whether the gate is too strict.
+**Read these three limits before using E8 for anything:**
 
-**Two things are settled that were not before:**
+- **Only `response_text` tested depth.** On `fingerprint`, arm L's prompt path
+  delivered the *same single skill* as arm M, so adding nine changed nothing
+  that arrived. That arm is a null by construction, not evidence.
+- **The rescue cannot exist for a silent trap.** Only the three trap-A
+  **anti-skills** declare `symptoms:`; all seven `learn` skills declare none.
+  Q1 established the anti-skill path is structurally unavailable for a
+  symptomless trap — invented triggers pollute the index. E8 never ran
+  ranking-failure-on-a-silent-trap, because ranking happened not to fail there.
+- **n=3 per cell.**
 
-- **The graded scorer is finished, and the answer is that it adds nothing
-  here.** It reproduced the binary verdict in 40 of 42 rows on 2026-09-10 and
-  24 of 24 on E7's fresh artifacts. These tasks are single-trap — a session
-  either sees the trap or it does not — so no scorer can manufacture middle
-  ground the work does not contain. **Do not build more probes for these two
-  tasks.** The instrument works; there is nothing for it to resolve.
-- **`/consolidate`'s blocker has a measured break in it.** It was blocked
-  because the library is empty, which was because the distiller rarely emits,
-  which was because of this gate.
+**So do not relax the novelty gate on this evidence.** The safety margin E8
+measured is supplied by anti-skills the distiller *cannot write* for silent
+traps, and a library grown under a relaxed gate would be thin in exactly those.
+
+**Two things are settled that were not:**
+
+- **The graded scorer is finished and adds nothing on these tasks.** It
+  reproduced the binary verdict in 40 of 42 rows (2026-09-10), 24 of 24 (E7)
+  and 18 of 18 (E8). These tasks are single-trap. **Do not build more probes
+  for them.**
+- **`MAX_SKILLS = 3` is not the binding cap, and neither budget is the whole
+  story.** Delivery is two independent paths with a 1200-token budget each.
+  Any future claim about what gets delivered must account for both; the E8
+  spec's §2.1 got this wrong and is kept in place, falsified, as the record.
 
 ## 3. Next steps, in priority order
 
@@ -140,28 +150,24 @@ figure is not what it claims. E7's own same-batch control is **0/6**, measured
 *because that stub leaked the answer*. Pooling makes `response_text` control
 look like 44% and makes E4 look unblocked. It is not.
 
-### 3.3 What should replace the novelty gate? (new, from E7)
+### 3.3 What happens when ranking fails on a trap with no symptoms? (from E8)
 
-E7 answered the question this slot used to hold: the gate is over-refusing.
-The successor question is what goes in its place, and it is genuinely open.
+This is the narrowed successor to "what should replace the novelty gate", and
+it is the one experiment that would settle whether the gate can be relaxed.
 
-The gate's justification is that junk saves pollute the library. Two
-measurements now bracket it. E6: an irrelevant skill that arrived, outranked
-the relevant one and occupied 93% of the injection budget cost **nothing
-detectable** (R 6/6, R+I 6/6, n=3 per cell). E7: refusal cost a working skill
-**six times out of six**. Pollution looks cheap on the one axis measured;
-refusal looks expensive.
+E8 showed the symptom path rescuing a prompt-path ranking failure, 3 of 3. It
+also showed that rescue is only available where anti-skills exist, and Q1
+showed anti-skills are structurally impossible for a silent trap. The
+combination nobody has run is **ranking failure on a symptomless trap** — and
+that is precisely where depth would bite.
 
-That does **not** license removing the gate. E6 measured one irrelevant skill
-against one relevant one in a library of two. Nobody has measured a library of
-fifty, where retrieval has to choose, and eviction and ranking are still four
-of five hot-tier mechanisms with no evidence behind them (§3.5). "No filter"
-is untested in either direction.
+It is not runnable against the current pool. `capped-scan-reports-unknown-not-absent`
+ranks **first on both** probe prompts, so the silent trap's matched skill is
+never out-ranked. Making it runnable needs either a third trap or payloads
+chosen to invert that ranking, and the ranking must be measured before the
+batch, not after — the E8 spec's §2.2 table is the pattern.
 
-The cheap next probe: keep emitting with the gate off and measure whether
-retrieval still finds the right skill as the library grows. That is a
-different shape of experiment from everything here so far — it needs a library
-with depth, not another n=3 cell.
+Until it is run, treat "depth is safe" as established for loud traps only.
 
 ### 3.4 Build `/consolidate` (v0.3)
 
