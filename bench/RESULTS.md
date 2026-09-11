@@ -21,6 +21,7 @@ because nothing indexed the data — see "What the register caught".
 | E9 (2026-09-11) | Does a consolidated skill still work? | **Answered: yes, and it fits.** Merges compressed 3 and 2 skills to **44%** and **54%** of their concatenation, landing at 1095 and 1088 tokens against a 1200 budget. R 3/3, K 3/3, C 0/3 on both tasks, zero exclusions. n=3 per cell, and every trap-A member was already at ceiling so that half could only hold or fall | `bench/distilled/*/consolidated/1/`, the 18 rows in `results.jsonl` dated 2026-09-11 after 15:10, 18 `batch: e9` rows in `bench/graded.jsonl` |
 | E8 follow-up (2026-09-11) | Does consolidating the library fix E8's ranking failure? | **No — it makes the ranking worse.** The correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. `/consolidate` works as a feature (E9) but does not fix the problem that motivated building it | `bench/rank_check.py` — deterministic, 0 sessions |
 | Budget derivation (2026-09-11) | What injection budget delivers a *correct* skill? | **3000 works; the curve is not monotonic.** At 1200 (today) the wrong skill wins `response_text`. At 2000 the right one slips in. **At 2400 it is crowded back out.** Greedy skip-and-continue means more budget can deliver a strictly worse set | `bench/budget_sweep.py` — deterministic, 0 sessions |
+| Selector monotonicity (2026-09-11) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed, not fixed.** Greedy skip-and-continue violates set monotonicity at 15 of 69 budget steps and flips the correct skill away at 3. Stopping at the first entry that does not fit scores **0 and 0** and costs nothing on a consolidated library (1850 either way). A score-maximising subset is **worse** than today (8 flips, 57 shrinks) | `bench/selector_check.py` — deterministic, 0 sessions |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1756,7 +1757,7 @@ a typo and not noise — it is deterministic, and the trace explains it:
 | 2 | `capped-scan-reports-unknown-not-absent` | B | 1072 | **skipped**, 1072 > 1043 | **taken**, 371 left |
 | 3 | `flatten-structured-output-for-token-matching` | **A** | 869 | **taken** | **skipped**, 869 > 371 |
 
-`retrieve.inject` walks the ranked list and `continue`s past anything over the
+`retrieve.run_hook` walks the ranked list and `continue`s past anything over the
 remaining budget. So at 2000 the second wrong-trap skill does not fit, and the
 correct skill slips in behind it. At 2400 it does fit, and crowds the correct
 skill out.
@@ -1796,3 +1797,72 @@ are corpus-relative — the ranks are the claim, not the magnitudes. The sweep
 models the **prompt path only**; `detect.py` carries its own separate 1200
 budget for symptom-triggered delivery (E8 §4.1), and E8 measured that path
 rescuing exactly this failure when the trap is loud enough to produce symptoms.
+
+
+# Selector monotonicity — why the curve dips, and what fixes it (2026-09-11)
+
+Reproduce with `python3 bench/selector_check.py`. Deterministic, no sessions.
+
+The budget derivation above left one loose end: greedy skip-and-continue is not
+monotonic in the budget, and it argued the fix mattered "regardless of the
+budget chosen" without saying what the fix is. This measures three candidates.
+
+Two failures are counted, over a budget grid of 600–4000 in steps of 50, for
+each of two pools (E8's ten, and the consolidated seven) and both tasks — 69
+budget steps, 4 pool-task combinations:
+
+- **flip** — the correct-trap skill is delivered at one budget and gone at the
+  next one up. The user-visible defect.
+- **shrink** — the delivered set at one budget is not a superset of the set
+  below it. The invariant underneath.
+
+All three selectors share every non-budget gate. They differ only in what they
+do with an entry that does not fit.
+
+## Result
+
+| selector | flips | shrinks | lowest budget correct on both tasks |
+|---|---|---|---|
+| `continue` (today) | 3 | 15 | ten **1750, not held above**; seven 1850 |
+| `break` | **0** | **0** | ten 2900; seven 1850 |
+| highest-scoring affordable subset | 8 | 57 | both **not held above** |
+
+**Stopping at the first entry that does not fit is the only one of the three
+that is monotone.** It delivers the longest rank-ordered prefix that fits, and
+a prefix can only grow as the budget grows.
+
+**It costs nothing on a consolidated library.** The seven-skill pool needs
+1850 either way; the difference is that under `break` the result is stable
+above that point rather than accidental. The cost appears only on the
+duplicate-heavy ten-skill pool, where the threshold rises from an unstable
+1750 to a stable 2900. This is the first thing that makes `/consolidate`'s
+value legible after the E8 follow-up found it worsened ranking.
+
+**The obvious smarter answer is worse than doing nothing.** Choosing the
+affordable subset with the highest total BM25 score more than triples the
+flips and quadruples the shrinks. An optimal subset is not stable under a
+growing budget either — dropping one item for two cheaper ones is exactly the
+move that loses a correct skill. Sophistication in the selector is not the
+axis that helps.
+
+## What this costs, and what it breaks
+
+`break` also drops the delivered payload in the case the current tests bless.
+`tests/test_retrieve.py::test_budget_skips_oversized_entry` asserts that an
+oversized entry is skipped so a cheaper lower-ranked one gets in. Under `break`
+nothing is delivered in that scenario and the test fails. **The suite goes 777
+passing to 776 passing with exactly that one failure** — measured, not
+predicted. Changing it is a decision that the documented intent was wrong, not
+a mechanical update.
+
+The symptom path needs a different shape of the same fix. `detect.run_hook`
+writes its detection telemetry earlier in the same loop, so a bare `break`
+would truncate detection records along with injection. That path needs a flag
+that halts admission while the scan continues.
+
+## Limits
+
+Same limits as the budget derivation: ten skills, two traps, one repository,
+operator-written, prompt path only. Monotonicity itself is a property of the
+algorithm rather than of this corpus, but "costs nothing on a consolidated
+library" is a claim about these seven skills and their sizes.

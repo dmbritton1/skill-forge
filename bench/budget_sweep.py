@@ -49,16 +49,26 @@ def deliver(pool, prompt, budget):
     return out
 
 BUDGETS = [1200, 1600, 2000, 2400, 3000, 3600]
-for label, pool in (('E8 pool (10 skills, gate relaxed)', ten), ('consolidated pool (7)', seven)):
-    print('=== %s ===' % label)
-    print('  %-7s %-34s %-34s %s' % ('budget','response_text (wants A)','fingerprint (wants B)','both correct?'))
-    for b in BUDGETS:
-        cells, ok_all = [], True
-        for task, trap in TASKS:
-            got = deliver(pool, P[task], b)
-            ok = any(e['_trap']==trap for e in got)
-            ok_all = ok_all and ok
-            cells.append('%d skill(s), correct=%s' % (len(got), 'YES' if ok else 'no'))
-        print('  %-7d %-34s %-34s %s' % (b, cells[0], cells[1], 'YES' if ok_all else '-'))
-    print()
-print('MAX_SKILLS=%d (non-antiskills); MIN_MATCHED_TERMS=%d' % (retrieve.MAX_SKILLS, retrieve.MIN_MATCHED_TERMS))
+
+
+# Guarded so bench/selector_check.py can import the pools and prompts without
+# this sweep printing itself into that script's output.
+def main():
+    for label, pool in (('E8 pool (10 skills, gate relaxed)', ten), ('consolidated pool (7)', seven)):
+        print('=== %s ===' % label)
+        print('  %-7s %-34s %-34s %s' % ('budget','response_text (wants A)','fingerprint (wants B)','both correct?'))
+        for b in BUDGETS:
+            cells, ok_all = [], True
+            for task, trap in TASKS:
+                got = deliver(pool, P[task], b)
+                ok = any(e['_trap']==trap for e in got)
+                ok_all = ok_all and ok
+                cells.append('%d skill(s), correct=%s' % (len(got), 'YES' if ok else 'no'))
+            print('  %-7d %-34s %-34s %s' % (b, cells[0], cells[1], 'YES' if ok_all else '-'))
+        print()
+    print('MAX_SKILLS=%d (non-antiskills); MIN_MATCHED_TERMS=%d' % (retrieve.MAX_SKILLS, retrieve.MIN_MATCHED_TERMS))
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
