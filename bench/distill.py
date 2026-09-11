@@ -54,10 +54,37 @@ PHASE1_TIMEOUT_S = 900
 PROMPT = (
     "%s\n\n"
     "When the tests pass, distill what you learned in this session using the "
-    "%s skill. Follow its contract exactly, including the novelty self-gate -- "
+    "%s skill. %s")
+
+# The two tails differ in exactly one thing: whether step 2 of the contract is
+# in force. E7 exists because that step refused 8 of Q1's 12 draws on a
+# self-assessment -- "a fresh Claude already knows this" -- that nothing has
+# ever checked, against tasks a fresh Claude resolves once in fifteen tries.
+#
+# The bypass deliberately does NOT say "skip the contract". It names step 2
+# and reaffirms the rest, because a draft that scored under a blanket waiver
+# would not tell us which gate had been wrong.
+GATED_TAIL = (
+    "Follow its contract exactly, including the novelty self-gate -- "
     "aborting because the knowledge is model-obvious is a good outcome, not a "
     "failure. There is no human here to approve the draft: review it yourself "
     "as if you were the reviewer, and if you would approve it, save it.")
+
+BYPASS_TAIL = (
+    "Follow its contract exactly, with one exception: skip step 2, the "
+    "novelty self-gate. Do not abort because a fresh Claude would already "
+    "know the lesson -- that judgement is suspended for this run. Every other "
+    "step of the contract still applies, and if one of them stops you, say "
+    "which. There is no human here to approve the draft: review it yourself "
+    "as if you were the reviewer on every criterion except novelty, and "
+    "save it.")
+
+
+def prompt_for(distiller, task_prompt, novelty_gate=True):
+    return PROMPT % (task_prompt,
+                     "skillforge:distilling-%s"
+                     % ("failures" if distiller == "learn-failure" else "skills"),
+                     GATED_TAIL if novelty_gate else BYPASS_TAIL)
 
 
 def probeable(out):
@@ -141,8 +168,26 @@ def extract(clone, distiller):
     return found[0] if found else None
 
 
-def archive_dir(trap, distiller, draw):
-    return ARCHIVE / trap / distiller / str(draw)
+def _segment(distiller, novelty_gate):
+    """`learn` or `learn-nogate`, never both under one path.
+
+    Q1's 12 draws are archived and committed under the plain segment, and E7
+    re-runs two of its cells. Sharing a path would either overwrite that
+    record or trip the archive guard and lose the draw. E5 lost a whole batch
+    to two arms sharing a clone path; the suffix is derived here, once, rather
+    than passed in by each caller.
+    """
+    return distiller if novelty_gate else distiller + "-nogate"
+
+
+def archive_dir(trap, distiller, draw, novelty_gate=True):
+    return ARCHIVE / trap / _segment(distiller, novelty_gate) / str(draw)
+
+
+def clone_dest(task, distiller, draw, novelty_gate=True):
+    return bench_run.WORK / ("%s-distill-%s-%d"
+                             % (task["id"], _segment(distiller, novelty_gate),
+                                draw))
 
 
 def preflight():
@@ -159,8 +204,8 @@ def preflight():
     return []
 
 
-def one(trap, distiller, draw, plugin_dir, task):
-    dest = bench_run.WORK / ("%s-distill-%s-%d" % (task["id"], distiller, draw))
+def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
+    dest = clone_dest(task, distiller, draw, novelty_gate)
     ledger_db = dest.parent / (dest.name + ".ledger.db")
     for suffix in ("", "-shm", "-wal"):
         Path(str(ledger_db) + suffix).unlink(missing_ok=True)
@@ -174,7 +219,7 @@ def one(trap, distiller, draw, plugin_dir, task):
     if blockers:
         raise RuntimeError("preflight: " + "; ".join(blockers))
 
-    d = archive_dir(trap, distiller, draw)
+    d = archive_dir(trap, distiller, draw, novelty_gate)
     # Pre-registration (spec section 8) fixes the batch's composition and
     # forbids re-rolling a draw after its content is seen. results.jsonl
     # appends; this archive would REPLACE, so a re-run of `--all --draws 3`
@@ -209,8 +254,7 @@ def one(trap, distiller, draw, plugin_dir, task):
           "tail": "", "test_tail": ""}
     try:
         bench_run.prepare(task, dest)
-        prompt = PROMPT % (task["prompt"], "skillforge:distilling-%s" %
-                           ("failures" if distiller == "learn-failure" else "skills"))
+        prompt = prompt_for(distiller, task["prompt"], novelty_gate)
         cmd = ('claude -p %s --plugin-dir %s --permission-mode bypassPermissions'
                ' --model %s' % (json.dumps(prompt), json.dumps(str(plugin_dir)),
                                 json.dumps(bench_run.MODEL)))
@@ -274,6 +318,10 @@ def one(trap, distiller, draw, plugin_dir, task):
             (d / "SKILL.md").write_text(st["draft_text"], encoding="utf-8")
         (d / "meta.json").write_text(json.dumps({
             "trap": trap, "distiller": distiller, "draw": draw,
+            # E7's arm label. Recorded rather than inferred from the batch
+            # date, for the same reason every other arm here carries a flag on
+            # its row: a reader a month from now has the dates and nothing else.
+            "novelty_gate": novelty_gate,
             "task": task["id"], "model": bench_run.MODEL,
             "outcome": st["outcome"], "probeable": probeable(st["outcome"]),
             "error": st["error"],
@@ -332,6 +380,10 @@ def main(argv=None):
     ap.add_argument("--distiller", choices=sorted(DISTILLERS))
     ap.add_argument("--draws", type=int, default=3)
     ap.add_argument("--all", action="store_true")
+    ap.add_argument("--no-novelty-gate", action="store_true",
+                    help="E7: suspend step 2 of the distilling contract. "
+                         "Archives under <distiller>-nogate so it cannot "
+                         "overwrite a gated draw.")
     args = ap.parse_args(argv)
 
     cfg = bench_run.expand(json.loads(
@@ -346,13 +398,15 @@ def main(argv=None):
         return 1
 
     bench_run.WORK.mkdir(parents=True, exist_ok=True)
-    print("model %s | archive %s | timeout %ds"
-          % (bench_run.MODEL, ARCHIVE, PHASE1_TIMEOUT_S))
+    print("model %s | archive %s | timeout %ds | novelty gate %s"
+          % (bench_run.MODEL, ARCHIVE, PHASE1_TIMEOUT_S,
+             "OFF (E7)" if args.no_novelty_gate else "on"))
     for trap in traps:
         for distiller in dists:
             for draw in range(1, args.draws + 1):
                 try:
-                    one(trap, distiller, draw, plugin_dir, by_id[TRAPS[trap]])
+                    one(trap, distiller, draw, plugin_dir, by_id[TRAPS[trap]],
+                        novelty_gate=not args.no_novelty_gate)
                 except Exception as e:
                     print("  %-13s trap %s draw %d -> ERROR %s"
                           % (distiller, trap, draw, e))

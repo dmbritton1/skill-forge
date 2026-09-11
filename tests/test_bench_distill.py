@@ -748,6 +748,65 @@ def test_distill_retries_a_refused_session():
         finally:
             distill.ARCHIVE = real
 
+
+# --- E7: the novelty-gate bypass lever -------------------------------------
+
+
+def test_the_default_prompt_still_tells_the_session_to_honor_the_gate():
+    """E7 suspends the gate. Every other batch, Q1's included, must not."""
+    prompt = distill.prompt_for("learn", "do the thing")
+    assert "novelty self-gate" in prompt, prompt
+    assert "is a good outcome, not a failure" in prompt, prompt
+    assert "suspended" not in prompt, prompt
+
+
+def test_the_bypass_prompt_suspends_step_2_and_nothing_else():
+    """A single-variable manipulation: step 2 off, every other step in force.
+
+    If this ever widened to "skip the contract", a draft that scored would be
+    uninterpretable -- we would not know which gate had been wrong.
+    """
+    prompt = distill.prompt_for("learn", "do the thing", novelty_gate=False)
+    assert "novelty self-gate" in prompt, prompt
+    assert "suspended for this run" in prompt, prompt
+    assert "Every other step of the contract still applies" in prompt, prompt
+    assert "is a good outcome, not a failure" not in prompt, prompt
+
+
+def test_the_bypass_names_the_right_skill_for_each_distiller():
+    for distiller, skill in (("learn", "skillforge:distilling-skills"),
+                             ("learn-failure", "skillforge:distilling-failures")):
+        for gate in (True, False):
+            prompt = distill.prompt_for(distiller, "p", novelty_gate=gate)
+            assert skill in prompt, (distiller, gate, prompt)
+
+
+def test_a_bypassed_draw_archives_beside_the_gated_one_not_over_it():
+    """Q1's 12 draws are archived and committed. E7 re-runs two of its cells.
+
+    Sharing a path would make the bypass run overwrite the record it is being
+    compared against -- and the archive guard would refuse the draw instead,
+    which is the same batch lost either way. E5 lost a batch to two arms
+    sharing a clone path; this is the archive version of that mistake.
+    """
+    gated = distill.archive_dir("A", "learn", 1)
+    bypassed = distill.archive_dir("A", "learn", 1, novelty_gate=False)
+    assert gated != bypassed, gated
+    assert bypassed.name == "1", bypassed
+    assert bypassed.parent.name == "learn-nogate", bypassed
+    assert gated.parent.name == "learn", gated
+
+
+def test_the_bypassed_clone_segment_is_its_own():
+    """Same reasoning one level down: prepare() deletes and recreates the
+    clone per path segment, so two arms under one segment overwrite."""
+    gated = distill.clone_dest({"id": "sf-x"}, "learn", 1)
+    bypassed = distill.clone_dest({"id": "sf-x"}, "learn", 1,
+                                  novelty_gate=False)
+    assert gated != bypassed, gated
+    assert bypassed.name == "sf-x-distill-learn-nogate-1", bypassed
+    assert gated.name == "sf-x-distill-learn-1", gated
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
