@@ -1,9 +1,10 @@
 # SkillForge — session handoff
 
-Written 2026-09-09, at the end of the session that built the Q1 harness, ran
-it, and answered the brief's largest open question. Supersedes the 2026-09-08
-revision (git history has it). Read this before touching anything; several
-things here are not discoverable from the code.
+Written 2026-09-11, at the end of the session that answered E7, E8 and E9,
+built `/consolidate`, and ended by diagnosing a defect in the injection
+selector. Supersedes the 2026-09-11 morning revision (git history has it).
+Read this before touching anything; several things here are not discoverable
+from the code.
 
 ---
 
@@ -11,167 +12,231 @@ things here are not discoverable from the code.
 
 **There are two separate meters and you are probably watching the wrong one.**
 
-Token quota and *session count* are limited independently. This session spent
-roughly 75 `claude -p` sessions (62 bench clones plus subagents) and ended at
-**46% of token quota** — and then could not start a single further session:
+Token quota and *session count* are limited independently. `claude -p` exits
+**1** when the session allowance is gone and prints one line:
 
 ```
 You've hit your session limit · resets 1:10am (America/New_York)
 ```
 
-`claude -p` exits **1** in that state and prints that one line. That exit code
-is the only thing separating a postponed experiment from a poisoned one — see
-§4.
+That exit code is the only thing separating a postponed experiment from a
+poisoned one — see §4.
 
-**Size future batches against sessions, not tokens.** A 60-session batch costs
-about 4% of quota and a large fraction of the session allowance. If you plan a
-batch, check the session meter first; the quota figure will tell you nothing
-useful.
+**Size batches against sessions, not tokens.** A 60-session batch costs about
+4% of quota and a large fraction of the session allowance. Check the meter
+before planning a batch:
 
----
+```bash
+claude -p "Reply with exactly: OK" --model claude-opus-5
+```
 
-## 1. Where things stand
-
-**Brief Q1 is answered.** The distiller works end to end — when it emits, and
-it emits 4 times in 12. Those four scored **12/12** against a fresh control
-floor of **1/6**, delivered on every run, warm tier, `trigger: prompt`. Every
-session fixed its bug; nothing timed out, nothing was refused, `save_skill`
-rejected nothing. The bottleneck is **emission**, not delivery and not content.
-
-Full write-up: `bench/RESULTS.md`, section "Q1 — does the distiller work end to
-end?". Three findings inside it that are worth knowing before you read
-anything else:
-
-- **Emission is a property of the trap, not the distiller.** Trap A throws
-  loud assertion failures so literal `symptoms:` exist, and the anti-skill arm
-  emitted 3/3. Trap B is silent, and every anti-skill draw refused because "any
-  symptoms list would be **invented**, and invented triggers pollute the
-  detection index". The anti-skill path is structurally unavailable for
-  symptomless traps.
-- **The judge found the opposite of the scores.** All four drafts pass
-  critique, and **not one declared `verification.command` discriminates** —
-  both point at this repo's own suite, which *passes* at `fix_commit~1` because
-  the tests exposing the trap do not exist yet. One fingerprint in nine appears
-  in the real fix. The drafts that scored 12/12 carry attribution machinery
-  that does not work.
-- **The 8 novelty-gate refusals are unfalsifiable here.** "A fresh Claude
-  already knows this" is a self-assessment, and the rejected drafts are never
-  probed. Meanwhile control resolves these tasks 1 in 6 — so the distiller
-  declined to record knowledge the model demonstrably fails to apply five times
-  out of six. **This is the most interesting thing the experiment surfaced and
-  nothing tests it.**
-
-**Brief Q2 (transfer) is a replicated null.** 0/6 again, and for the first time
-against a floor measured in the same batch on the same pinned model.
-
-**Brief Q5 was attempted and came back uninformative.** Critique passed all
-four drafts, so there is no failing group to split on. It needs drafts the gate
-*rejects*, which this design does not produce.
-
-**E6 is answered.** No dilution at n=3 per cell. See §2.
+This fired twice during this session — once mid-E8, once during a task
+re-review. Both were absorbed by the pre-registered `session_ok: false`
+exclusion rule rather than corrupting a cell. That rule is why these
+interruptions cost time instead of evidence.
 
 ---
 
-## 2. START HERE — the blocker is the injection budget, not the library
+## 1. What this session did
 
-Three things landed on 2026-09-11 and together they redirect the project.
+Eight pieces of work, in order. All of it is on one branch, none of it is
+pushed. Every experiment is n=3 per cell unless stated.
 
-**E9: `/consolidate` works.** A machine-written merge of three skills about one
-bug, compressed to **44%** of their combined size, held its member's ceiling:
-R 3/3, K 3/3, C 0/3 on both tasks, 18 rows, zero exclusions. Both merges fit
-the 1200-token budget (1095 and 1088) and pass `save_skill.validate` clean.
+**1. Repaired the test suite.** It was 103 failures deep and every one was
+pollution, from two independent leaks. `bench/distill.py` sets three
+`SKILLFORGE_*` environment variables process-wide and never restores them, and
+`SKILLFORGE_LEDGER` outranks `HOME`, so sandbox helpers were reading a real
+batch's rows. Separately, three test files stub `sync._spawn_validation` at
+module scope, and `test_sync.py` was capturing `test_guard.py`'s inert lambda
+because that file imports first alphabetically. Both are fixed by
+`tests/conftest.py`, which restores the environment around every test and
+captures the genuine function before pytest imports any test module.
 
-**E8 follow-up: consolidation does NOT fix what it was built to fix, and makes
-it worse.** Reproduce free with `python3 bench/rank_check.py`.
+**2. E7 — is the distiller's novelty self-gate over-refusing? Yes.**
+Suspending step 2 of the distiller prompt alone took emission from **1 in 6**
+to **6 in 6**. Those six drafts scored **16 of 18** against a same-batch
+control of **0 of 6**, and every one of the six beat the floor. The gate was
+refusing skills that work.
 
-| pool | best trap-A entry on the `response_text` prompt |
-|---|---|
-| E8's ten | rank **3**, score **8.40** |
-| consolidated seven | rank **5**, score **4.70** |
+**3. E8 — does retrieval survive a library of ten? Yes, but not for the
+predicted reason.** Matched 3/3, library-of-ten 3/3, control 0/3, on both
+tasks. Depth did not hurt. But on `sf-author-response-text` the prompt path
+delivered a **wrong-trap** skill 3 times out of 3, and the **symptom path
+rescued it** 3 times out of 3. That rescue rides on anti-skills, which Q1
+showed cannot exist for a silent trap, so the dangerous case was never tested.
 
-A description covering three skills matches any one prompt less specifically
-than a single-purpose one. BM25 rewards specificity and merging spends it —
-**E2's transfer null reappearing one layer down**, and nothing in the
-`/consolidate` design anticipated it.
+**4. Built `/consolidate`.** Spec, plan, then five tasks of subagent-driven
+development with a review after each, one final review, and one fix wave.
+`scripts/consolidate.py` is the deterministic half — clustering by
+verification command, name inheritance, pattern union, propose and retire.
+`commands/consolidate.md` is the model procedure. 31 tests.
 
-**The real blocker is the injection budget.** In the consolidated pool rank 1
-costs 1088 of 1200, leaving 112. The four entries at ranks 2–5 are all the
-*correct* bug and cost 759 to 1095. None fits. So retrieval is winner-take-all
-on a BM25 score over `name + description`, and E6 already showed that score
-ranking an unrelated `arrow` timezone skill above a matched one.
+**5. E9 — does a consolidated skill still work? Yes, and it fits.** Merges
+compressed three and two skills to **44%** and **54%** of their concatenation,
+landing at 1095 and 1088 tokens against the 1200 budget, and passing
+`save_skill.validate` clean. Retrieval 3/3, knowledge 3/3, control 0/3 on both
+tasks, zero exclusions.
 
-**Do not reach for more consolidation.** E9 says the feature is sound; the
-follow-up says the thread it was on is not where the problem lives. The three
-untested moves are: raise `INJECT_BUDGET_TOKENS`; make skills cheaper (every
-distilled skill costs **759–1192** against a **1200** budget); or rank on
-something better than `name + description`. Nothing says which.
+**6. E8 follow-up — does consolidating fix E8's ranking failure? No, it makes
+it worse.** The correct skill fell from rank 3 to rank 5 after merging. A
+description covering three skills matches any single prompt less specifically
+than a single-purpose one, and BM25 rewards specificity. This is E2's transfer
+null reappearing one layer down, and nothing in the `/consolidate` design
+anticipated it.
 
-**Still settled, still worth not relearning:**
+**7. Budget derivation — what budget delivers a correct skill?** 3000 works.
+The curve is **not monotonic**: at 2000 the correct skill is delivered, at
+2400 it is crowded back out, at 3000 it returns.
 
-- **The graded scorer adds nothing on these tasks.** It reproduced the binary
-  verdict in 40 of 42 rows (2026-09-10), 24 of 24 (E7), 18 of 18 (E8) and
-  18 of 18 (E9). These tasks are single-trap. **Do not build more probes.**
-- **Delivery is two independent 1200-token budgets**, `retrieve.py` for the
-  prompt path and `detect.py` for the symptom path. `MAX_SKILLS = 3` never
-  binds; the budget binds at one skill.
-- **`save_skill` enforces no size limit.** An oversized skill saves cleanly,
-  indexes cleanly, and silently never injects. E9's merges fit by drafting
-  luck, not by design.
+**8. Diagnosed the selector defect behind that dip, and measured three fixes.**
+This is where the session ended and where §2 picks up.
+
+---
+
+## 2. START HERE — the selector is not monotone, and the fix is a decision
+
+Reproduce free with `python3 bench/selector_check.py`. Zero sessions.
+
+Both delivery paths walk a ranked list and `continue` past any entry too
+expensive for the remaining budget. A cheaper lower-ranked skill can therefore
+occupy space a dearer higher-ranked one would have taken, and which one wins
+depends on the budget in a way that is not monotone. **More budget can deliver
+a strictly worse set.**
+
+Measured over a budget grid of 600–4000 in steps of 50, across two pools
+(E8's ten skills, and the consolidated seven) and both tasks:
+
+| selector | flips | shrinks | lowest budget correct on both tasks |
+|---|---|---|---|
+| `continue` (today) | 3 | 15 | ten **1750, not held above**; seven 1850 |
+| `break` | **0** | **0** | ten 2900; seven 1850 |
+| highest-scoring affordable subset | 8 | 57 | both **not held above** |
+
+A *flip* is the correct skill being delivered at one budget and gone at the
+next one up. A *shrink* is the delivered set failing to contain the set below
+it.
+
+**Stopping at the first entry that does not fit is the only monotone option.**
+It delivers the longest rank-ordered prefix that fits, and a prefix can only
+grow as the budget grows.
+
+**It costs nothing on a consolidated library.** The seven-skill pool needs
+1850 either way; the difference is that the result then holds above that point
+instead of depending on two costs straddling a threshold. That is the first
+legible payoff `/consolidate` has shown since the E8 follow-up.
+
+**Do not reach for a cleverer selector.** Choosing the affordable subset with
+the highest total score is worse than today's code on both counts. An optimal
+subset is not stable under a growing budget either. This was tested, not
+assumed.
+
+### The decision waiting for you
+
+`break` changes documented behaviour, and one existing test says so.
+`tests/test_retrieve.py::test_budget_skips_oversized_entry` asserts that an
+oversized entry is skipped so a cheaper lower-ranked one gets in. Under
+`break` nothing is delivered in that scenario. **The suite goes 777 passing
+to 776 with exactly that one failure** — measured by applying the change and
+running it, then reverting.
+
+So the change is not mechanical. Someone has to decide that the old intent was
+wrong. The case for saying yes: E2's transfer null measured a plausible but
+wrong skill at 0/6, so "something is better than nothing" is not supported by
+this project's own data. The case for hesitating: a cheap *correct* skill
+below an expensive wrong one is exactly what saved `response_text` at budget
+2000.
+
+**The symptom path needs a different shape of the same fix.**
+`detect.run_hook` writes its detection telemetry earlier in the same loop, so
+a bare `break` there would truncate detection records along with injection.
+That path needs a flag that halts admission while the scan continues. This is
+the trap in the change and it is not visible from `retrieve.py`.
+
+---
 
 ## 3. Next steps, in priority order
 
-### 3.2 E4 is still blocked, and the scorer did not unblock it
+### 3.1 Land the selector fix, then re-derive the budget
+
+In order:
+
+1. Change `retrieve.run_hook` to stop at the first entry that does not fit.
+2. Change `detect.run_hook` to the flag form, preserving detection logging.
+3. Replace `test_budget_skips_oversized_entry` with a test of the new intent.
+4. Add a **budget monotonicity property test** over the real hook: fix an
+   index and a prompt, sweep `INJECT_BUDGET_TOKENS`, assert each delivered
+   set contains the previous one. This is the test that would have caught the
+   bug, it runs in the existing sandbox, and it invokes no model.
+5. Add a **rank fidelity test**: nothing is delivered while a higher-ranked
+   skill was refused purely on cost.
+6. Add an **anti-skill test on the prompt path**: stopping early also stops
+   anti-skills below the overflow point. Pin the behaviour rather than
+   discover it later.
+7. Add a **detection-logging regression test** on the symptom path.
+8. `bench/budget_sweep.py` re-implements the selector by hand rather than
+   calling it. Update it in the same commit or it silently diverges.
+
+Only then re-derive the budget. Under `break` on a consolidated library the
+target is around **1850 for two skills**, not 3000 for three, which is a much
+smaller step past E6's measured no-harm at ~1118 tokens for two.
+
+### 3.2 What happens when ranking fails on a trap with no symptoms?
+
+Unchanged from the last handoff, and still the one experiment that would
+settle whether the novelty gate can be relaxed in the shipped distiller.
+
+E8 showed the symptom path rescuing a prompt-path ranking failure 3 of 3, and
+also showed that rescue is only available where anti-skills exist. Q1 showed
+anti-skills are structurally impossible for a silent trap. Nobody has run
+**ranking failure on a symptomless trap**, which is exactly where depth would
+bite.
+
+It is not runnable against the current pool.
+`capped-scan-reports-unknown-not-absent` ranks **first on both** probe
+prompts, so the silent trap's matched skill is never out-ranked. Making it
+runnable needs either a third trap or payloads chosen to invert that ranking,
+and **the ranking must be measured before the batch, not after** — the E8
+spec's §2.2 table is the pattern.
+
+Until it is run, treat "depth is safe" as established for loud traps only.
+
+### 3.3 A size guard at save time
+
+`save_skill` enforces no size limit. An oversized skill saves cleanly, indexes
+cleanly, and silently never injects. Every distilled skill costs **759–1192**
+tokens against a **1200** budget, so this is one bad draft away from biting.
+E9's merges fit by drafting luck, not by design.
+
+This interacts with §3.1: under `break`, a single oversized skill at rank 1
+blocks everything below it, which makes the guard more valuable, not less.
+
+### 3.4 E4 is still blocked, and the graded scorer did not unblock it
 
 E4 asks whether an irrelevant skill hurts **versus nothing**. It needs a task
 whose control baseline is neither 0 nor 100%.
 
-The 2026-09-09 revision of this file argued the real blocker was binary
-scoring, and that a graded rubric over the authored function would give control
-partial credit and therefore room to lose. **That scorer was built, and the
-argument did not survive it.** The 20-probe suite reproduces the binary
-`resolved` verdict in 40 of 42 rows (2026-09-10) and 24 of 24 (E7). Control
-does score off zero — 0.636 and 0.778 — but **no artifact has ever scored
-below that floor**, so the room to fall is asserted, not observed.
+A previous revision argued the blocker was binary scoring and that a graded
+rubric would give control partial credit. **That scorer was built and the
+argument did not survive it.** The probe suite reproduces the binary
+`resolved` verdict in 40 of 42 rows, 24 of 24 for E7, 18 of 18 for E8 and 18
+of 18 for E9. Control does score off zero — 0.636 and 0.778 — but **no
+artifact has ever scored below that floor**, so the room to fall is asserted,
+not observed. The E4 register row quotes **0.852** for `response_text` instead;
+that is the 2026-09-10 batch, whose control cell contains the single resolved
+run behind that task's 1/6. Both are correct for their own batch and 0.778 is
+the cleaner floor. Do not treat the two as a contradiction.
 
 These two tasks are single-trap: a session either sees the trap or it does
-not. No scorer manufactures middle ground the work does not contain. E4 needs
-a genuinely mid-range task, and building more probes for these two will not
-produce one.
+not. **Do not build more probes for them.** E4 needs a genuinely mid-range
+task.
 
 **Control figures: re-derive them, do not quote them.** The "1/6 and 0/6"
-carried in three specs cannot be reproduced from one consistent rule — 1/6
-needs `results-round1.jsonl` pooled in, 0/6 needs it left out. Every reading
-puts both floors at or near zero, so nothing downstream changed, but the
-figure is not what it claims. E7's own same-batch control is **0/6**, measured
-2026-09-11, and that one is clean.
+carried in three specs cannot be reproduced from one consistent rule. E7's own
+same-batch control is **0/6**, measured 2026-09-11, and that one is clean.
 
-**Do not pool across `results-leaky-stub.jsonl`.** Its author-task rows are 3/3
-*because that stub leaked the answer*. Pooling makes `response_text` control
-look like 44% and makes E4 look unblocked. It is not.
-
-### 3.3 What happens when ranking fails on a trap with no symptoms? (from E8)
-
-This is the narrowed successor to "what should replace the novelty gate", and
-it is the one experiment that would settle whether the gate can be relaxed.
-
-E8 showed the symptom path rescuing a prompt-path ranking failure, 3 of 3. It
-also showed that rescue is only available where anti-skills exist, and Q1
-showed anti-skills are structurally impossible for a silent trap. The
-combination nobody has run is **ranking failure on a symptomless trap** — and
-that is precisely where depth would bite.
-
-It is not runnable against the current pool. `capped-scan-reports-unknown-not-absent`
-ranks **first on both** probe prompts, so the silent trap's matched skill is
-never out-ranked. Making it runnable needs either a third trap or payloads
-chosen to invert that ranking, and the ranking must be measured before the
-batch, not after — the E8 spec's §2.2 table is the pattern.
-
-Until it is run, treat "depth is safe" as established for loud traps only.
-
-### 3.4 Build `/consolidate` (v0.3)
-
-Cleared by E1 in September, unconstrained by E5, still not written. It is the
-v0.3 feature the whole experimental programme was gating.
+**Do not pool across `results-leaky-stub.jsonl`.** Its author-task rows are
+3/3 *because that stub leaked the answer*. Pooling makes `response_text`
+control look like 44% and makes E4 look unblocked. It is not.
 
 ### 3.5 The hot tier: 4 of 5 mechanisms still unevidenced
 
@@ -181,86 +246,121 @@ exercised against a model that could see the result. Needs an arm with two or
 more hot-eligible skills that together exceed the budget; the force-hot lever
 takes a single exact name and cannot express that.
 
-### 3.6 Hygiene
+### 3.6 `/consolidate` has never been run end to end against a real library
 
-- **`main` is 32 commits behind this branch** and this work is unmerged.
-  E6 ran on `claude/e6-dilution-experiment-84c0d2`, which was fast-forwarded
-  onto `claude/skillforge-hot-tier-validation-569edb` first; the two share a
-  history and either can be merged.
-- `main` has never been pushed to `origin`.
-- `/tmp/skillforge-bench` holds 62 clones and their ledgers. Harmless, in
-  `/tmp`, but the per-run ledgers are the *only* copy of delivery evidence for
-  batches before 2026-09-09 — rows from that date onward carry `injections`
-  on the row itself.
+E9 tested the *output* of a consolidation, using merges produced by hand from
+the proposal. The command's own propose-save-retire loop against the
+operator's live library has not been exercised. `cmd_retire` fails closed on a
+`keep` that is not in the index, which is the dangerous half, but the path is
+untested in anger.
+
+### 3.7 Hygiene
+
+- **The branch is 8 commits ahead of `main` and of `origin/main`**, both at
+  `e50b61c`. Nothing since the E9 pre-registration is pushed.
+- `/tmp/skillforge-bench` holds the bench clones and their ledgers. The
+  per-run ledgers are the **only** copy of delivery evidence for batches
+  before 2026-09-09; rows from that date onward carry `injections` on the row
+  itself.
 
 ---
 
 ## 4. Things not discoverable from the code
 
-- **A refused session is not a result, and the code now knows it.**
-  `bench_run.sh` *returns* on a non-zero exit rather than raising, so before
-  this session a rate-limited session flowed on to `score()`, found the repair
-  unresolved, and was archived as `repair_unresolved` — a false claim about the
-  distiller, and then *locked*, because the archive guard refuses a re-run once
-  `secs > 0`. Now: `meta.json` records `session_ok`, `session_failed` is an
-  outcome ranked above every other, it is never probeable, and a refused draw is
-  retryable. Phase 2 rows with `session_ok: false` are **excluded from every
-  cell** by a rule pre-registered in spec §8 *before any data existed*. This
-  fired on E6's first attempt and is why E6 is postponed rather than poisoned.
-- **`--skill-from` must be absolute.** `install_skill` shells `save_skill.py`
-  with `cwd` set to the clone, so a relative path resolves against the clone and
-  is not there. Twelve probes died before any session started. `skill_src` now
-  resolves. I had explicitly ruled *against* the guard that would have caught
-  this, on the grounds it would break the batch driver; the reasoning was
-  backwards.
-- **The test suite used to run against the real bench work directory.**
-  `test_one_archives_and_contains_a_global_scope_draw` redirected `ARCHIVE` and
-  `HOME` but not `bench_run.WORK`, so it read a real run's saved draft and
-  **truncated that run's ledger to zero bytes**. Fixed; a sentinel file proves
-  the suite leaves `/tmp/skillforge-bench` byte-identical. This repo has shipped
-  one fix for a suite that destroyed real state already (0.2.5, hot skills).
-- **`verification.command` is optional for anti-skills.** `save_skill.py:145`
-  requires it only for `kind: skill`. All four hand-authored comparators declare
-  none. A blank is not a defect.
+- **A refused session is not a result, and the code knows it.** `meta.json`
+  records `session_ok`, `session_failed` outranks every other outcome, it is
+  never probeable, and a refused draw is retryable. Rows with
+  `session_ok: false` are **excluded from every cell** by rules pre-registered
+  before any data existed. This fired on E6's first attempt and on E8's, and
+  is why both are postponed rather than poisoned.
+- **The test suite used to be polluted by the bench.** `bench/distill.py`
+  exports `SKILLFORGE_*` process-wide without restoring, and `SKILLFORGE_LEDGER`
+  beats `HOME`, so a sandboxed test could read a real batch's rows. Three test
+  files also stub `sync._spawn_validation` at module scope and the capture
+  order depends on alphabetical import. `tests/conftest.py` closes both. If
+  you add a test file that stubs a `sync` internal, read that conftest first.
+- **The tests must never invoke a model and must never mutate the operator's
+  real library.** Stated in `bench/critique-calibration/README.md`. This repo
+  has already shipped one fix for a suite that destroyed real state, and one
+  for a test that truncated a real run's ledger to zero bytes.
+- **The two injection budgets are independent.** `retrieve.py` carries 1200
+  for the prompt path and `detect.py` carries its own 1200 for the symptom
+  path. A spec section of mine claimed only one skill could ever inject; it
+  was falsified by E8's data because it modelled only the prompt path.
+- **`MAX_SKILLS = 3` never binds at today's budget.** The budget binds at one
+  skill. That is why the count cap looks dead in the code.
+- **Injection cost is the WHOLE file**, frontmatter included:
+  `max(1, len(body) // 4)`. An early cost model of mine used the post-frontmatter
+  body and was wrong by 250–300 tokens per skill.
+- **The compiled index already carries `est_tokens`, using the identical
+  formula, and both selectors ignore it.** They recompute from disk, which is
+  correct — the body has to be read anyway to re-verify trust. But it means
+  any look-ahead selector has a free price list available and does not need to
+  read every candidate.
+- **`consolidate.clusters()` never crosses scope.** My first derivation of
+  E9's cluster table grouped trap B as one cluster of four; the shipped code
+  finds three clusters. Corrected before any session ran. Do not re-derive
+  cluster counts from a skill list by eye.
+- **`verification.command` does not partition the library cleanly.** The
+  `/consolidate` spec originally claimed it split the ten perfectly. It does
+  not — one anti-skill points at a different test file. 7 of 10 in 2 clusters,
+  3 unclustered, and the false negative is deliberate.
+- **`verification.command` is optional for anti-skills.** `save_skill.py`
+  requires it only for `kind: skill`. A blank is not a defect.
+- **`bench/extract.py` has two parse rules that look wrong and are not.** The
+  task is the **longest** matching id, and the arm head must **open** with
+  `control` or `treatment` — distillation clones are deliberately unplaceable
+  and return None. Both bugs were caught by checking against all 54
+  pre-existing manifest entries, which still reproduce exactly.
 - **`drift()` compares project entries for ONE root.** Comparing all of them
   reports drift on a clean batch, because every clone writes a transient
-  `/tmp`-rooted entry. Spec §4(d) asks only about the operator's own root.
+  `/tmp`-rooted entry.
 - **Containment writes to the operator's real library and reverts.** A
   distilling session picks its own scope; `--scope global` lands in
-  `Path.home()`. Both revert paths fired during Q1: one draw went global and was
-  removed with `library.py delete`; three went project-scoped and left only a
-  trust key, caught by `new_trust_keys`. `trust.json` is user-global
-  **regardless of scope**, so every save leaves a key and nothing else prunes it.
+  `Path.home()`. `trust.json` is user-global **regardless of scope**, so every
+  save leaves a key and nothing else prunes it.
 - **The register at the top of `bench/RESULTS.md` is the index.** It exists
-  because two confidently-stated claims in that file turned out to be wrong.
-  I added a third in this session — a Q1 row reading "Answered … This is the
-  largest open question in the project" — by swapping a leading phrase and
-  leaving the sentence. Re-derive from the files; do not describe them from
-  memory.
-- **0.2.6 is on this branch, not merged and not installed.** The installed
-  cache is 0.2.5 at `b712e4b`. It does not matter for the bench, which passes
-  `--plugin-dir` at the repo root and never reads the cache. It matters the
-  moment anyone runs the bench against the installed plugin.
+  because confidently-stated claims in that file turned out to be wrong. I
+  added another this session — the budget-derivation section named
+  `retrieve.inject`, a function that does not exist. Fixed. **Re-derive from
+  the files; do not describe them from memory.**
+- **The SDD execution ledgers are gone.** `.superpowers/sdd/` is git-ignored
+  and no longer exists in this worktree. The rulings made during
+  `/consolidate`'s build survive only in the commit messages.
 
 ---
 
 ## 5. Where the work is
 
-Branch `claude/skillforge-hot-tier-validation-569edb`, in the worktree at
-`~/Developer/skill-forge/.claude/worktrees/skillforge-hot-tier-validation-569edb`.
-30 commits ahead of `main`. Run everything from the worktree.
+Branch `claude/e7-novelty-gate-bypass`, in the worktree at
+`~/Developer/skill-forge/.claude/worktrees/main-parent-spec-status-9c1e7b`.
+Eight commits ahead of `main` and `origin/main`, both at `e50b61c`. Run
+everything from the worktree.
 
-New this session, all tested (18 suites, 25 + 60 bench tests):
+**777 tests passing. Tree clean.**
+
+New or changed this session:
 
 | File | What it does |
 |---|---|
-| `bench/distill.py` | Phase 1: repair session → distiller → archive. Six outcomes |
-| `bench/libguard.py` | Snapshot / diff / prune / restore of the operator's real library |
-| `bench/dryrun.py` | Predicts delivery from `name + description` before probing |
-| `bench/judge.py` | Retrospective critique, symptom shape, does the verification discriminate |
-| `bench/backfill.py` | One-shot `skill_source` label on historical rows |
-| `bench/run.py` | `--skill-from`, `--plus-skill`, derived clone segments, `injections` on the row |
+| `tests/conftest.py` | Environment restore and the real `_spawn_validation` capture. Fixes 103 failures |
+| `bench/distill.py` | `--no-novelty-gate`, the lever E7 needed; segment and archive paths carry it |
+| `bench/run.py` | `--plus-skill` is repeatable, so a whole library can be installed |
+| `bench/extract.py` | Batch-labelled artifact extraction, so a new batch cannot overwrite Q1's evidence |
+| `bench/regrade.py` | `--batch` selection over `graded.jsonl` |
+| `scripts/consolidate.py` | Clustering, name inheritance, pattern union, propose, retire |
+| `commands/consolidate.md` | The model half of `/consolidate` |
+| `tests/test_consolidate.py` | 31 tests |
+| `bench/rank_check.py` | Does consolidation fix E8's ranking? Deterministic, 0 sessions |
+| `bench/budget_sweep.py` | What budget delivers a correct skill? Deterministic, 0 sessions |
+| `bench/selector_check.py` | Which selector is monotone? Deterministic, 0 sessions |
 
-The SDD execution ledger — every ruling made on your behalf, ~29 of them — is
-at `.superpowers/sdd/2026-09-08-q1-distiller-experiment/progress.md`. It is
-git-ignored and will not survive a `git clean -fdx`.
+Specs written this session, all pre-registered before their data:
+`docs/superpowers/specs/2026-09-10-e7-novelty-gate-design.md`,
+`2026-09-11-e8-library-depth-design.md`,
+`2026-09-11-consolidate-design.md`,
+`2026-09-11-e9-consolidation-design.md`. The `/consolidate` plan is at
+`docs/superpowers/plans/2026-09-11-consolidate.md`.
+
+Batch scripts are in git rather than `/tmp`: `bench/e7_phase2.sh`,
+`bench/e8_batch.sh`, `bench/e9_batch.sh`.
