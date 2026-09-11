@@ -196,6 +196,28 @@ Fixed before any data exists.
 - If zero drafts emit under the lever, that is the headline and the phase-2
   comparison is reported as not run rather than as a null.
 
+### 5.1 Amendment, 2026-09-10 21:05 — phase 2 was interrupted
+
+Phase 2 was stopped by the operator after **one** session, to stay inside a
+usage limit. That session is `sf-author-response-text`, arm control,
+`resolved: false`, `ts` 2026-09-10T21:01:40. `results.jsonl` is append-only,
+so the row stays.
+
+**That row is excluded from every cell and reported as excluded.** The resumed
+batch runs all 24 phase-2 sessions from the start.
+
+This is written before the resumed batch exists, which is the only thing that
+makes it a pre-registration rather than a rationalisation. The reason is E5:
+one arm measured 6/6 and 4/6 across two batches with nothing else changed, a
+spread wider than the effects this harness resolves. A row from an aborted
+batch pooled into a later one is that same defect, and it would be invisible
+in the data afterwards — every prior arm here is told apart by a flag on its
+row, and "which batch" is not one of them.
+
+Excluding it costs one session and buys a clean single-batch comparison. The
+row is at the floor either way, so nothing about the eventual reading turns on
+this; that is a reason to exclude it cheaply, not a reason to keep it.
+
 ## 6. How to read the outcome
 
 - **B near ceiling, C at its floor.** The gate is over-refusing: it declined
