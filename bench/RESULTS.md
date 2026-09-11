@@ -17,6 +17,7 @@ because nothing indexed the data — see "What the register caught".
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
 | Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half partial, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, the scale is unpinned from zero, but the graded score reproduces the binary `resolved` verdict in 40 of 42 rows — the unblocking of E4 is provisional, not established. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
 | E7 (2026-09-11) | Is the distiller's novelty self-gate over-refusing? | **Answered: yes.** Suspending step 2 alone took emission from 1/6 to **6/6**. Those six drafts scored **16/18** against a same-batch control of **0/6** — every one of the six beat the floor. n=3 per cell, and the 18 runs are 6 artifacts × 3, not 18 independent draws | `bench/distilled/*/learn-nogate/` (6 draws), the 24 rows in `results.jsonl` dated 2026-09-11, 24 `batch: e7` rows in `bench/graded.jsonl`; the 2026-09-10T21:01 control row is **excluded** (spec §5.1) |
+| E8 (2026-09-11) | Does retrieval survive a library of ten? | **Answered, and the mechanism is not the one predicted.** M 3/3, L 3/3, C 0/3 on **both** tasks. On `response_text` the prompt path delivered a **wrong-trap** skill 3/3 and the **symptom path rescued it** 3/3. The rescue rides on anti-skills, which cannot exist for a silent trap — so the dangerous case was never tested. First attempt refused at the session limit and excluded | `results.jsonl`, the 18 rows dated 2026-09-11 after 00:50 carrying `extra_skills` of 9 or 0; 18 `batch: e8` rows in `bench/graded.jsonl`; the 13 refused + 5 valid rows of the 00:41–00:46 attempt are **excluded** (spec §4.1) |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1400,3 +1401,127 @@ python3 bench/regrade.py --batch e7        # graded half, 0 sessions
 `bench/distill.py` refuses to re-roll an archived draw. `bench/regrade.py`
 appends, so `--batch` is what keeps a second grading run from writing a
 duplicate copy of every row already in the file.
+
+
+# E8 — does retrieval survive a library with depth? (2026-09-11)
+
+Spec and pre-registration:
+`docs/superpowers/specs/2026-09-11-e8-library-depth-design.md`.
+
+**Depth did not hurt. But the reason is not the one the design predicted, and
+the case that should worry anyone was never tested.**
+
+E7 showed the novelty gate refuses skills that work, which argues for relaxing
+it. Nothing licensed that: every experiment before this ran with a library of
+one or two. E8 installed all ten distilled skills and asked whether the task
+still gets what it needs.
+
+## Result
+
+| task | M — matched alone | L — all ten | C — control |
+|---|---|---|---|
+| `response_text` | 3/3 | **3/3** | 0/3 |
+| `fingerprint` | 3/3 | **3/3** | 0/3 |
+
+18 rows, **zero exclusions** in the counted batch. Arm M reproduced its
+ceiling on both tasks, which §4 made a precondition. Graded probe scores
+agree: 1.000 for every treatment cell, 0.778 and 0.667 for control.
+
+## The mechanism, which is the actual finding
+
+§2.2 predicted that on `response_text` the prompt path would deliver a
+**wrong-trap** skill, because the top two BM25 ranks over all ten are both
+trap-B skills. **That held 3 of 3** — and 5 of 5 counting the refused batch's
+valid rows.
+
+What the design missed is that delivery has two independent paths:
+
+| task | arm | prompt path | symptom path |
+|---|---|---|---|
+| `response_text` | L run 1 | `capped-scan-reports-unknown-not-absent` (wrong trap) | `json-dumps-breaks-token-matching` |
+| `response_text` | L run 2 | same wrong-trap skill | `json-dumps-breaks-token-matching`, `json-escaping-defeats-token-match` |
+| `response_text` | L run 3 | same wrong-trap skill | `json-dumps-breaks-token-matching` |
+| `fingerprint` | L runs 1–3 | `capped-scan-reports-unknown-not-absent` (**right** trap) | — |
+
+**Ranking failed on `response_text` every single time, and the symptom path
+rescued it every single time.** `scripts/detect.py` carries its own
+`INJECT_BUDGET_TOKENS = 1200`, independent of `scripts/retrieve.py`'s and
+refilling per tool call. The relevant skill arrived after the failure
+surfaced, which is exactly when it is useful.
+
+**§2.1 of the spec is falsified and recorded as such.** It claimed only one
+skill could ever inject, from one 1200-token budget against skills costing 759
+to 1192 tokens. It modelled the prompt path and treated it as the whole
+system. Observed: two and three skills delivered.
+
+## Three limits, and the third is the important one
+
+**1. Only `response_text` actually tested depth.** On `fingerprint`, arm L's
+prompt path delivered the *same single skill* as arm M, because that skill is
+rank 1 among all ten. Adding nine skills changed nothing about what arrived.
+"L holds on `fingerprint`" is not evidence that depth is safe there — it is
+evidence that ranking happened to pick correctly, and the arm is a null by
+construction.
+
+**2. n=3 per cell.** As everywhere here.
+
+**3. The rescue path cannot exist for a silent trap.** Of the ten skills, only
+three carry a `symptoms:` list — the three trap-A **anti-skills**. The seven
+`learn` skills carry none:
+
+| cell | symptoms declared |
+|---|---|
+| `A/learn-failure/1,2,3` (anti-skills) | 2 each |
+| all seven `learn` skills | 0 |
+
+Q1 established why: the anti-skill path is **structurally unavailable** for a
+symptomless trap. Every trap-B anti-skill draw refused, in their own words,
+because any `symptoms:` list "would be invented, and invented triggers pollute
+the detection index".
+
+So the rescue that saved `response_text` rides on an artifact class that
+cannot be produced for a trap like `fingerprint`. **E8 never ran the dangerous
+combination — ranking failure on a silent trap — because ranking happened not
+to fail there.** That combination is where library depth would actually bite,
+and it remains untested.
+
+This also corrects E6, which recorded `prompt` as the expected trigger and
+symptoms as "dead in author mode". True of E6's hand-authored payloads; false
+of these distilled anti-skills, whose symptoms are drawn from real assertion
+text and do fire.
+
+## What this does and does not license
+
+**Does:** at a library of ten, with a loud trap, retrieval survives picking
+the wrong skill. Combined with E6 — an irrelevant skill riding along costs
+nothing detectable — the case against relaxing the novelty gate is weaker than
+it was, on the evidence available.
+
+**Does not:** license relaxing it outright. The safety margin measured here is
+supplied by anti-skills the distiller *cannot write* for silent traps, and
+those are exactly the traps Q1 found the distiller refuses most. A library
+grown under a relaxed gate would be rich in `learn` skills carrying no
+symptoms and thin in the anti-skills that did the rescuing.
+
+**The next question is narrower than "is depth safe".** It is: *what happens
+when ranking fails on a trap with no symptoms to fall back on?* Answering it
+needs a library where the matched skill for a silent trap is out-ranked —
+which the current pool does not produce, since `capped-scan-reports-unknown-not-absent`
+ranks first on both prompts.
+
+## First attempt: refused, and excluded
+
+The 00:41–00:46 batch hit the session limit at 00:45:11. 13 of 18 rows carry
+`session_ok: false`; the 5 valid rows are excluded too, under spec §4.1, for
+the reason E7 §5.1 excluded its orphan — a row from an aborted batch pooled
+into a later one is E5's defect and nothing on the row records which batch it
+came from. Their **mechanism** readings are kept and quoted above, because
+they are observations of what injected rather than scores.
+
+## Reproducing
+
+```bash
+bash bench/e8_batch.sh                     # 18 sessions, M/L/C per task
+python3 bench/extract.py --batch e8 <clone>...
+python3 bench/regrade.py --batch e8        # graded half, 0 sessions
+```

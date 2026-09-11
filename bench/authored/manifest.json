@@ -802,5 +802,203 @@
     "diff": "e7-sf-author-response-text-treatment-d-learnnogate-3-3.diff",
     "diff_lines": 129,
     "batch": "e7"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-control-1",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "control",
+    "segment": "",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-control-1.diff",
+    "diff_lines": 138,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-control-2",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "control",
+    "segment": "",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-control-2.diff",
+    "diff_lines": 143,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-control-3",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "control",
+    "segment": "",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-control-3.diff",
+    "diff_lines": 145,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-1",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-treatment-d-learn-1-1.diff",
+    "diff_lines": 138,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-2",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-treatment-d-learn-1-2.diff",
+    "diff_lines": 150,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-3",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-treatment-d-learn-1-3.diff",
+    "diff_lines": 151,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-plus9-1",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1-plus9",
+    "run": 1,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-treatment-d-learn-1-plus9-1.diff",
+    "diff_lines": 140,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-plus9-2",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1-plus9",
+    "run": 2,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-treatment-d-learn-1-plus9-2.diff",
+    "diff_lines": 140,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-fingerprint-preexisting-treatment-d-learn-1-plus9-3",
+    "task": "sf-author-fingerprint-preexisting",
+    "arm": "treatment",
+    "segment": "-d-learn-1-plus9",
+    "run": 3,
+    "base_commit": "589f9dad9ad80a104207f0f21fd583f9be62ec3e",
+    "diff": "e8-sf-author-fingerprint-preexisting-treatment-d-learn-1-plus9-3.diff",
+    "diff_lines": 156,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-control-1",
+    "task": "sf-author-response-text",
+    "arm": "control",
+    "segment": "",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-control-1.diff",
+    "diff_lines": 117,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-control-2",
+    "task": "sf-author-response-text",
+    "arm": "control",
+    "segment": "",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-control-2.diff",
+    "diff_lines": 114,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-control-3",
+    "task": "sf-author-response-text",
+    "arm": "control",
+    "segment": "",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-control-3.diff",
+    "diff_lines": 99,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnnogate-2-1",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnnogate-2",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-treatment-d-learnnogate-2-1.diff",
+    "diff_lines": 128,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnnogate-2-2",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnnogate-2",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-treatment-d-learnnogate-2-2.diff",
+    "diff_lines": 130,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnnogate-2-3",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnnogate-2",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-treatment-d-learnnogate-2-3.diff",
+    "diff_lines": 134,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnnogate-2-plus9-1",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnnogate-2-plus9",
+    "run": 1,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-treatment-d-learnnogate-2-plus9-1.diff",
+    "diff_lines": 116,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnnogate-2-plus9-2",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnnogate-2-plus9",
+    "run": 2,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-treatment-d-learnnogate-2-plus9-2.diff",
+    "diff_lines": 117,
+    "batch": "e8"
+  },
+  {
+    "clone": "sf-author-response-text-treatment-d-learnnogate-2-plus9-3",
+    "task": "sf-author-response-text",
+    "arm": "treatment",
+    "segment": "-d-learnnogate-2-plus9",
+    "run": 3,
+    "base_commit": "4eeaa9a4a95f843470d611dc07764d54b80ea2cf",
+    "diff": "e8-sf-author-response-text-treatment-d-learnnogate-2-plus9-3.diff",
+    "diff_lines": 117,
+    "batch": "e8"
   }
 ]
