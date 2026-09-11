@@ -32,13 +32,22 @@ Never merge without the user approving that specific cluster.
    - a body that is one coherent procedure, not concatenated procedures
    - for `kind: skill`, a literal `## Verification` heading in the body.
      `save_skill.py` rejects a skill without one.
+   - for `kind: antiskill`, the body must contain all four literal headings
+     `## Trap`, `## Symptom`, `## Cause`, and `## Fix`; `symptoms:` must be a
+     non-empty frontmatter list; and every symptom must be at least 8
+     characters long AND tokenize to at least 2 tokens. `save_skill.py`
+     rejects an antiskill missing any of this.
    - **keep every member's distinct `Do NOT use when` clauses.** Losing the
      exclusions is how a merged skill becomes the over-triggering entry that
      this command exists to prevent.
    Keep it about the one bug. Do not generalize it into a shared parent
    pattern — that is a different feature and is out of scope here.
 5. Write the draft to a temp file and save it through the enforced path:
-   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/save_skill.py" <draft> --scope <scope> --action update`
+   `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/save_skill.py" <draft> --scope <scope> --project-root <root> --action update`
+   Always pass `--project-root <root>` using the cluster's `root` field --
+   it defaults to cwd, and a project skill's store is resolved from that
+   root, so omitting it silently breaks project-scope consolidation when cwd
+   isn't the project root.
    If it is REJECTED, report the rejection, archive nothing, and move to the
    next cluster.
 6. Only after a successful save, retire the rest:

@@ -3,6 +3,7 @@ Run: python3 tests/test_consolidate.py
 """
 import pathlib
 import sys
+import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
 import consolidate
@@ -197,15 +198,20 @@ def test_members_carry_only_what_the_command_file_needs():
     assert set(m) == {"name", "bucket", "successes", "path"}, m
 
 
-def _with_fake_archive(fn):
-    """Replace library.cmd_archive; return (result, names it was called with)."""
+def _with_fake_archive(fn, live_names=("a",)):
+    """Replace library.cmd_archive and library.rows (cmd_retire now checks
+    `keep` against rows() before archiving anything); return (result, names
+    cmd_archive was called with)."""
     calls = []
-    real = consolidate.library.cmd_archive
+    real_archive = consolidate.library.cmd_archive
+    real_rows = consolidate.library.rows
     consolidate.library.cmd_archive = lambda n: (calls.append(n), 0)[1]
+    consolidate.library.rows = lambda: [{"name": n} for n in live_names]
     try:
         return fn(), calls
     finally:
-        consolidate.library.cmd_archive = real
+        consolidate.library.cmd_archive = real_archive
+        consolidate.library.rows = real_rows
 
 
 def test_retire_never_archives_the_kept_name():
@@ -232,14 +238,110 @@ def test_a_failing_archive_is_reported_and_the_rest_still_run():
         calls.append(n)
         return 1 if n == "b" else 0
 
-    real = consolidate.library.cmd_archive
+    real_archive = consolidate.library.cmd_archive
+    real_rows = consolidate.library.rows
     consolidate.library.cmd_archive = fake
+    consolidate.library.rows = lambda: [{"name": "a"}]
     try:
         rc = consolidate.cmd_retire("a", ["b", "c"])
     finally:
-        consolidate.library.cmd_archive = real
+        consolidate.library.cmd_archive = real_archive
+        consolidate.library.rows = real_rows
     assert calls == ["b", "c"], calls
     assert rc == 1, rc
+
+
+def test_retire_refuses_and_archives_nothing_when_keep_is_absent():
+    """Finding 1's regression. `keep` is a positional argv token a model
+    writes from commands/consolidate.md, unverified by argparse. If it does
+    not name a real library skill, archiving the rest would destroy the
+    merge output with nothing live to show for it -- fail closed instead."""
+    calls = []
+    real_archive = consolidate.library.cmd_archive
+    real_rows = consolidate.library.rows
+    consolidate.library.cmd_archive = lambda n: (calls.append(n), 0)[1]
+    consolidate.library.rows = lambda: [{"name": "b"}, {"name": "c"}]
+    try:
+        rc = consolidate.cmd_retire("a", ["b", "c"])
+    finally:
+        consolidate.library.cmd_archive = real_archive
+        consolidate.library.rows = real_rows
+    assert calls == [], calls
+    assert rc == 1, rc
+
+
+def _load_metas_with(rows, index=None):
+    """Run consolidate.load_metas() with library.rows and retrieve.load_index
+    monkeypatched to fixtures. Never touches the operator's real library and
+    never invokes a model."""
+    real_rows = consolidate.library.rows
+    real_index = consolidate.retrieve.load_index
+    consolidate.library.rows = lambda: rows
+    consolidate.retrieve.load_index = lambda: index
+    try:
+        return consolidate.load_metas()
+    finally:
+        consolidate.library.rows = real_rows
+        consolidate.retrieve.load_index = real_index
+
+
+def test_load_metas_skips_a_missing_file_but_returns_the_rest():
+    """The index can outlive a hand-deleted store; one bad row must not stop
+    the user seeing the rest of their library."""
+    with tempfile.TemporaryDirectory() as d:
+        good = pathlib.Path(d) / "good.md"
+        good.write_text(
+            "---\nname: good\nkind: skill\nscope: project\n"
+            "description: x. Do NOT use when y.\n---\nbody\n", encoding="utf-8")
+        rows = [
+            {"name": "missing", "kind": "skill", "scope": "project",
+             "bucket": "working", "successes": 1, "last_used": None,
+             "path": str(pathlib.Path(d) / "nope.md")},
+            {"name": "good", "kind": "skill", "scope": "project",
+             "bucket": "working", "successes": 1, "last_used": None,
+             "path": str(good)},
+        ]
+        metas = _load_metas_with(rows)
+    assert [m["name"] for m in metas] == ["good"], metas
+
+
+def test_load_metas_skips_a_file_with_no_frontmatter():
+    with tempfile.TemporaryDirectory() as d:
+        bad = pathlib.Path(d) / "bad.md"
+        bad.write_text("just a body, no frontmatter fence\n", encoding="utf-8")
+        rows = [{"name": "bad", "kind": "skill", "scope": "project",
+                 "bucket": "working", "successes": 0, "last_used": None,
+                 "path": str(bad)}]
+        metas = _load_metas_with(rows)
+    assert metas == [], metas
+
+
+def test_load_metas_skips_a_non_utf8_file_rather_than_raising():
+    """Finding 3's regression: UnicodeDecodeError is a ValueError, not an
+    OSError -- a bare `except OSError` let it escape and crash propose."""
+    with tempfile.TemporaryDirectory() as d:
+        binary = pathlib.Path(d) / "binary.md"
+        binary.write_bytes(b"\xff\xfe\x00not utf-8 at all\x80")
+        rows = [{"name": "binary", "kind": "skill", "scope": "project",
+                 "bucket": "working", "successes": 0, "last_used": None,
+                 "path": str(binary)}]
+        metas = _load_metas_with(rows)   # must not raise
+    assert metas == [], metas
+
+
+def test_load_metas_coerces_a_bare_string_fingerprints_to_empty_list():
+    """A bare scalar `fingerprints: oops` must coerce to [], not splay the
+    string into one-character list entries."""
+    with tempfile.TemporaryDirectory() as d:
+        f = pathlib.Path(d) / "skill.md"
+        f.write_text(
+            "---\nname: skill\nkind: skill\nscope: project\n"
+            "fingerprints: oops\n---\nbody\n", encoding="utf-8")
+        rows = [{"name": "skill", "kind": "skill", "scope": "project",
+                 "bucket": "working", "successes": 0, "last_used": None,
+                 "path": str(f)}]
+        metas = _load_metas_with(rows)
+    assert metas[0]["fingerprints"] == [], metas
 
 
 if __name__ == "__main__":

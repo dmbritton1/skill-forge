@@ -20,6 +20,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import library
+import retrieve
 import save_skill
 
 #: Highest first. A merged skill inherits its best member's NAME, because the
@@ -111,19 +112,25 @@ def load_metas():
     """One meta per indexed skill, index metadata joined to its frontmatter.
 
     `library.rows()` has the live bucket and confidence but not the
-    verification command: `sync._write_index` stores only a tokenized form and
-    omits the raw string. So the command, fingerprints and symptoms are read
-    back out of each skill's own file, via the parser save_skill already owns.
+    verification command or the skill's root: `sync._write_index` stores only
+    a tokenized form of the command and `rows()` doesn't pass the index's
+    `root` field through. So the command, fingerprints and symptoms are read
+    back out of each skill's own file, via the parser save_skill already owns,
+    and root comes from a name->root map built off `retrieve.load_index()` --
+    the same index `rows()` itself reads.
 
-    A skill whose file has gone missing is skipped rather than fatal -- the
-    index can outlive a hand-deleted store, and one bad row must not stop the
-    user seeing the rest of their library.
+    A skill whose file has gone missing, or whose file is not valid UTF-8
+    text, is skipped rather than fatal -- the index can outlive a
+    hand-deleted store, and one bad row must not stop the user seeing the
+    rest of their library.
     """
+    idx = retrieve.load_index() or {}
+    roots = {e.get("name"): e.get("root") for e in idx.get("entries", [])}
     out = []
     for r in library.rows():
         try:
             text = pathlib.Path(r["path"]).read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, ValueError):    # ValueError: UnicodeDecodeError
             continue
         fm, _ = save_skill.parse_frontmatter(text)
         if not fm:
@@ -133,6 +140,7 @@ def load_metas():
         out.append({"name": r["name"], "kind": r["kind"], "scope": r["scope"],
                     "bucket": r["bucket"], "successes": r["successes"],
                     "last_used": r["last_used"], "path": r["path"],
+                    "root": roots.get(r["name"]),
                     "command": fm.get("verification.command"),
                     "fingerprints": fps if isinstance(fps, list) else [],
                     "symptoms": syms if isinstance(syms, list) else []})
@@ -153,6 +161,8 @@ def proposal(metas, name=None):
             continue
         out.append({
             "command": c["command"], "kind": c["kind"], "scope": c["scope"],
+            # Members share a scope, so they share a root -- take the first's.
+            "root": c["members"][0].get("root"),
             "keep": inherit_name(c["members"]),
             "members": [{"name": m["name"], "bucket": m["bucket"],
                          "successes": m["successes"], "path": m["path"]}
@@ -178,10 +188,21 @@ def cmd_retire(keep, names):
     `cmd_archive` moves a store directory by NAME, and the merged skill lives
     at the kept name, so archiving it would move the merge itself.
 
+    `keep` is a positional argv token written by a model following
+    commands/consolidate.md, not something this function derives itself --
+    so it is verified against the live library before anything is archived.
+    If `keep` is not currently a real library skill (stale proposal, typo,
+    wrong cluster), archiving the rest around it would destroy the merge
+    output and leave nothing live, so this fails closed and archives nothing.
+
     A failure does not stop the loop. Stopping would leave the library in a
     state nobody chose: merged skill saved, some members retired, the rest
     silently not.
     """
+    if not any(r["name"] == keep for r in library.rows()):
+        print("consolidate: keep %r is not in the library; archiving nothing"
+              % keep, file=sys.stderr)
+        return 1
     rc = 0
     for n in names:
         if n == keep:
