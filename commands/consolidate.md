@@ -24,8 +24,14 @@ Never merge without the user approving that specific cluster.
    - `name:` exactly the cluster's `keep`
    - `kind:` and `scope:` the cluster's, unchanged
    - `verification.command:` the cluster's `command`, re-quoted
+   - `description:` written fresh for the merged skill. `save_skill.py`
+     REQUIRES this key, and rejects any description whose text does not
+     contain a `Do NOT use when` clause — it matches `do not use`
+     case-insensitively. This is the frontmatter field, not the body.
    - `fingerprints:` and `symptoms:` exactly the cluster's merged lists
    - a body that is one coherent procedure, not concatenated procedures
+   - for `kind: skill`, a literal `## Verification` heading in the body.
+     `save_skill.py` rejects a skill without one.
    - **keep every member's distinct `Do NOT use when` clauses.** Losing the
      exclusions is how a merged skill becomes the over-triggering entry that
      this command exists to prevent.
