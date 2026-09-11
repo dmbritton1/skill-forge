@@ -72,101 +72,96 @@ four drafts, so there is no failing group to split on. It needs drafts the gate
 
 ---
 
-## 2. START HERE — E7 is half-run and the resume is one command
+## 2. START HERE — E7 is answered, and it changes the priority list
 
-**E7 phase 1 is done and answered its question. Phase 2 is 1 of 24 sessions
-in and was stopped by hand to stay inside a usage limit.**
+**The novelty self-gate was refusing skills that work.** Full write-up in
+`bench/RESULTS.md`, section "E7 — is the novelty gate over-refusing?".
+Pre-registration: `docs/superpowers/specs/2026-09-10-e7-novelty-gate-design.md`.
 
-Spec and pre-registration: `docs/superpowers/specs/2026-09-10-e7-novelty-gate-design.md`.
-Read §5.1 before running anything — it is an amendment written while phase 2
-was stopped, and it binds the resume.
+| | gate on (Q1) | gate suspended (E7) |
+|---|---|---|
+| `learn` draws that emitted | 1 of 6 | **6 of 6** |
+| those drafts, probed | — | **16/18**, against same-batch control **0/6** |
 
-**Phase 1 result.** Six bypass draws, three per trap, `learn` distiller only,
-novelty self-gate suspended by `--no-novelty-gate`. **All six emitted.** Q1's
-same cell with the gate on emitted 1 of 6. Every draw: `session_ok` true,
-repair resolved, one draft, zero `save_skill` rejections, containment
-reverted, global store left clean. Delivery predicted before probing — all six
-`deliver`, BM25 2.479 to 3.767. Archived under `bench/distilled/*/learn-nogate/`.
+Zero exclusions across 24 phase-2 rows. Every treatment run injected exactly
+one skill at `trigger: prompt`. Every one of the six drafts individually beat
+the floor; the weakest was 2 of 3.
 
-Step 8 stopped nothing. Two of the five refusals E7 targets had cited the
-verification-command requirement alongside novelty, so a partial yield was
-expected and §5 carries a rule for reporting it. That rule has nothing to
-report: suspending step 2 alone moved emission from 1/6 to 6/6.
+Read the limits before using it. **n=3 per cell.** The 18 treatment runs are
+6 artifacts × 3 runs, not 18 independent draws — the pooled Fisher p of 0.0002
+is in the write-up only to be discounted. And E7 re-ran the draws rather than
+recovering Q1's refused drafts, which were never written.
 
-**What phase 1 does NOT show.** Whether those six drafts work. Emission is not
-efficacy, and the whole point of E7 is that the gate's claim is about
-knowledge the model already has. A draft that emits and then scores at control
-vindicates the gate. Phase 2 is the experiment.
+**What E7 does NOT say is what replaces the gate.** It measures that "a fresh
+Claude already knows this" is wrong on these two traps. A library with no
+filter at all is untested in either direction, and that is now the open
+question rather than whether the gate is too strict.
 
-**To resume — run the whole of phase 2, not the remainder.** §5.1 excludes the
-single orphan control row from the killed batch (`sf-author-response-text`,
-control, `resolved: false`, 2026-09-10T21:01:40) and requires all 24 sessions
-in one batch. Check the session meter first (§0), then:
+**Two things are settled that were not before:**
 
-```
-bash bench/e7_phase2.sh
-```
-
-It runs, in this order, control interleaved rather than trailing as §5
-requires: control `sf-author-response-text` ×3; each of
-`bench/distilled/A/learn-nogate/{1,2,3}/SKILL.md` as `--skill-from` against
-`sf-author-response-text` ×3; control `sf-author-fingerprint-preexisting` ×3;
-each of `bench/distilled/B/learn-nogate/{1,2,3}/SKILL.md` against
-`sf-author-fingerprint-preexisting` ×3. **`--skill-from` must be absolute**
-(§4). 24 sessions, roughly an hour.
-
-Afterwards: extract the phase-2 clones into `bench/authored/` and run
-`bench/regrade.py` for the secondary graded score (§3.3) — zero sessions.
-Report probe score beside binary `resolved`, never instead of it. The judge is
-out of scope (§8).
-
-**Everything else on this branch is committed and the suite is green**
-(731 tests). Branch `claude/e7-novelty-gate-bypass`, 5 commits ahead of `main`.
+- **The graded scorer is finished, and the answer is that it adds nothing
+  here.** It reproduced the binary verdict in 40 of 42 rows on 2026-09-10 and
+  24 of 24 on E7's fresh artifacts. These tasks are single-trap — a session
+  either sees the trap or it does not — so no scorer can manufacture middle
+  ground the work does not contain. **Do not build more probes for these two
+  tasks.** The instrument works; there is nothing for it to resolve.
+- **`/consolidate`'s blocker has a measured break in it.** It was blocked
+  because the library is empty, which was because the distiller rarely emits,
+  which was because of this gate.
 
 ## 3. Next steps, in priority order
 
-### 3.2 E4 is still blocked, and the diagnosis changed
+### 3.2 E4 is still blocked, and the scorer did not unblock it
 
 E4 asks whether an irrelevant skill hurts **versus nothing**. It needs a task
-whose control baseline is neither 0 nor 100%. Live control cells, superseded
-rows excluded:
+whose control baseline is neither 0 nor 100%.
 
-| task | live control |
-|---|---|
-| `sf-author-response-text` | 1/6 |
-| `sf-author-fingerprint-preexisting` | 0/6 |
-| `sf-escaping-breaks-symptom-match` | 2/2 |
-| `sf-truncation-reports-absent` | 2/2 |
+The 2026-09-09 revision of this file argued the real blocker was binary
+scoring, and that a graded rubric over the authored function would give control
+partial credit and therefore room to lose. **That scorer was built, and the
+argument did not survive it.** The 20-probe suite reproduces the binary
+`resolved` verdict in 40 of 42 rows (2026-09-10) and 24 of 24 (E7). Control
+does score off zero — 0.636 and 0.778 — but **no artifact has ever scored
+below that floor**, so the room to fall is asserted, not observed.
 
-**1/6 is not the mid-range baseline it looks like.** If the true rate is 1/6, a
-*harmless* arm reads 0/6 **33.5%** of the time. No room to fall. (From 50%, the
-same reading occurs 1.6% of the time.)
+These two tasks are single-trap: a session either sees the trap or it does
+not. No scorer manufactures middle ground the work does not contain. E4 needs
+a genuinely mid-range task, and building more probes for these two will not
+produce one.
+
+**Control figures: re-derive them, do not quote them.** The "1/6 and 0/6"
+carried in three specs cannot be reproduced from one consistent rule — 1/6
+needs `results-round1.jsonl` pooled in, 0/6 needs it left out. Every reading
+puts both floors at or near zero, so nothing downstream changed, but the
+figure is not what it claims. E7's own same-batch control is **0/6**, measured
+2026-09-11, and that one is clean.
 
 **Do not pool across `results-leaky-stub.jsonl`.** Its author-task rows are 3/3
-*because that stub leaked the answer*. Pooling them makes `response_text`
-control look like 44% and makes E4 look unblocked. It is not. I made this exact
-mistake in this session and caught it only by re-deriving from the files.
+*because that stub leaked the answer*. Pooling makes `response_text` control
+look like 44% and makes E4 look unblocked. It is not.
 
-**The real blocker may be binary scoring, not the task.** `resolved` is
-all-or-nothing, so a 0/6 control has nowhere to fall *by construction*. A graded
-rubric over the authored function (does it cap? does it set the unknown flag?
-does it handle the nested case?) gives control partial credit, and partial
-credit has room to lose. The pilot rejected *turns-to-completion* as
-high-variance and gameable; that rejection does not extend to a rubric over the
-artifact. This reframes E4 from "we need a task that does not exist" to "we need
-a scorer we have not written", which is tractable work on a known target.
+### 3.3 What should replace the novelty gate? (new, from E7)
 
-A graded scorer would also sharpen everything else here. Several of this
-project's resolution problems trace back to three bits of information per cell.
+E7 answered the question this slot used to hold: the gate is over-refusing.
+The successor question is what goes in its place, and it is genuinely open.
 
-### 3.3 Probe a rejected draft (new, from Q1)
+The gate's justification is that junk saves pollute the library. Two
+measurements now bracket it. E6: an irrelevant skill that arrived, outranked
+the relevant one and occupied 93% of the injection budget cost **nothing
+detectable** (R 6/6, R+I 6/6, n=3 per cell). E7: refusal cost a working skill
+**six times out of six**. Pollution looks cheap on the one axis measured;
+refusal looks expensive.
 
-The eight novelty-gate refusals are never tested. Take one, save it anyway, and
-probe it. If it scores like the accepted ones, the gate is over-refusing and the
-library is being starved. Nobody has specified this experiment; it is cheap
-(the drafts' reasoning is archived in `bench/distilled/*/*/*/meta.json`, but the
-drafts themselves were never written, so you would need to re-run those draws
-with the gate bypassed).
+That does **not** license removing the gate. E6 measured one irrelevant skill
+against one relevant one in a library of two. Nobody has measured a library of
+fifty, where retrieval has to choose, and eviction and ranking are still four
+of five hot-tier mechanisms with no evidence behind them (§3.5). "No filter"
+is untested in either direction.
+
+The cheap next probe: keep emitting with the gate off and measure whether
+retrieval still finds the right skill as the library grows. That is a
+different shape of experiment from everything here so far — it needs a library
+with depth, not another n=3 cell.
 
 ### 3.4 Build `/consolidate` (v0.3)
 
