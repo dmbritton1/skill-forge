@@ -170,15 +170,42 @@ def cmd_propose(name=None):
     return 0
 
 
+def cmd_retire(keep, names):
+    """Archive every name except `keep`, reversibly.
+
+    Archiving, never deleting: `library.py restore` is the undo, and it
+    already exists. `keep` is filtered out rather than assumed absent --
+    `cmd_archive` moves a store directory by NAME, and the merged skill lives
+    at the kept name, so archiving it would move the merge itself.
+
+    A failure does not stop the loop. Stopping would leave the library in a
+    state nobody chose: merged skill saved, some members retired, the rest
+    silently not.
+    """
+    rc = 0
+    for n in names:
+        if n == keep:
+            continue
+        if library.cmd_archive(n) != 0:
+            print("consolidate: could not archive %r" % n, file=sys.stderr)
+            rc = 1
+    return rc
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest="cmd", required=True)
     pr = sub.add_parser("propose")
     pr.add_argument("--name", default=None,
                     help="only the cluster containing this skill")
+    rt = sub.add_parser("retire")
+    rt.add_argument("keep")
+    rt.add_argument("names", nargs="+")
     args = ap.parse_args(argv)
     if args.cmd == "propose":
         return cmd_propose(args.name)
+    if args.cmd == "retire":
+        return cmd_retire(args.keep, args.names)
     return 1
 
 

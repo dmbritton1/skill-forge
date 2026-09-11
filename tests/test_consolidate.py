@@ -197,6 +197,51 @@ def test_members_carry_only_what_the_command_file_needs():
     assert set(m) == {"name", "bucket", "successes", "path"}, m
 
 
+def _with_fake_archive(fn):
+    """Replace library.cmd_archive; return (result, names it was called with)."""
+    calls = []
+    real = consolidate.library.cmd_archive
+    consolidate.library.cmd_archive = lambda n: (calls.append(n), 0)[1]
+    try:
+        return fn(), calls
+    finally:
+        consolidate.library.cmd_archive = real
+
+
+def test_retire_never_archives_the_kept_name():
+    """cmd_archive moves a store directory BY NAME. The merged skill lives at
+    the kept name, so archiving it would move the merge itself."""
+    rc, calls = _with_fake_archive(
+        lambda: consolidate.cmd_retire("a", ["a", "b", "c"]))
+    assert calls == ["b", "c"], calls
+    assert rc == 0, rc
+
+
+def test_retire_with_nothing_to_do_is_not_an_error():
+    rc, calls = _with_fake_archive(lambda: consolidate.cmd_retire("a", ["a"]))
+    assert calls == [], calls
+    assert rc == 0, rc
+
+
+def test_a_failing_archive_is_reported_and_the_rest_still_run():
+    """Stopping at the first failure would leave the library in a state nobody
+    chose: merged skill saved, some members retired, the rest silently not."""
+    calls = []
+
+    def fake(n):
+        calls.append(n)
+        return 1 if n == "b" else 0
+
+    real = consolidate.library.cmd_archive
+    consolidate.library.cmd_archive = fake
+    try:
+        rc = consolidate.cmd_retire("a", ["b", "c"])
+    finally:
+        consolidate.library.cmd_archive = real
+    assert calls == ["b", "c"], calls
+    assert rc == 1, rc
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
