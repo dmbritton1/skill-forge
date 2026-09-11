@@ -24,12 +24,21 @@ E8 measured the delivery budget. `INJECT_BUDGET_TOKENS` is 1200 and
 
 Measured over the two mergeable clusters in `bench/distilled/`:
 
-| cluster (key = `verification.command`) | members | member cost | naive concatenation |
+| cluster (key = `verification.command` + `kind` + `scope`) | members | member cost | naive concatenation |
 |---|---|---|---|
-| `python3 tests/test_detect.py` (trap A) | 3 | 798, 869, 817 | **2484** |
-| `python3 tests/test_retrieve.py` (trap B) | 4 | 1192, 1096, 957, 1072 | **4317** |
+| `test_detect.py`, project (trap A) | 3 | 798, 869, 817 | **2484** |
+| `test_retrieve.py`, **project** (trap B) | 2 | 957, 1072 | **2029** |
+| `test_retrieve.py`, **global** (trap B) | 2 | 1192, 1096 | **2288** |
 
-Against a budget of **1200**.
+Against a budget of **1200**. Every cluster exceeds it.
+
+**Correction, made before any session ran.** An earlier derivation of this
+table grouped trap B as one cluster of four, concatenating to 4317. That was
+wrong: it ignored `scope`, and `clusters()` never crosses it (consolidate spec
+§3.2). Two of the trap-B drafts chose global scope during E7 and two chose
+project, so the shipped code finds **three** clusters, not two. The figures
+above come from calling `consolidate.clusters()` and `consolidate.inherit_name()`
+directly rather than re-implementing them.
 
 So a merged skill has to compress three or four skills into roughly the size
 of **one** of them, or it can never be injected. That reframes the experiment:
@@ -44,10 +53,17 @@ one is out of scope here (§7).
 
 ## 2. Viability
 
-**Two clusters are mergeable, and they are the ones the shipped clustering
-key finds.** A third group of two anti-skills declares no
-`verification.command` at all, so `clusters()` leaves it unclustered by design
-(consolidate spec §2.1); E9 does not touch it.
+**Three clusters are mergeable; E9 probes two of them.** The two it probes are
+the trap-A project cluster and the trap-B **project** cluster — the latter
+because it contains `B/learn/1`, the member §3.2 names as arm R for
+`fingerprint`. The trap-B global cluster is left alone: probing a
+global-scope skill would install into the operator's real home store rather
+than a clone, which the bench avoids by construction.
+
+Three further skills are unclustered by design and E9 does not touch them —
+two anti-skills declaring no `verification.command`, and one skill that is the
+only member with its command (consolidate spec §2.1's disclosed false
+negative).
 
 **Per-member scores already exist**, from E7 and Q1, and they shape what is
 answerable:
@@ -55,14 +71,15 @@ answerable:
 | member | task | score |
 |---|---|---|
 | `A/learn-nogate/1`, `/2`, `/3` | `response_text` | 3/3 each |
-| `B/learn-nogate/1` | `fingerprint` | 2/3 |
-| `B/learn-nogate/2` | `fingerprint` | 3/3 |
 | `B/learn-nogate/3` | `fingerprint` | 2/3 |
 | `B/learn/1` | `fingerprint` | 3/3 |
 
+(`B/learn-nogate/1` at 2/3 and `/2` at 3/3 are in the global-scope cluster,
+which E9 does not probe — see §3.1.)
+
 **Every trap-A member is already at ceiling**, so that cluster cannot show a
-merge outperforming its average — it can only hold or fall. Trap B has a
-little spread (2/3 twice, 3/3 twice) and no more. So "does the merge match its
+merge outperforming its average — it can only hold or fall. The trap-B cluster
+E9 probes has two members, 2/3 and 3/3, which is a spread of one run. So "does the merge match its
 best member or its average" is **not answerable at this n**, and E9 does not
 claim to answer it. The answerable question is whether merging **breaks** a
 ceiling that every member holds.
