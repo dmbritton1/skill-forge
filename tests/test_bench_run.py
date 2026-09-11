@@ -26,6 +26,7 @@ def _reset():
     bench_run.SKILL_FROM = None
     bench_run.FORCE_HOT = False
     bench_run.PLUS_SKILL = None
+    bench_run.INJECT_BUDGET = None
 
 
 def test_arm_segment_is_empty_for_control_and_plain_treatment():
@@ -66,6 +67,21 @@ def test_arm_segment_separates_the_three_treatment_arms():
     dist = bench_run.arm_segment("treatment")
     _reset()
     assert len({plain, hot, dist}) == 3, (plain, hot, dist)
+
+
+def test_arm_segment_records_the_injection_budget():
+    """E10 runs two budgets in one batch. Without a segment for it, the
+    2000-token arm shares a clone AND a ledger path with the 1200 one, and
+    the second run overwrites the first one's evidence."""
+    _reset()
+    bench_run.INJECT_BUDGET = 2000
+    try:
+        assert bench_run.arm_segment("treatment") == "-b2000"
+        assert bench_run.arm_segment("control") == ""
+        bench_run.PLUS_SKILL = ["/x/bench/distilled/trapB/consolidated/1/SKILL.md"]
+        assert bench_run.arm_segment("treatment") == "-plus-b2000"
+    finally:
+        _reset()
 
 
 def test_skill_src_defaults_to_the_task_and_is_overridden():

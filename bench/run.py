@@ -64,6 +64,10 @@ SKILL_FROM = None
 # E6: an ADDITIONAL skill installed beside the task's own, to ask whether an
 # irrelevant one riding along dilutes a relevant one. Off = None.
 PLUS_SKILL = None
+#: Test-only (E10): per-run override for retrieve.py's injection budget, in
+#: tokens. None = the shipped 1200. arm_segment carries it into the clone
+#: path, because a batch runs two budgets and they must not share a clone.
+INJECT_BUDGET = None
 
 
 def expand(value):
@@ -209,6 +213,8 @@ def arm_segment(arm):
     n = len(PLUS_SKILL or ())
     if n:
         seg += "-plus" + (str(n) if n > 1 else "")
+    if INJECT_BUDGET:
+        seg += "-b%d" % INJECT_BUDGET
     return seg
 
 
@@ -381,6 +387,9 @@ def one(task, arm, run_idx, plugin_dir):
     # value can never leak into this one.
     os.environ["SKILLFORGE_FORCE_HOT"] = (
         task["skill"] if FORCE_HOT and arm == "treatment" else "")
+    # Same per-run discipline: exported unconditionally so a previous run's
+    # value can never leak into this one.
+    os.environ["SKILLFORGE_INJECT_BUDGET"] = str(INJECT_BUDGET or "")
     # Phase 2 saves a skill per treatment run, and a create spawns a detached
     # `claude -p` critique that is never waited on. 42 of those would run
     # concurrently with the sessions being timed, skewing `secs` and turning
@@ -410,6 +419,7 @@ def one(task, arm, run_idx, plugin_dir):
     rec = {"task": task["id"], "arm": arm, "run": run_idx,
            "resolved": all(post.values()), "per_test": post,
            "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
+           "inject_budget": INJECT_BUDGET,
            "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
            "skill_note": skill_note, "test_tail": tail,
            "injections": injections(ledger_db),
@@ -449,12 +459,20 @@ def main(argv=None):
     ap.add_argument("--skill-from", default=None,
                     help="Q1: install this SKILL.md instead of the task's own."
                          " The path decides the clone segment (test-only)")
+    ap.add_argument("--inject-budget", type=int, default=None,
+                    help="E10: run the prompt hook at this injection budget"
+                         " in tokens instead of the shipped 1200 (test-only)")
     args = ap.parse_args(argv)
-    global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL
+    global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL, INJECT_BUDGET
     MODEL = args.model
     FORCE_HOT = args.force_hot
     SKILL_FROM = args.skill_from
     PLUS_SKILL = args.plus_skill
+    INJECT_BUDGET = args.inject_budget
+    if INJECT_BUDGET is not None and INJECT_BUDGET <= 0:
+        # retrieve.main swallows the ValueError a bad value would raise and
+        # then delivers nothing, silently. Fail here instead.
+        ap.error("--inject-budget must be a positive integer")
 
     cfg = expand(json.loads((ROOT / "tasks.json").read_text(encoding="utf-8")))
     problems = check_config(cfg)
