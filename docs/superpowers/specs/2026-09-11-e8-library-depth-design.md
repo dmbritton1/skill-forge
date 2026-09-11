@@ -139,6 +139,60 @@ Fixed before any data exists.
 - A run whose injected skill is not the one §2.2 predicts is reported on its
   own line with the skill it actually received.
 
+### 4.1 Amendment, 2026-09-11 — the first attempt was refused, and §2.1 is wrong
+
+**The batch hit the session limit at 00:45:11.** 13 of 18 rows carry
+`session_ok: false` and are excluded under §4. What survives is arm M
+`response_text` 3/3 and arm L `response_text` 2 of 3 runs — **no control arm
+and no `fingerprint` data at all**. E8 is postponed, not answered, and no
+score from this attempt is reported as a result. Same rule, same reason, as
+E6's first attempt.
+
+**§2.1 is falsified, and by valid sessions.** It claimed only one skill can
+ever inject. Observed: arm L delivered **two** skills on one run and **three**
+on another.
+
+The error was scope. §2.1 modelled `scripts/retrieve.py`, the
+UserPromptSubmit path, and treated its 1200-token budget as the whole story.
+`scripts/detect.py` carries **its own `INJECT_BUDGET_TOKENS = 1200`** for the
+symptom-triggered PostToolUse path. The two budgets are independent and the
+second one refills per event, so total delivery is not bounded by the first.
+
+**§2.2's ranking prediction held exactly.** On `response_text` the single
+prompt-path arrival was `capped-scan-reports-unknown-not-absent` — rank 1, and
+a trap-B skill, as predicted. The matched skill did lose its prompt-path slot
+to a skill about a different bug.
+
+**What arrived anyway changes the question.** Both valid arm-L runs then
+received a *relevant* trap-A skill at `trigger: symptom`, after the failure
+surfaced, and both resolved:
+
+| run | prompt path | symptom path |
+|---|---|---|
+| L1 | `capped-scan-reports-unknown-not-absent` (wrong trap) | `json-dumps-breaks-token-matching` |
+| L2 | `capped-scan-reports-unknown-not-absent` (wrong trap) | `json-dumps-breaks-token-matching`, `json-dumps-fuses-tokens-across-newlines` |
+
+This also corrects something E6 recorded: its §4 expected `prompt` for both
+arms and called symptoms "dead in author mode". That was true of E6's
+hand-authored payloads. These distilled skills carry literal symptom lists
+drawn from real assertion text, and those symptoms fire.
+
+**§5's predicted dissociation is withdrawn.** It rested on the matched skill
+never arriving on `response_text`, and it does arrive. The question E8 now
+asks is sharper and was not the one it was designed for:
+
+> **Does symptom-triggered delivery rescue a task whose prompt-path ranking
+> picked the wrong skill?**
+
+Two valid runs say yes. Two runs is not an answer.
+
+**Ruling for the re-run**, written before it exists: the 5 valid rows from
+this attempt are **excluded** and the batch runs all 18 again. They are
+excluded for the reason E7 §5.1 excluded its orphan — a row from an aborted
+batch pooled into a later one is E5's defect, and nothing on the row records
+which batch it came from. The mechanism readings above are kept, because they
+are observations of what injected, not scores.
+
 ## 5. How to read the outcome
 
 - **L falls on `response_text`, holds on `fingerprint`.** The predicted
