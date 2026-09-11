@@ -33,7 +33,7 @@ def entry(path, trap):
             '_trap': trap, '_cost': max(1, len(txt)//4), '_path': path}
 
 def deliver(pool, prompt):
-    """Replicates retrieve.inject's prompt-path selection: rank, then skip
+    """Replicates retrieve.run_hook's prompt-path selection: rank, then skip
     anything over remaining budget, capped at MAX_SKILLS non-antiskills."""
     budget, n, out = retrieve.INJECT_BUDGET_TOKENS, 0, []
     for e, s, m in retrieve.rank(prompt, pool):

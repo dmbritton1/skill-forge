@@ -80,8 +80,8 @@ tasks, zero exclusions.
 **6. E8 follow-up — does consolidating fix E8's ranking failure? No, it makes
 it worse.** The correct skill fell from rank 3 to rank 5 after merging. A
 description covering three skills matches any single prompt less specifically
-than a single-purpose one, and BM25 rewards specificity. This is E2's transfer
-null reappearing one layer down, and nothing in the `/consolidate` design
+than a single-purpose one, and BM25 rewards specificity. This is brief Q2's
+transfer null reappearing one layer down, and nothing in the `/consolidate` design
 anticipated it.
 
 **7. Budget derivation — what budget delivers a correct skill?** 3000 works.
@@ -140,8 +140,8 @@ to 776 with exactly that one failure** — measured by applying the change and
 running it, then reverting.
 
 So the change is not mechanical. Someone has to decide that the old intent was
-wrong. The case for saying yes: E2's transfer null measured a plausible but
-wrong skill at 0/6, so "something is better than nothing" is not supported by
+wrong. The case for saying yes: brief Q2's transfer arm measured a plausible
+but wrong skill at 0/6, so "something is better than nothing" is not supported by
 this project's own data. The case for hesitating: a cheap *correct* skill
 below an expensive wrong one is exactly what saved `response_text` at budget
 2000.
@@ -221,9 +221,9 @@ argument did not survive it.** The probe suite reproduces the binary
 `resolved` verdict in 40 of 42 rows, 24 of 24 for E7, 18 of 18 for E8 and 18
 of 18 for E9. Control does score off zero — 0.636 and 0.778 — but **no
 artifact has ever scored below that floor**, so the room to fall is asserted,
-not observed. The E4 register row quotes **0.852** for `response_text` instead;
-that is the 2026-09-10 batch, whose control cell contains the single resolved
-run behind that task's 1/6. Both are correct for their own batch and 0.778 is
+not observed. The 2026-09-10 batch reads **0.852** for `response_text`
+instead, because its control cell contains the single resolved run behind that
+task's 1/6. Both are correct for their own batch and 0.778 is
 the cleaner floor. Do not treat the two as a contradiction.
 
 These two tasks are single-trap: a session either sees the trap or it does
@@ -322,7 +322,10 @@ untested in anger.
 - **The register at the top of `bench/RESULTS.md` is the index.** It exists
   because confidently-stated claims in that file turned out to be wrong. I
   added another this session — the budget-derivation section named
-  `retrieve.inject`, a function that does not exist. Fixed. **Re-derive from
+  `retrieve.inject`, a function that does not exist; the loop is
+  `retrieve.run_hook`. The first fix missed two copies, in RESULTS.md's E9
+  section and `bench/rank_check.py`; both are now fixed. The E8 and E9 specs
+  keep the wrong name as pre-registered record. **Re-derive from
   the files; do not describe them from memory.**
 - **The SDD execution ledgers are gone.** `.superpowers/sdd/` is git-ignored
   and no longer exists in this worktree. The rulings made during

@@ -12,7 +12,7 @@ because nothing indexed the data — see "What the register caught".
 | E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked. Re-measured 4/6 on 09-08 as E5's arm W — read 6/6 as one draw | `results.jsonl`, the 18 rows dated 09-05/09-06 with **no** `delivery` key |
 | Q1 (2026-09-09) | Does the distiller work end to end? (= brief Q1) | **Answered.** 4/12 draws emitted; those four scored 12/12 against a 1/6 floor. Bottleneck is emission, not delivery or content | `bench/distilled/` + the 24 rows dated 2026-09-09 |
 | E6 (2026-09-10) | Does an irrelevant skill *dilute* a relevant one? | **Answered.** R 6/6, R+I 6/6, zero exclusions, both skills injected on every R+I run. No dilution at n=3 per cell — rules out a large effect only. Does **not** answer E4 | `results.jsonl`, the 12 rows dated 2026-09-10 carrying `extra_skills`; the 09-09 attempt's 3 valid + 9 excluded rows are kept and not pooled |
-| E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Scoring floor removed 2026-09-10, not yet run.** Graded probes put control at 0.636 and 0.852, off the floor on both tasks. The blockage was the scorer, not the task | tasks defined (`sf-author-*-irrelevant`), never run; baselines in `bench/graded.jsonl` |
+| E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Blocked, not yet run — needs a mid-range task.** The graded scorer (2026-09-10) was built to unblock it and did not: it reproduces the binary verdict, and no artifact has scored below control (0.636 `fingerprint`, 0.778 `response_text`; 0.852 in the 2026-09-10 batch, which holds the one resolved control run). The blockage is the task, not the scorer | tasks defined (`sf-author-*-irrelevant`), never run; baselines in `bench/graded.jsonl` |
 | E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
 | Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half partial, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, the scale is unpinned from zero, but the graded score reproduces the binary `resolved` verdict in 40 of 42 rows — the unblocking of E4 is provisional, not established. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
@@ -1365,9 +1365,8 @@ floor, so the floor remains observed rather than probed.
 **The `response_text` control graded 0.852 on 2026-09-10 and 0.778 here, and
 the difference is not noise.** The earlier cell was one artifact at 1.000 and
 two at 0.778 — the 1.000 is the single resolved control run behind that task's
-1/6. E7's control cell contains no resolved run, so it sits flat at 0.778. The
-E4 register row quotes 0.852; both figures are correct for their own batch,
-and 0.778 is the cleaner floor because nothing in it resolved.
+1/6. E7's control cell contains no resolved run, so it sits flat at 0.778.
+Both figures are correct for their own batch, and 0.778 is the cleaner floor because nothing in it resolved.
 
 This is also why `--batch` exists. E7's control clones reuse Q1's clone names
 and overwrote them in `/tmp`; the 2026-09-10 artifacts survive only because
@@ -1545,7 +1544,7 @@ of scope until the feature existed (consolidate spec §7). It exists now.
 ## The question the viability pass turned this into
 
 E8 measured the delivery budget: `INJECT_BUDGET_TOKENS` is 1200 and
-`retrieve.inject` costs an entry at `max(1, len(whole file) // 4)`. The
+`retrieve.run_hook` costs an entry at `max(1, len(whole file) // 4)`. The
 clusters do not remotely fit:
 
 | cluster | members | member costs | concatenated |
@@ -1682,9 +1681,9 @@ On `response_text` the wrong-trap skill still wins. Consolidation changed
 
 A description covering three skills matches any one probe prompt less
 specifically than a single-purpose description does. BM25 rewards specificity,
-and merging spends it. **This is E2's transfer null reappearing one layer
-down** — E2 found abstract same-class knowledge did not help on a different
-bug; this finds general descriptions do not rank. Same principle, different
+and merging spends it. **This is brief Q2's transfer null reappearing one
+layer down** — the transfer arm found abstract same-class knowledge did not
+help on a different bug (0/6 in the pilot, 0/6 again on 2026-09-09); this finds general descriptions do not rank. Same principle, different
 mechanism, and nothing in the `/consolidate` design anticipated it.
 
 **The budget makes rank 1 the only rank that matters.** In the consolidated
