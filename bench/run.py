@@ -342,11 +342,35 @@ def source_keys(arm, task, tier_at_install):
             "tier_at_install": tier_at_install}
 
 
-def _home_relative(path):
-    """`~/...` when `path` is under the operator's home, else unchanged."""
-    text = str(path)
-    home = str(Path.home())
-    return "~" + text[len(home):] if text.startswith(home + "/") else text
+def _home_relative(text):
+    """`~/...` wherever the operator's home path appears in `text`.
+
+    results.jsonl is published. Written as a replace rather than a prefix
+    strip because a session tail quotes the home path mid-string -- an error
+    naming --plugin-dir, for instance. For a bare path the two are identical.
+    """
+    return str(text).replace(str(Path.home()) + "/", "~/")
+
+
+def session_keys(sess):
+    """The session's own outcome keys, including WHY it failed.
+
+    Extracted from one() for the same reason source_keys was: the rec dict is
+    otherwise only reachable by spending a session.
+
+    run_session captures the CLI's output tail and one() used to drop it, so
+    E12's batch recorded 13 rows of `session_ok: false` with the reason
+    discarded -- and diagnosing it cost a probe session to learn what the
+    batch already knew ("You've hit your session limit").
+
+    Recorded ONLY on failure. A successful session's tail is the model's final
+    message: large, on every row, already evidenced by the authored diff, and
+    not diagnostic. A session that succeeds while behaving oddly still leaves
+    no trace here; that is a deliberate trade, not an oversight.
+    """
+    return {"session_ok": sess["ok"], "secs": sess["secs"],
+            "session_tail": None if sess["ok"]
+                            else _home_relative(sess.get("tail") or "")}
 
 
 def injections(db):
@@ -499,13 +523,14 @@ def one(task, arm, run_idx, plugin_dir):
     post, tail = score(task, dest)
     rec = {"task": task["id"], "arm": arm, "run": run_idx,
            "resolved": all(post.values()), "per_test": post,
-           "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
+           "model": MODEL,
            "env": ENV,
            "inject_budget": INJECT_BUDGET,
            "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
            "skill_note": skill_note, "test_tail": tail,
            "injections": injections(ledger_db),
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
+    rec.update(session_keys(sess))
     rec.update(source_keys(arm, task, tier_at_install))
     rec["extra_skills"] = extra_skill_names() if arm == "treatment" else []
     with RESULTS.open("a", encoding="utf-8") as fh:

@@ -273,6 +273,34 @@ def test_distilled_parts_rejects_a_wrong_layout():
         _reset()
 
 
+def test_session_tail_is_recorded_only_when_the_session_failed():
+    """E12's batch hit the session limit and recorded 13 rows of
+    `session_ok: false` with the reason discarded -- run_session captured the
+    CLI's tail and one() dropped it, so diagnosing a postponed batch cost a
+    probe session to learn what the batch already knew."""
+    ok = bench_run.session_keys({"ok": True, "secs": 54.0, "tail": "final message"})
+    assert ok["session_ok"] is True
+    assert ok["secs"] == 54.0
+    assert ok["session_tail"] is None, "a successful session's tail is not diagnostic"
+
+    bad = bench_run.session_keys(
+        {"ok": False, "secs": 2.0, "tail": "You've hit your session limit"})
+    assert bad["session_ok"] is False
+    assert "session limit" in bad["session_tail"]
+
+
+def test_session_tail_is_scrubbed_of_the_home_path():
+    """results.jsonl is published, and the tail can quote --plugin-dir, which
+    is a path under the operator's home."""
+    import os
+    home = os.path.expanduser("~")
+    got = bench_run.session_keys(
+        {"ok": False, "secs": 1.0,
+         "tail": "error: --plugin-dir %s/Developer/x not found" % home})
+    assert home not in got["session_tail"], got["session_tail"]
+    assert "~/Developer/x" in got["session_tail"], got["session_tail"]
+
+
 def test_source_keys_are_all_null_for_control():
     _reset()
     keys = bench_run.source_keys("control", {"skill": "x"}, None)
