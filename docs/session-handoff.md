@@ -332,10 +332,20 @@ What E11 established about what to write:
 - **A non-zero floor rejects.** 1/13 was a warning this project read as noise
   for four batches.
 
-New traps must be bugs that postdate the training cut and are real review
-findings, per the crossover note in `tasks.json`. Both current bugs come from
-code written 2026-08-10; that well is not deep, and it is the real constraint on
-how many traps this bench can ever have.
+New traps must be real review findings against code the model cannot have seen.
+That constraint is weaker than it first looks: the cutoff is May 2026 and this
+repository's entire history postdates it, so recency rules nothing out.
+
+`bench/trap_candidates.py` (deterministic, 0 sessions) ranks the **48** fix
+commits since 2026-08-09 that touch both `scripts/` and `tests/`, scoring for
+author-mode shape: one source file, one or two functions touched, several new
+tests, a docstring contract to stub against. **Twelve score 9 or better.** The
+ranking puts both known-good traps inside its top ten — `22ddf37` at 5,
+`ab4acfe` at 10 — which is the only evidence that its ordering means anything.
+
+An earlier revision of this section said the supply "is not deep" because both
+current bugs date from 2026-08-10. That was wrong: it mistook the date those two
+bugs happen to carry for a constraint on which bugs are eligible.
 
 ---
 
