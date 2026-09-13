@@ -165,10 +165,23 @@ p-value is being used to license a claim this design cannot support.
   The condition's meaning is unchanged. Only the point at which it is
   evaluated is now explicit.
 
-  **Still undecided, and a separate pre-data amendment:** whether the first
-  attempt's completed cells pool with re-run cells, or all 36 sessions run
-  again in one batch. It will be recorded before any truncation-task session
-  is run.
+  **Decided 2026-09-13, before any truncation-task control session was
+  valid: all 36 sessions are re-run in one fresh batch.** The first attempt's
+  23 valid rows stay in `results.jsonl` as evidence and are excluded from
+  every E12 analysis. The analysis reads only the re-run, selected by its
+  timestamp window: `bench/e12_read.py --window <re-run start> -`.
+
+  Re-running only the 13 missing sessions was rejected. §4.1's primary
+  analysis pools the two tasks, and pooling cells measured on either side of
+  a session-limit boundary is the cross-batch drift E5's same-batch rule
+  exists to prevent. E10's control moved between batches on this machine
+  within hours. Drift between the escaping and truncation controls would be
+  indistinguishable from an effect, and §4.4 already leaves a null ambiguous,
+  so the design cannot absorb that.
+
+  Clones reuse the first attempt's paths. That is safe: `prepare()` rebuilds
+  each clone, and `one()` deletes the per-run ledger before every session, so
+  the re-run cannot read the first attempt's state.
 - **An arm R or I row whose `injections` does not name the installed skill.**
   A treatment row where nothing arrived is not a treatment row. Void that row
   and re-run it; if it recurs, the arm is void.
