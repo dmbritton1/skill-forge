@@ -93,64 +93,75 @@ This is where the session ended and where §2 picks up.
 
 ---
 
-## 2. START HERE — the selector is not monotone, and the fix is a decision
+## 2. The selector is monotone now — shipped 2026-09-13
 
 Reproduce free with `python3 bench/selector_check.py`. Zero sessions.
 
-Both delivery paths walk a ranked list and `continue` past any entry too
-expensive for the remaining budget. A cheaper lower-ranked skill can therefore
-occupy space a dearer higher-ranked one would have taken, and which one wins
-depends on the budget in a way that is not monotone. **More budget can deliver
-a strictly worse set.**
+Both delivery paths used to walk a ranked list and `continue` past any entry
+too expensive for the remaining budget. A cheaper lower-ranked skill could
+therefore occupy space a dearer higher-ranked one would have taken, and which
+one won depended on the budget in a way that was not monotone: **more budget
+could deliver a strictly worse set.**
 
 Measured over a budget grid of 600–4000 in steps of 50, across two pools
 (E8's ten skills, and the consolidated seven) and both tasks:
 
 | selector | flips | shrinks | lowest budget correct on both tasks |
 |---|---|---|---|
-| `continue` (today) | 3 | 15 | ten **1750, not held above**; seven 1850 |
-| `break` | **0** | **0** | ten 2900; seven 1850 |
+| `continue` (pre-2026-09-13) | 3 | 15 | ten **1750, not held above**; seven 1850 |
+| **`break` (shipped)** | **0** | **0** | ten 2900; seven 1850 |
 | highest-scoring affordable subset | 8 | 57 | both **not held above** |
 
 A *flip* is the correct skill being delivered at one budget and gone at the
 next one up. A *shrink* is the delivered set failing to contain the set below
 it.
 
-**Stopping at the first entry that does not fit is the only monotone option.**
-It delivers the longest rank-ordered prefix that fits, and a prefix can only
-grow as the budget grows.
+`retrieve.run_hook` now stops at the first entry that does not fit. Delivery is
+the longest rank-ordered prefix that fits, and a prefix can only grow as the
+budget grows.
 
-**It costs nothing on a consolidated library.** The seven-skill pool needs
-1850 either way; the difference is that the result then holds above that point
-instead of depending on two costs straddling a threshold. That is the first
-legible payoff `/consolidate` has shown since the E8 follow-up.
+**It cost nothing on a consolidated library.** The seven-skill pool needs 1850
+either way; the difference is that the result now holds above that point
+instead of depending on two costs straddling a threshold. The cost falls
+entirely on the duplicate-heavy ten-skill pool, where the stable threshold is
+2900 against an unstable 1750. That is the first legible payoff `/consolidate`
+has shown since the E8 follow-up found it worsened ranking.
 
-**Do not reach for a cleverer selector.** Choosing the affordable subset with
-the highest total score is worse than today's code on both counts. An optimal
-subset is not stable under a growing budget either. This was tested, not
-assumed.
+**A cleverer selector was tested and is worse.** Choosing the affordable subset
+with the highest total score more than triples the flips and quadruples the
+shrinks. An optimal subset is not stable under a growing budget either —
+dropping one item for two cheaper ones is exactly the move that loses a correct
+skill. This was measured, not assumed.
 
-### The decision waiting for you
+### What taking it decided, and what it costs
 
-`break` changes documented behaviour, and one existing test says so.
-`tests/test_retrieve.py::test_budget_skips_oversized_entry` asserts that an
-oversized entry is skipped so a cheaper lower-ranked one gets in. Under
-`break` nothing is delivered in that scenario. **The suite goes 777 passing
-to 776 with exactly that one failure** — measured by applying the change and
-running it, then reverting.
+The old intent was that an oversized entry should be skipped so a cheaper
+lower-ranked one gets in. Taking `break` decided that intent was wrong. The
+case: brief Q2's transfer arm measured a plausible-but-wrong skill at **0/6**,
+so "something is better than nothing" was never supported by this project's own
+data.
 
-So the change is not mechanical. Someone has to decide that the old intent was
-wrong. The case for saying yes: brief Q2's transfer arm measured a plausible
-but wrong skill at 0/6, so "something is better than nothing" is not supported by
-this project's own data. The case for hesitating: a cheap *correct* skill
-below an expensive wrong one is exactly what saved `response_text` at budget
-2000.
+The case for hesitating, as this section recorded it, was that a cheap correct
+skill below an expensive wrong one is what rescued `response_text` at budget
+2000. **That argument is void** — E10 retired `response_text` on 2026-09-13
+after its control resolved 6/6. The case for `break` is therefore stronger than
+this section could have known when it was written.
 
-**The symptom path needs a different shape of the same fix.**
-`detect.run_hook` writes its detection telemetry earlier in the same loop, so
-a bare `break` there would truncate detection records along with injection.
-That path needs a flag that halts admission while the scan continues. This is
-the trap in the change and it is not visible from `retrieve.py`.
+**The cost is real and broader than the payload.** Delivery is a prefix, so an
+entry that overflows the budget suppresses everything beneath it — anti-skills
+included, even though `MAX_SKILLS` otherwise lets them past the skill cap.
+§3.3's save-time size guard, shipped the same day, is what makes that
+tolerable: an entry too large for the whole budget can no longer be saved.
+Libraries that predate the guard keep the exposure.
+
+**The symptom path did not need this fix.** Earlier revisions of this section
+and of §3.1 claimed `detect.run_hook` needed "a flag that halts admission while
+the scan continues," because its detection telemetry is written earlier in the
+same loop. That reasoning holds only for a path that ranks. `detect.py` does
+not: it walks `idx["symptoms"]` in compile order under `MAX_ANTISKILLS = 2`, so
+there is no rank-ordered prefix to preserve and no monotonicity defect to
+repair. It keeps its `continue` deliberately, and
+`test_budget_skips_oversized_antiskill` pins that.
 
 ---
 
@@ -178,37 +189,51 @@ and differ only in which skill is paired, and control never sees the skill, so
 one floor covers a whole family. Screening is finished as a source of supply.
 See §3.8.
 
-### 3.1 Land the selector fix, then re-derive the budget
+### 3.1 Land the selector fix, then re-derive the budget — **STEPS 1–8 DONE 2026-09-13**
 
 In order:
 
-1. Change `retrieve.run_hook` to stop at the first entry that does not fit.
+1. ~~Change `retrieve.run_hook` to stop at the first entry that does not fit.~~
+   **Done.** One `continue` became a `break`; the other four in that loop
+   (dedupe, `MAX_SKILLS`, unreadable body, untrusted) are not budget decisions
+   and were left alone.
 2. ~~Change `detect.run_hook` to the flag form~~ — **this step is wrong and
    should be struck.** `detect.py` does not rank: it walks `idx["symptoms"]`
    in compile order under `MAX_ANTISKILLS = 2`, so "longest rank-ordered
    prefix" has no meaning there, and `test_budget_skips_oversized_antiskill`
    pins the current behaviour deliberately. The monotone-selector problem is
    the prompt path's alone.
-3. Replace `test_budget_skips_oversized_entry` with a test of the new intent.
-4. Add a **budget monotonicity property test** over the real hook: fix an
-   index and a prompt, sweep `INJECT_BUDGET_TOKENS`, assert each delivered
-   set contains the previous one. This is the test that would have caught the
-   bug, it runs in the existing sandbox, and it invokes no model.
-5. Add a **rank fidelity test**: nothing is delivered while a higher-ranked
-   skill was refused purely on cost.
-6. Add an **anti-skill test on the prompt path**: stopping early also stops
-   anti-skills below the overflow point. Pin the behaviour rather than
-   discover it later.
-7. Add a **detection-logging regression test** on the symptom path.
-8. `bench/budget_sweep.py` re-implements the selector by hand rather than
-   calling it. Update it in the same commit or it silently diverges.
+3. ~~Replace `test_budget_skips_oversized_entry` with a test of the new
+   intent.~~ **Done** —
+   `test_budget_stops_at_the_first_entry_that_does_not_fit`. Both fixture
+   entries score 0.6251; `rank()` breaks the tie by name ascending, so
+   `big-terraform` is genuinely rank 1 and nothing survives it.
+4. ~~Add a **budget monotonicity property test** over the real hook.~~
+   **Done** — `test_budget_monotonic_over_a_sweep`, 27 budget steps through
+   the real hook via `SKILLFORGE_INJECT_BUDGET`, asserting each delivered set
+   contains the one below it. This is the test that would have caught the bug.
+5. ~~Add a **rank fidelity test**.~~ **Done** —
+   `test_nothing_is_delivered_below_an_entry_refused_on_cost`.
+6. ~~Add an **anti-skill test on the prompt path**.~~ **Done** —
+   `test_budget_stop_also_suppresses_antiskill_below_it`. The behaviour is
+   pinned, not discovered later: prefix semantics suppress anti-skills below
+   the overflow point even though `MAX_SKILLS` lets them past the skill cap.
+7. **Struck — moot, not skipped.** This existed to protect detection logging
+   through step 2's change to `detect.py`. Step 2 is struck, `detect.py` is
+   untouched, and a test guarding a change that was never made protects
+   nothing. Its concern is already covered by
+   `test_budget_skips_oversized_antiskill`, which pins the symptom path's
+   deliberate `continue`.
+8. ~~`bench/budget_sweep.py` re-implements the selector by hand.~~ **Done** —
+   updated in the same commit, as its own warning demanded. `selector_check.py`
+   was relabelled too: its `continue` arm is no longer "today's code".
 
-**§3.3's size guard landed first (2026-09-13), which de-risks step 1.** Under
+**§3.3's size guard landed first (2026-09-13), which de-risked step 1.** Under
 `break` an oversized skill at rank 1 blocks everything beneath it; such a skill
-can no longer be saved, so the worst case is now a library that predates the
-guard rather than one the guard let through.
+can no longer be saved, so the worst case is a library that predates the guard
+rather than one the guard let through.
 
-Only then re-derive the budget. Under `break` on a consolidated library the
+**Re-deriving the budget is what remains of this section.** Under `break` on a consolidated library the
 target is around **1850 for two skills**, not 3000 for three, which is a much
 smaller step past E6's measured no-harm at ~1118 tokens for two.
 

@@ -201,15 +201,85 @@ def test_max_three_skills_antiskill_exempt():
     in_sandbox(check)
 
 
-def test_budget_skips_oversized_entry():
+def test_budget_stops_at_the_first_entry_that_does_not_fit():
+    """Replaces test_budget_skips_oversized_entry (handoff section 3.1 step 3).
+
+    Both entries score 0.6251 on this prompt; rank() breaks the tie by name
+    ascending, so `big-terraform` is genuinely rank 1. The selector delivers a
+    PREFIX of the rank order, so an oversized rank-1 entry suppresses what
+    follows rather than yielding its place to it.
+    """
     def check(home):
         write_index(home, [
             entry(home, "big-terraform", "terraform module registry publishing", pad=10000),
             entry(home, "small-terraform", "terraform module registry basics")])
         rc, out = run_hook_capture(hook_data(home, "publish a terraform module registry entry"))
-        names = injected_names(out)
-        assert "small-terraform" in names
-        assert "big-terraform" not in names
+        assert injected_names(out) == []
+    in_sandbox(check)
+
+
+def test_budget_monotonic_over_a_sweep():
+    """Section 3.1 step 4: the test that would have caught the bug.
+
+    Fix an index and a prompt, sweep the budget, and assert each delivered set
+    contains the one below it. Under skip-and-continue this fails: a cheaper
+    lower-ranked entry occupies space a dearer higher-ranked one later takes,
+    so raising the budget REMOVES a skill.
+    """
+    def check(home):
+        write_index(home, [
+            entry(home, "aaa-terraform", "terraform module registry publishing", pad=3400),
+            entry(home, "bbb-terraform", "terraform module registry basics", pad=1200),
+            entry(home, "ccc-terraform", "terraform module registry layout", pad=1200)])
+        prompt = "publish a terraform module registry entry"
+        prev = set()
+        for i, budget in enumerate(range(400, 3001, 100)):
+            os.environ["SKILLFORGE_INJECT_BUDGET"] = str(budget)
+            try:
+                _, out = run_hook_capture(
+                    hook_data(home, prompt, session="sweep%d" % i))
+            finally:
+                del os.environ["SKILLFORGE_INJECT_BUDGET"]
+            names = set(injected_names(out))
+            assert names >= prev, (
+                "budget %d delivered %s, dropping %s from the set below it"
+                % (budget, sorted(names), sorted(prev - names)))
+            prev = names
+    in_sandbox(check)
+
+
+def test_nothing_is_delivered_below_an_entry_refused_on_cost():
+    """Section 3.1 step 5: rank fidelity.
+
+    `aaa-` is rank 1 by the name tiebreak and too dear for this budget. The
+    cheap entries below it must NOT be promoted into its place.
+    """
+    def check(home):
+        write_index(home, [
+            entry(home, "aaa-terraform", "terraform module registry publishing", pad=8000),
+            entry(home, "bbb-terraform", "terraform module registry basics")])
+        os.environ["SKILLFORGE_INJECT_BUDGET"] = "1200"
+        try:
+            _, out = run_hook_capture(
+                hook_data(home, "publish a terraform module registry entry"))
+        finally:
+            del os.environ["SKILLFORGE_INJECT_BUDGET"]
+        assert injected_names(out) == []
+    in_sandbox(check)
+
+
+def test_budget_stop_also_suppresses_antiskill_below_it():
+    """Section 3.1 step 6: pin the cost of prefix semantics rather than meet it
+    later. An anti-skill ranked below an overflowing entry is suppressed too --
+    MAX_SKILLS lets anti-skills past the skill cap, but nothing gets past the
+    budget stop."""
+    def check(home):
+        write_index(home, [
+            entry(home, "aaa-terraform", "terraform module registry publishing", pad=8000),
+            entry(home, "bbb-terraform", "terraform module registry basics",
+                  kind="antiskill")])
+        rc, out = run_hook_capture(hook_data(home, "publish a terraform module registry entry"))
+        assert injected_names(out) == []
     in_sandbox(check)
 
 

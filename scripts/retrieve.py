@@ -348,7 +348,19 @@ def run_hook(data):
             continue
         cost = injection_cost(body)
         if cost > budget:
-            continue
+            # STOP, do not skip. Skipping past an entry that does not fit lets
+            # a cheaper lower-ranked skill occupy space a dearer higher-ranked
+            # one would have taken, and which one wins depends on the budget in
+            # a way that is not monotone: raising the budget could REMOVE a
+            # skill that a smaller budget delivered (bench/selector_check.py).
+            # Stopping here makes delivery a prefix of the rank order, so a
+            # larger budget can only ever extend what a smaller one delivered.
+            # This also suppresses everything below the overflow point,
+            # anti-skills included -- see test_budget_stop_also_suppresses_
+            # antiskill_below_it. The save-time size guard is what makes that
+            # tolerable: an entry too large for the whole budget can no longer
+            # be saved.
+            break
         budget -= cost
         preexisting, used = probe_fingerprints(e.get("fingerprints") or [], cwd, probes_left)
         probes_left -= used

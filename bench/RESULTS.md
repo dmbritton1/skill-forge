@@ -20,8 +20,8 @@ because nothing indexed the data — see "What the register caught".
 | E8 (2026-09-11) | Does retrieval survive a library of ten? | **Answered, and the mechanism is not the one predicted.** M 3/3, L 3/3, C 0/3 on **both** tasks. On `response_text` the prompt path delivered a **wrong-trap** skill 3/3 and the **symptom path rescued it** 3/3. The rescue rides on anti-skills, which cannot exist for a silent trap — so the dangerous case was never tested. First attempt refused at the session limit and excluded | `results.jsonl`, the 18 rows dated 2026-09-11 after 00:50 carrying `extra_skills` of 9 or 0; 18 `batch: e8` rows in `bench/graded.jsonl`; the 13 refused + 5 valid rows of the 00:41–00:46 attempt are **excluded** (spec §4.1) |
 | E9 (2026-09-11) | Does a consolidated skill still work? | **Answered: yes, and it fits.** Merges compressed 3 and 2 skills to **44%** and **54%** of their concatenation, landing at 1095 and 1088 tokens against a 1200 budget. R 3/3, K 3/3, C 0/3 on both tasks, zero exclusions. n=3 per cell, and every trap-A member was already at ceiling so that half could only hold or fall | `bench/distilled/*/consolidated/1/`, the 18 rows in `results.jsonl` dated 2026-09-11 after 15:10, 18 `batch: e9` rows in `bench/graded.jsonl` |
 | E8 follow-up (2026-09-11) | Does consolidating the library fix E8's ranking failure? | **No — it makes the ranking worse.** The correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. `/consolidate` works as a feature (E9) but does not fix the problem that motivated building it | `bench/rank_check.py` — deterministic, 0 sessions |
-| Budget derivation (2026-09-11) | What injection budget delivers a *correct* skill? | **3000 works; the curve is not monotonic.** At 1200 (today) the wrong skill wins `response_text`. At 2000 the right one slips in. **At 2400 it is crowded back out.** Greedy skip-and-continue means more budget can deliver a strictly worse set | `bench/budget_sweep.py` — deterministic, 0 sessions |
-| Selector monotonicity (2026-09-11) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed, not fixed.** Greedy skip-and-continue violates set monotonicity at 15 of 69 budget steps and flips the correct skill away at 3. Stopping at the first entry that does not fit scores **0 and 0** and costs nothing on a consolidated library (1850 either way). A score-maximising subset is **worse** than today (8 flips, 57 shrinks) | `bench/selector_check.py` — deterministic, 0 sessions |
+| Budget derivation (2026-09-11, **re-run 2026-09-13**) | What injection budget delivers a *correct* skill? | **Superseded by the selector fix.** The 2026-09-11 reading was 3000, with the correct skill crowded back out at 2400 — an artefact of skip-and-continue, not of the budget. Under the shipped `break` selector the dip is gone: the consolidated seven are correct on both tasks from **2000** and hold at every budget above it; the ten-skill pool from 3000 | `bench/budget_sweep.py` — deterministic, 0 sessions |
+| Selector monotonicity (2026-09-11, **fixed 2026-09-13**) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed and now shipped.** Skip-and-continue violated set monotonicity at 15 of 69 budget steps and flipped the correct skill away at 3. `retrieve.run_hook` now stops at the first entry that does not fit: **0 flips, 0 shrinks**, delivery is a prefix of the rank order. A score-maximising subset was **worse** than the old code (8 flips, 57 shrinks) and was rejected. Costs nothing on a consolidated library (1850 either way), ~1050 tokens of headroom on the duplicate-heavy ten | `bench/selector_check.py` — deterministic, 0 sessions |
 | E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **void: control resolved 3/3, and 3/3 again on a dedicated re-measure — 6/6 against a 1/13 history. The task is retired as a discriminator.** Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
 | E11 (2026-09-13) | After `response_text` was retired, can either never-run task serve as a discriminator? | **Answered: no — both rejected.** A 6/6, B 6/6 control at n=6 each: **ceiling, not marginal**, every graded test green in every session. Same-batch reference R held at 0/3 (**0/21** lifetime), so the screen is valid. Repair mode shows the model the failing tests and is structurally the weaker trap, exactly as §4.4 pre-registered. **The bench now has exactly one trap.** The two rejects have maximum headroom to fall, which may make them *harm* detectors for E4 — a proposal, not a result | `results.jsonl`, the 15 rows dated 2026-09-13 after 13:36; spec `docs/superpowers/specs/2026-09-13-e11-trap-screening-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
@@ -1772,6 +1772,15 @@ The consolidated seven-skill pool has no such dip (2400 is fine there), which
 is coincidence rather than a virtue of consolidation: different costs, the
 straddle lands elsewhere.
 
+> **Superseded 2026-09-13.** Everything above describes the skip-and-continue
+> selector, which no longer ships. `retrieve.run_hook` now stops at the first
+> entry that does not fit, and the 2400 crowding-out does not reproduce. On the
+> re-run the consolidated seven are correct on both tasks from **2000** and hold
+> above it; the ten-skill pool from 3000. The paragraphs below about 3000 being
+> "the first budget that does not depend on a cost coincidence" were reasoning
+> about the old selector — under a prefix selector no result depends on a
+> coincidence, because a prefix can only grow.
+
 ## What follows
 
 **3000 is the first budget that delivers a correct skill on both tasks without
@@ -1848,18 +1857,32 @@ axis that helps.
 
 ## What this costs, and what it breaks
 
-`break` also drops the delivered payload in the case the current tests bless.
-`tests/test_retrieve.py::test_budget_skips_oversized_entry` asserts that an
-oversized entry is skipped so a cheaper lower-ranked one gets in. Under `break`
-nothing is delivered in that scenario and the test fails. **The suite goes 777
-passing to 776 passing with exactly that one failure** — measured, not
-predicted. Changing it is a decision that the documented intent was wrong, not
-a mechanical update.
+`break` also drops the delivered payload in the case the old tests blessed.
+`test_budget_skips_oversized_entry` asserted that an oversized entry is skipped
+so a cheaper lower-ranked one gets in; under `break` nothing is delivered there.
 
-The symptom path needs a different shape of the same fix. `detect.run_hook`
-writes its detection telemetry earlier in the same loop, so a bare `break`
-would truncate detection records along with injection. That path needs a flag
-that halts admission while the scan continues.
+**Shipped 2026-09-13.** That test was replaced by four
+(`test_budget_stops_at_the_first_entry_that_does_not_fit`, a budget
+monotonicity sweep, a rank-fidelity test, and one pinning anti-skill
+suppression). The suite stands at **785 passing**. Taking the change was a
+decision that the documented intent was wrong: brief Q2's transfer arm measured
+a plausible-but-wrong skill at 0/6, so "something is better than nothing" was
+never supported by this project's own data.
+
+**The real cost is broader than the payload.** Delivery is now a prefix, so an
+entry that overflows the budget suppresses everything beneath it — anti-skills
+included, even though `MAX_SKILLS` otherwise lets them past the skill cap. The
+save-time size guard (shipped the same day) is what makes that tolerable: an
+entry too large for the whole budget can no longer be saved. Libraries that
+predate the guard keep the exposure.
+
+**The symptom path does NOT need this fix, and an earlier revision of this
+section was wrong to say so.** It claimed `detect.run_hook` needed "a flag that
+halts admission while the scan continues." `detect.py` does not rank: it walks
+`idx["symptoms"]` in compile order under `MAX_ANTISKILLS = 2`, so there is no
+rank-ordered prefix to preserve and no monotonicity defect to repair. It keeps
+its `continue` deliberately, and `test_budget_skips_oversized_antiskill` pins
+that.
 
 ## Limits
 

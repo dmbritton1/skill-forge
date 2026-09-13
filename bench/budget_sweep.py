@@ -13,8 +13,14 @@ Deterministic and free. Run:
 Criterion, fixed before the first run: at each candidate budget, does a skill
 from the MATCHING trap get delivered on BOTH tasks?
 
-Answer, 2026-09-11: yes from 3000 -- but the curve is NOT monotonic. See
-bench/RESULTS.md, "Budget derivation".
+Answer, 2026-09-11: yes from 3000 -- but the curve was NOT monotonic, and the
+correct skill was crowded back out at 2400.
+
+Re-run 2026-09-13, after the selector was fixed to stop at the first entry that
+does not fit: the dip is gone. The consolidated seven are correct on both tasks
+from 2000 and hold at every budget above it; the ten-skill pool from 3000. The
+2400 regression was an artefact of skip-and-continue, not a property of the
+budget. See bench/RESULTS.md, "Budget derivation" and "Selector monotonicity".
 """
 import sys, json, glob, pathlib
 sys.path.insert(0,'scripts'); sys.path.insert(0,'bench')
@@ -44,7 +50,7 @@ def deliver(pool, prompt, budget):
     for e, s, m in retrieve.rank(prompt, pool):
         if s <= 0 or m < retrieve.MIN_MATCHED_TERMS: continue
         if e['kind'] != 'antiskill' and n >= retrieve.MAX_SKILLS: continue
-        if e['_cost'] > budget: continue
+        if e['_cost'] > budget: break      # prefix semantics, mirrors retrieve.run_hook
         budget -= e['_cost']; n += 1; out.append(e)
     return out
 

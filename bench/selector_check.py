@@ -84,8 +84,8 @@ def knapsack(pool, prompt, budget, _stop=None):
     return best
 
 
-SELECTORS = (('continue (today)', lambda p, q, b: greedy(p, q, b, False)),
-             ('break', lambda p, q, b: greedy(p, q, b, True)),
+SELECTORS = (('continue (pre-2026-09-13)', lambda p, q, b: greedy(p, q, b, False)),
+             ('break (today)', lambda p, q, b: greedy(p, q, b, True)),
              ('knapsack', knapsack))
 
 
