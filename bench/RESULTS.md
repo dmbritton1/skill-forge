@@ -23,6 +23,7 @@ because nothing indexed the data — see "What the register caught".
 | Budget derivation (2026-09-11) | What injection budget delivers a *correct* skill? | **3000 works; the curve is not monotonic.** At 1200 (today) the wrong skill wins `response_text`. At 2000 the right one slips in. **At 2400 it is crowded back out.** Greedy skip-and-continue means more budget can deliver a strictly worse set | `bench/budget_sweep.py` — deterministic, 0 sessions |
 | Selector monotonicity (2026-09-11) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed, not fixed.** Greedy skip-and-continue violates set monotonicity at 15 of 69 budget steps and flips the correct skill away at 3. Stopping at the first entry that does not fit scores **0 and 0** and costs nothing on a consolidated library (1850 either way). A score-maximising subset is **worse** than today (8 flips, 57 shrinks) | `bench/selector_check.py` — deterministic, 0 sessions |
 | E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **void: control resolved 3/3, and 3/3 again on a dedicated re-measure — 6/6 against a 1/13 history. The task is retired as a discriminator.** Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
+| E11 (2026-09-13) | After `response_text` was retired, can either never-run task serve as a discriminator? | **Answered: no — both rejected.** A 6/6, B 6/6 control at n=6 each: **ceiling, not marginal**, every graded test green in every session. Same-batch reference R held at 0/3 (**0/21** lifetime), so the screen is valid. Repair mode shows the model the failing tests and is structurally the weaker trap, exactly as §4.4 pre-registered. **The bench now has exactly one trap.** The two rejects have maximum headroom to fall, which may make them *harm* detectors for E4 — a proposal, not a result | `results.jsonl`, the 15 rows dated 2026-09-13 after 13:36; spec `docs/superpowers/specs/2026-09-13-e11-trap-screening-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -2034,3 +2035,85 @@ inherited from the register. Any task whose control floor is non-zero over its
 history is a candidate for retirement, not a discriminator. Same-batch controls
 (E5) remain the rule; this is the rule that says which tasks are worth putting
 in a batch at all.
+
+# E11 — trap screening: which tasks still have a zero control floor? (2026-09-13)
+
+Pre-registered before any session ran:
+`docs/superpowers/specs/2026-09-13-e11-trap-screening-design.md`. Control only,
+15 sessions, one batch, 13:36–13:50.
+
+## Result
+
+| cell | task | mode | control | verdict |
+| --- | --- | --- | --- | --- |
+| A | `sf-escaping-breaks-symptom-match` | repair | **6/6** | REJECTED (§4.1) |
+| B | `sf-truncation-reports-absent` | repair | **6/6** | REJECTED (§4.1) |
+| R | `sf-author-fingerprint-preexisting` | author | **0/3** | reference held — **0/21** lifetime |
+
+15 of 15 sessions valid, zero exclusions, zero injections in every cell, and no
+`already passing at baseline` warning fired. The reference cell did not move, so
+§4.2 does not void the screen.
+
+**Neither candidate is marginal — both are at the ceiling.** All three graded
+tests passed in all six sessions on both tasks, in a median of about 53 seconds.
+This is not a trap the model occasionally beats; it is a trap it never loses to.
+
+## §4.4 predicted this, which is what makes it a finding
+
+Both candidates are `mode: repair`: the model is shown the failing tests and
+asked to fix the source. Author mode hides the tests and grades against a
+contract the session never sees. The spec called repair mode "structurally the
+weaker trap" and pre-registered a non-zero floor as the *expected* outcome
+before the batch ran.
+
+Recording that in advance is the difference between a finding and a
+rationalisation. The measured result is stronger than the prediction: not merely
+non-zero, but saturated.
+
+**A failing test is the answer.** Showing a model three red assertions that
+describe the intended behaviour hands it the specification. What remains is
+reading comprehension, not knowledge — and reading comprehension is exactly what
+a skill cannot improve, because the session already has the information.
+
+## The bench has exactly one trap
+
+| distinct bug | mode | floor | status |
+| --- | --- | --- | --- |
+| `fingerprint_preexisting` | author | **0/21** | the only usable discriminator |
+| `response_text` | author | 1/13, then 6/6 | retired (E10) |
+| escaping (`22ddf37`) | repair | **6/6** | rejected (E11) |
+| truncation (`ab4acfe`) | repair | **6/6** | rejected (E11) |
+
+Ten task ids, four distinct bugs, one survivor. Every future comparison needing
+two traps is blocked until new **author-mode** tasks are written. Screening is
+finished as a source of supply; authoring is the critical path.
+
+## What this may unblock: harm has been measured in the wrong direction
+
+E4 — "does injecting an irrelevant skill actively hurt?" — has been blocked for
+its whole life on the want of "a mid-range task." That framing may be the error.
+
+**Harm cannot be measured on a floor task.** A control at 0/21 has nowhere to
+fall; any effect an irrelevant skill has is invisible against zero. Every trap
+this bench has ever used as a discriminator was chosen for a floor of zero,
+which is precisely the property that makes it useless for detecting harm.
+
+A task whose control sits at **6/6 with zero variance** has the opposite
+property: maximum headroom to fall, and a tight enough baseline that a drop of
+two or three runs is legible at n=6. Cells A and B are now two such tasks,
+measured in a clean batch with a held reference.
+
+**This is a design proposal, not a result.** It needs its own pre-registration,
+and it carries a real threat: a repair-mode session reads the failing tests, so
+an irrelevant skill must be disruptive enough to survive that signal before it
+shows up as harm. A null would then be ambiguous between "no harm" and "the
+tests rescued it." That has to be written down before the batch, not after.
+
+## Limits
+
+n=6 per candidate. 0/6 would have been consistent with a true floor up to about
+39% at 95%; 6/6 bounds the floor from the other side just as loosely, and the
+honest claim is "no control failure observed at n=6", not "the floor is 1.0".
+Both candidates are one repository, operator-curated, two bugs of the same class
+(a transform upstream of a decision producing a wrong negative). The reference
+cell is n=3.

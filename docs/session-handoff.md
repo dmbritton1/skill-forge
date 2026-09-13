@@ -167,6 +167,17 @@ at 0/3, 0/18 lifetime. `response_text` was simply the marginal trap — its floo
 was never zero. A control floor decays; read it as a live number before putting
 a task in a batch.
 
+**E11 then screened the two never-run tasks and rejected both** — A 6/6, B 6/6
+control at n=6 each, ceiling rather than marginal, against a same-batch
+reference that held at 0/3. Both are `mode: repair`, which shows the model the
+failing tests; the spec pre-registered that as the weaker trap before the batch.
+**The bench now has exactly one usable trap**, `fingerprint_preexisting` at
+0/21. Ten task ids are four distinct bugs — the `-transfer`/`-irrelevant`/
+`-umbrella` variants share `prompt`, `stub_cmd` and `test_path` byte-for-byte
+and differ only in which skill is paired, and control never sees the skill, so
+one floor covers a whole family. Screening is finished as a source of supply.
+See §3.8.
+
 ### 3.1 Land the selector fix, then re-derive the budget
 
 In order:
@@ -250,6 +261,22 @@ These two tasks are single-trap: a session either sees the trap or it does
 not. **Do not build more probes for them.** E4 needs a genuinely mid-range
 task.
 
+**E11 (2026-09-13) suggests "mid-range" may be the wrong requirement.** Harm
+cannot be measured on a floor task: a control at 0/21 has nowhere to fall, and
+every trap ever chosen as a discriminator was chosen for exactly that property.
+E11 measured two `repair`-mode tasks at **6/6 control with zero variance** —
+the opposite property, maximum headroom to fall, and a baseline tight enough
+that a drop of two or three runs is legible at n=6. Those two tasks are
+candidate *harm* detectors even though E11 rejected them as benefit
+discriminators.
+
+This is a proposal and needs its own pre-registration. Its threat is specific:
+a repair-mode session reads the failing tests, so an irrelevant skill has to be
+disruptive enough to survive that signal before harm appears. A null would be
+ambiguous between "no harm" and "the tests rescued it" — write that down before
+the batch, not after. Nothing above in this section is superseded: the
+leaky-stub warning and the re-derive-don't-quote rule still hold.
+
 **Control figures: re-derive them, do not quote them.** The "1/6 and 0/6"
 carried in three specs cannot be reproduced from one consistent rule. E7's own
 same-batch control is **0/6**, measured 2026-09-11, and that one is clean.
@@ -282,6 +309,33 @@ untested in anger.
   per-run ledgers are the **only** copy of delivery evidence for batches
   before 2026-09-09; rows from that date onward carry `injections` on the row
   itself.
+
+---
+
+### 3.8 Trap supply is the binding constraint
+
+One usable trap, `fingerprint_preexisting`, floor 0/21. `response_text` retired
+by E10; both repair-mode candidates rejected by E11 at 6/6. Any experiment
+needing two traps is blocked until new tasks exist.
+
+What E11 established about what to write:
+
+- **Author mode only.** Repair mode hands the session three red assertions that
+  describe the intended behaviour. What is left is reading comprehension, which
+  a skill cannot improve because the information is already in the session.
+- **Screen before use, and screen cheaply.** Control cells need no skill and no
+  treatment arm. A candidate costs 6 sessions, about 6 minutes, and the RED
+  pre-flight (`prepare()` + `score()`, no model) costs nothing at all.
+- **Run a same-batch reference every time.** E10's break was caught only
+  because a second task's control ran in the same batch and did not move; E11
+  made that a numbered rule, and it is what licenses reading the result.
+- **A non-zero floor rejects.** 1/13 was a warning this project read as noise
+  for four batches.
+
+New traps must be bugs that postdate the training cut and are real review
+findings, per the crossover note in `tasks.json`. Both current bugs come from
+code written 2026-08-10; that well is not deep, and it is the real constraint on
+how many traps this bench can ever have.
 
 ---
 
