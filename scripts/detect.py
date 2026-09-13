@@ -311,7 +311,7 @@ def run(data):
         # disk now -- re-verify before anything reaches the model.
         if trust.check_text(name, body) != "trusted":
             continue
-        cost = max(1, len(body) // 4)
+        cost = retrieve.injection_cost(body)
         if cost > budget:
             continue
         budget -= cost

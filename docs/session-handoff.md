@@ -183,7 +183,12 @@ See §3.8.
 In order:
 
 1. Change `retrieve.run_hook` to stop at the first entry that does not fit.
-2. Change `detect.run_hook` to the flag form, preserving detection logging.
+2. ~~Change `detect.run_hook` to the flag form~~ — **this step is wrong and
+   should be struck.** `detect.py` does not rank: it walks `idx["symptoms"]`
+   in compile order under `MAX_ANTISKILLS = 2`, so "longest rank-ordered
+   prefix" has no meaning there, and `test_budget_skips_oversized_antiskill`
+   pins the current behaviour deliberately. The monotone-selector problem is
+   the prompt path's alone.
 3. Replace `test_budget_skips_oversized_entry` with a test of the new intent.
 4. Add a **budget monotonicity property test** over the real hook: fix an
    index and a prompt, sweep `INJECT_BUDGET_TOKENS`, assert each delivered
@@ -197,6 +202,11 @@ In order:
 7. Add a **detection-logging regression test** on the symptom path.
 8. `bench/budget_sweep.py` re-implements the selector by hand rather than
    calling it. Update it in the same commit or it silently diverges.
+
+**§3.3's size guard landed first (2026-09-13), which de-risks step 1.** Under
+`break` an oversized skill at rank 1 blocks everything beneath it; such a skill
+can no longer be saved, so the worst case is now a library that predates the
+guard rather than one the guard let through.
 
 Only then re-derive the budget. Under `break` on a consolidated library the
 target is around **1850 for two skills**, not 3000 for three, which is a much
@@ -231,15 +241,28 @@ spec's §2.2 table is the pattern.
 
 Until it is run, treat "depth is safe" as established for loud traps only.
 
-### 3.3 A size guard at save time
+### 3.3 A size guard at save time — **DONE 2026-09-13**
 
-`save_skill` enforces no size limit. An oversized skill saves cleanly, indexes
-cleanly, and silently never injects. Every distilled skill costs **759–1192**
-tokens against a **1200** budget, so this is one bad draft away from biting.
-E9's merges fit by drafting luck, not by design.
+`save_skill.validate()` now refuses a draft the selector could never inject.
+An oversized skill used to save cleanly, index cleanly, and then be skipped on
+every selection pass with nothing telling the author. Every distilled skill
+costs **759–1192** tokens against a **1200** budget, so this was one bad draft
+away from biting; E9's merges fit by drafting luck, not by design.
 
-This interacts with §3.1: under `break`, a single oversized skill at rank 1
-blocks everything below it, which makes the guard more valuable, not less.
+The cost is charged with `retrieve.injection_cost()` — one definition, now
+reused by the prompt path (`retrieve.py`), the symptom path (`detect.py`) and
+the guard, where the formula had previously been duplicated in two files and
+could have drifted. It measures the **whole file including frontmatter**,
+because that is what both selectors read off disk and charge for.
+
+The guard uses the **shipped** `INJECT_BUDGET_TOKENS`, never
+`SKILLFORGE_INJECT_BUDGET`: that env var is a bench-only runtime lever, and
+letting it relax a save-time guard would persist skills that fit a batch's
+raised budget and can never inject in production.
+
+Two tests pin the boundary in both directions — oversized rejected, and
+large-but-under-budget still saves. The second matters: a guard that rejected
+every large skill would pass the first and still be wrong.
 
 ### 3.4 E4 is still blocked, and the graded scorer did not unblock it
 

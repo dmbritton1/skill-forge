@@ -52,6 +52,16 @@ def state_dir():
     return Path.home() / ".claude" / "skillforge" / "state"
 
 
+def injection_cost(body):
+    """Tokens an injected body costs, as the selector actually charges it.
+
+    The WHOLE file including frontmatter: both selection passes read the file
+    off disk and charge every byte, so anything measuring the body alone
+    under-counts and would pass a skill that can never inject.
+    """
+    return max(1, len(body) // 4)
+
+
 def tokenize(text):
     return [t for t in TOKEN_RX.findall(text.lower())
             if len(t) >= 3 and not t.isdigit()]
@@ -336,7 +346,7 @@ def run_hook(data):
             continue
         if trust.check_text(name, body) != "trusted":
             continue
-        cost = max(1, len(body) // 4)
+        cost = injection_cost(body)
         if cost > budget:
             continue
         budget -= cost

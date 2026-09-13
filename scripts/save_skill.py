@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from secscan import scan_text
 import ledger
 import patterns
+import retrieve
 import sync
 import trust
 
@@ -159,6 +160,19 @@ def validate(text):
                     errors.append(
                         "symptom %r is too weak to match on: need at least %d characters "
                         "and %d tokens" % (s, MIN_SYMPTOM_CHARS, MIN_SYMPTOM_TOKENS))
+    # An oversized skill saves cleanly, indexes cleanly, and is then skipped on
+    # every selection pass -- it can never inject, and nothing tells the author.
+    # Charged with the selector's own function so the two can never drift, and
+    # against the SHIPPED budget: SKILLFORGE_INJECT_BUDGET is a bench-only
+    # runtime lever, and letting it relax this guard would persist skills that
+    # fit a batch's budget and can never inject in production.
+    cost = retrieve.injection_cost(text)
+    if cost > retrieve.INJECT_BUDGET_TOKENS:
+        errors.append(
+            "too large to inject: %d tokens (%d bytes) against a %d-token budget. "
+            "It would save and index cleanly, then be skipped on every selection "
+            "pass and never reach a session." % (
+                cost, len(text), retrieve.INJECT_BUDGET_TOKENS))
     return errors
 
 

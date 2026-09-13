@@ -210,6 +210,43 @@ def test_missing_frontmatter_rejected():
     in_sandbox(check)
 
 
+def _padded_skill(approx_bytes):
+    """VALID_SKILL grown to roughly `approx_bytes`, padding the body only.
+
+    Padding goes inside ## Procedure so the frontmatter, verification.command
+    and ## Verification section all stay intact -- an oversized fixture must
+    be rejected for its SIZE and not trip some other rule on the way.
+    """
+    line = "1. Do the thing again and again and again.\n"
+    grow = max(0, approx_bytes - len(VALID_SKILL))
+    return VALID_SKILL.replace(
+        "1. Do the thing.\n", "1. Do the thing.\n" + line * (grow // len(line) + 1))
+
+
+def test_oversized_skill_rejected():
+    """retrieve.py and detect.py both cost a skill at max(1, len(file)//4)
+    against a 1200-token budget, so a file over ~4800 bytes can never inject:
+    it saves cleanly, indexes cleanly, and is silently skipped on every
+    selection pass. Refuse it at the write path instead (section 3.3)."""
+    def check(home, tmp):
+        big = _padded_skill(8000)
+        assert len(big) // 4 > 1200, "fixture is not actually oversized"
+        rc = save_skill.main([write_draft(tmp, big), "--scope", "global"])
+        assert rc == 1
+    in_sandbox(check)
+
+
+def test_large_but_injectable_skill_still_saves():
+    """The boundary matters in both directions: a guard that rejected every
+    large skill would pass the test above and still be wrong."""
+    def check(home, tmp):
+        ok = _padded_skill(4000)
+        assert len(ok) // 4 <= 1200, "fixture is not actually under budget"
+        rc = save_skill.main([write_draft(tmp, ok), "--scope", "global"])
+        assert rc == 0
+    in_sandbox(check)
+
+
 def test_folded_description_is_parsed():
     fm, _ = save_skill.parse_frontmatter(VALID_SKILL)
     assert "Do NOT use when" in fm["description"]
