@@ -150,6 +150,25 @@ p-value is being used to license a claim this design cannot support.
 - **C below 10 of 12.** The whole design rests on control sitting at the
   ceiling. If it has decayed since this morning, there is no headroom, and the
   batch measures nothing. Void, do not reinterpret.
+
+  **Clarified 2026-09-13, before any truncation-task control session was
+  valid.** This condition is evaluated on a **complete** control cell: 12
+  valid sessions. It says nothing about a cell still being measured.
+
+  The first batch attempt hit the session limit after 23 of 36 sessions,
+  leaving pooled control at 6 valid sessions. An ad-hoc reader compared those
+  6 against the threshold of 10 and reported the batch void. That was a
+  misreading, not a result: on fewer than 12 valid sessions, "below 10"
+  cannot tell a decayed ceiling from an unfinished measurement. An incomplete
+  cell falls under §4.3 — postponed and re-run.
+
+  The condition's meaning is unchanged. Only the point at which it is
+  evaluated is now explicit.
+
+  **Still undecided, and a separate pre-data amendment:** whether the first
+  attempt's completed cells pool with re-run cells, or all 36 sessions run
+  again in one batch. It will be recorded before any truncation-task session
+  is run.
 - **An arm R or I row whose `injections` does not name the installed skill.**
   A treatment row where nothing arrived is not a treatment row. Void that row
   and re-run it; if it recurs, the arm is void.
