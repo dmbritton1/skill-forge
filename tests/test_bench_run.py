@@ -355,12 +355,44 @@ def test_skill_src_is_absolute_even_when_skill_from_is_relative():
         _reset()
 
 
-def test_skill_path_recorded_on_the_row_is_absolute():
+def test_skill_path_on_the_row_is_written_home_relative():
+    """The recorded value is scrubbed at the source, not after each batch.
+
+    skill_src() must stay ABSOLUTE -- install_skill shells save_skill.py with
+    cwd set to the throwaway clone. But nothing requires the value RECORDED on
+    the row to be absolute, and leaving it so put the operator's home path back
+    into published evidence three times (2026-09-10, e50b61c, and again today).
+    """
+    _reset()
+    import os
+    home = os.path.expanduser("~")
+    bench_run.SKILL_FROM = home + "/somewhere/bench/skills/a-skill.md"
+    try:
+        keys = bench_run.source_keys("treatment", {"skill": "unused"}, "warm")
+        assert keys["skill_path"].startswith("~/"), keys["skill_path"]
+        assert home not in keys["skill_path"], keys["skill_path"]
+        # the installed path itself is still absolute
+        assert pathlib.Path(str(bench_run.skill_src({"skill": "unused"}))).is_absolute()
+    finally:
+        _reset()
+
+
+def test_skill_path_recorded_on_the_row_is_unambiguous():
+    """Was `..._is_absolute`. The guard is against a CWD-RELATIVE value, which
+    skill_src() calls "worthless provenance once the cwd that gave it meaning
+    is gone" -- absolute was simply the form that achieved that. A `~/` path is
+    equally unambiguous and keeps the operator's home out of published
+    evidence, so the assertion now names the intent rather than the old
+    mechanism. Still resolved, never passed through.
+    """
     _reset()
     bench_run.SKILL_FROM = "bench/distilled/A/learn-failure/1/SKILL.md"
     try:
         keys = bench_run.source_keys("treatment", {"skill": "unused"}, "warm")
-        assert pathlib.Path(keys["skill_path"]).is_absolute(), keys["skill_path"]
+        got = keys["skill_path"]
+        assert got.startswith(("/", "~/")), got
+        assert got != bench_run.SKILL_FROM, "the path was recorded unresolved"
+        assert got.endswith("bench/distilled/A/learn-failure/1/SKILL.md"), got
     finally:
         _reset()
 

@@ -333,8 +333,20 @@ def source_keys(arm, task, tier_at_install):
     return {"skill_source": "distilled" if parts else "authored",
             "distiller": parts[0] if parts else None,
             "draw": int(parts[1]) if parts else None,
-            "skill_path": str(skill_src(task)),
+            # RECORDED home-relative, while skill_src() stays absolute for
+            # install_skill. results.jsonl is published, and an absolute path
+            # puts the operator's home directory into it -- restored by hand
+            # three times now (2026-09-10, e50b61c, 2026-09-13) because each
+            # batch wrote it back. Scrubbing at the source ends that.
+            "skill_path": _home_relative(skill_src(task)),
             "tier_at_install": tier_at_install}
+
+
+def _home_relative(path):
+    """`~/...` when `path` is under the operator's home, else unchanged."""
+    text = str(path)
+    home = str(Path.home())
+    return "~" + text[len(home):] if text.startswith(home + "/") else text
 
 
 def injections(db):
