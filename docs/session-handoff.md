@@ -183,11 +183,17 @@ control at n=6 each, ceiling rather than marginal, against a same-batch
 reference that held at 0/3. Both are `mode: repair`, which shows the model the
 failing tests; the spec pre-registered that as the weaker trap before the batch.
 **The bench now has exactly one usable trap**, `fingerprint_preexisting` at
-0/21. Ten task ids are four distinct bugs — the `-transfer`/`-irrelevant`/
-`-umbrella` variants share `prompt`, `stub_cmd` and `test_path` byte-for-byte
-and differ only in which skill is paired, and control never sees the skill, so
-one floor covers a whole family. Screening is finished as a source of supply.
-See §3.8.
+0/21. Ten task ids carry just **two** `fix_commit`s — `22ddf37` and `ab4acfe`,
+five ids each — so the four tasks are two bugs crossed with two modes. The
+`-transfer`/`-irrelevant`/`-umbrella` variants share `prompt`, `stub_cmd` and
+`test_path` byte-for-byte and differ only in which skill is paired, and control
+never sees the skill, so one floor covers a whole family.
+
+**The `ab4acfe` bug reads 0/21 in author mode and 6/6 in repair mode.** Same
+bug, same tests. That within-bug contrast is the tightest evidence this project
+has that *mode*, not bug difficulty, sets the floor. (An earlier revision of
+this line said "four distinct bugs", which was wrong and hid that comparison.)
+Screening is finished as a source of supply. See §3.8.
 
 ### 3.1 Land the selector fix, then re-derive the budget — **STEPS 1–8 DONE 2026-09-13**
 

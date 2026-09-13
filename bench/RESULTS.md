@@ -2100,16 +2100,28 @@ a skill cannot improve, because the session already has the information.
 
 ## The bench has exactly one trap
 
-| distinct bug | mode | floor | status |
-| --- | --- | --- | --- |
-| `fingerprint_preexisting` | author | **0/21** | the only usable discriminator |
-| `response_text` | author | 1/13, then 6/6 | retired (E10) |
-| escaping (`22ddf37`) | repair | **6/6** | rejected (E11) |
-| truncation (`ab4acfe`) | repair | **6/6** | rejected (E11) |
+**Corrected 2026-09-13: there are two bugs here, not four.** `bench/tasks.json`
+holds ten ids carrying exactly two `fix_commit`s, five each. The four *tasks*
+are those two bugs crossed with two modes.
 
-Ten task ids, four distinct bugs, one survivor. Every future comparison needing
-two traps is blocked until new **author-mode** tasks are written. Screening is
-finished as a source of supply; authoring is the critical path.
+| bug | author-mode task | floor | repair-mode task | floor |
+| --- | --- | --- | --- | --- |
+| `22ddf37` escaping | `sf-author-response-text` | 1/13 → 6/6, retired (E10) | `sf-escaping-breaks-symptom-match` | **6/6**, rejected |
+| `ab4acfe` truncation | `sf-author-fingerprint-preexisting` | **0/21**, the only survivor | `sf-truncation-reports-absent` | **6/6**, rejected |
+
+**Read the `ab4acfe` row across.** Same bug, same `fix_commit`, same
+`test_path` — **0/21 in author mode and 6/6 in repair mode.** That is a
+within-bug comparison with the bug held fixed, and it isolates *mode* as the
+cause far more tightly than comparing one task against another ever could.
+`22ddf37` shows the same shape: its author task sat at 1/13 for four batches
+while its repair task is at ceiling.
+
+An earlier revision of this section called these "four distinct bugs". That was
+wrong, and the error concealed the strongest evidence in this experiment.
+
+Every future comparison needing two traps is blocked until new **author-mode**
+tasks are written. Screening is finished as a source of supply; authoring is the
+critical path.
 
 ## What this may unblock: harm has been measured in the wrong direction
 
