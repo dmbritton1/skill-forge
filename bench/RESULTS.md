@@ -22,6 +22,7 @@ because nothing indexed the data — see "What the register caught".
 | E8 follow-up (2026-09-11) | Does consolidating the library fix E8's ranking failure? | **No — it makes the ranking worse.** The correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. `/consolidate` works as a feature (E9) but does not fix the problem that motivated building it | `bench/rank_check.py` — deterministic, 0 sessions |
 | Budget derivation (2026-09-11) | What injection budget delivers a *correct* skill? | **3000 works; the curve is not monotonic.** At 1200 (today) the wrong skill wins `response_text`. At 2000 the right one slips in. **At 2400 it is crowded back out.** Greedy skip-and-continue means more budget can deliver a strictly worse set | `bench/budget_sweep.py` — deterministic, 0 sessions |
 | Selector monotonicity (2026-09-11) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed, not fixed.** Greedy skip-and-continue violates set monotonicity at 15 of 69 budget steps and flips the correct skill away at 3. Stopping at the first entry that does not fit scores **0 and 0** and costs nothing on a consolidated library (1850 either way). A score-maximising subset is **worse** than today (8 flips, 57 shrinks) | `bench/selector_check.py` — deterministic, 0 sessions |
+| E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **uninterpretable: control resolved 3/3** against a 1-in-13 history. Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1865,3 +1866,109 @@ Same limits as the budget derivation: ten skills, two traps, one repository,
 operator-written, prompt path only. Monotonicity itself is a property of the
 algorithm rather than of this corpus, but "costs nothing on a consolidated
 library" is a claim about these seven skills and their sizes.
+
+
+# E10 — does a wrong skill hurt at prompt time beside the right one? (2026-09-13)
+
+Spec and pre-registration:
+`docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md`.
+Batch script `bench/e10_batch.sh`. 24 sessions, **zero exclusions**.
+
+## Result
+
+| task | M (matched alone, 1200) | P (pair, 2000) | S (seven, 2000) | C |
+|---|---|---|---|---|
+| `fingerprint` | 3/3 | 3/3 | 3/3 | **0/3** |
+| `response_text` | 3/3 | 3/3 | 3/3 | **3/3** |
+
+**`fingerprint` is readable, and shows no harm.** Arm M reproduced its ceiling,
+control sat at the floor, and neither treatment arm fell. Harm was pre-declared
+as P or S scoring below M; neither did.
+
+**`response_text` is void.** Pre-registration §4: arm C at 2/3 or more makes
+that task uninterpretable. Its three ceiling-level treatment arms carry no
+signal, because the floor rose to meet them.
+
+## The half that survived is the easier half
+
+Both tasks received the *same two skills* — §2.2's ranking put
+`B/consolidated/1` (1088) first and `A/learn-failure/1` (759) second on both
+prompts. The tasks differ only in **which of those two is the correct one**:
+
+| task | rank 1 | rank 2 | correct skill arrives |
+|---|---|---|---|
+| `fingerprint` | `capped-scan…` (correct) | `json-dumps-breaks…` (wrong bug) | **first** |
+| `response_text` | `capped-scan…` (wrong bug) | `json-dumps-breaks…` (correct) | **second** |
+
+So E10 measured "a wrong skill riding *behind* the right one costs nothing"
+and lost the cell that asked "does a wrong skill arriving *first* mislead?"
+**The budget raise is still unlicensed for the case that motivated it** — the
+E8 ranking failure, where the correct skill is the one that comes second.
+
+## Delivery — the prediction held 12 of 12
+
+Every P and S run received `capped-scan-reports-unknown-not-absent` then
+`json-dumps-breaks-token-matching` at `trigger: prompt`, in that order, on both
+tasks. Zero deviations from §3.2. Symptom-path additions appeared only on
+S/`response_text` (`json-escaping-defeats-token-match` on 3 of 3,
+`json-dumps-fuses-tokens-across-newlines` on 1) and never on P or on
+`fingerprint` — also as predicted.
+
+The lever behaved: rows carry `inject_budget: 2000` on P and S and `null` on M
+and C, and the three clone segments (`-d…`, `-d…-plus-b2000`,
+`-d…-plus6-b2000`) kept the arms off each other's clones and ledgers.
+
+## The control break, which matters more than the result
+
+`sf-author-response-text` control resolved **3 of 3, with zero injections**.
+
+| batch | control on `response_text` |
+|---|---|
+| Q1 (09-09) | 1/3 |
+| E6 (09-10) | 0/1 |
+| E7 (09-11a) | 0/3 |
+| E8/E9 (09-11b) | 0/6 |
+| **E10 (09-13)** | **3/3** |
+
+One in thirteen before, three for three now — roughly a 1-in-2000 event at the
+historical rate. Ruled out by inspection, not assumption:
+
+- **Contamination.** Control rows carry `injections: []`, and after the batch
+  the operator's library held no skills, an empty index, and only the two
+  project trust keys. `libguard` reverted cleanly.
+- **Vacuous scoring.** `per_test` carries both grading test names; E9's control
+  rows carry the same two names set to `false`.
+- **Task drift.** `bench/tasks.json` is untouched since before E9, and both
+  batches' controls reproduce the same stub contract docstring.
+- **The clone teaching the answer.** Same pinned base commit `4eeaa9a`, no
+  `.claude/skills`, no `CLAUDE.md`.
+- **Plugin set.** Only `frontend-design` changed (2026-09-13 09:30), which has
+  no bearing on a token-matching trap.
+
+What the three control sessions actually did: each independently rewrote
+`response_text` to walk the structure and join raw string leaves, each with its
+own comment naming the escaping failure — `bench/authored/e10-sf-author-
+response-text-control-{1,2,3}.diff`.
+
+**Remaining candidates: the model behind the `claude-opus-5` alias, the CLI
+build, or variance. None is falsifiable from this evidence**, because a row
+records `model` — a moving alias — and nothing about the CLI or plugin
+versions. Today's CLI is 2.1.266.
+
+## What this costs
+
+1. **Any conclusion resting on a control measured in a different batch is
+   suspect on this task.** Same-batch controls are what caught it, which is
+   exactly why E5's rule exists.
+2. **The bench needs an environment fingerprint on the row** — resolved model
+   id, CLI version, plugin versions and shas. Without it, a control shift
+   cannot be attributed after the fact, only noticed.
+3. **`sf-author-response-text` may be burned as a discriminating task.** Before
+   reusing it, re-measure control; if it stays at ceiling, E4 and every future
+   comparison need a different trap.
+
+## Limits
+
+n=3 per cell. One budget (2000), one payload (1847 tokens), loud traps only,
+`fingerprint`'s ordering only, two traps in one repository, all
+operator-curated. A null here is "no large effect", never "no effect".

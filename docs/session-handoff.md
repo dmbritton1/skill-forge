@@ -156,6 +156,16 @@ the trap in the change and it is not visible from `retrieve.py`.
 
 ## 3. Next steps, in priority order
 
+**E10 ran on 2026-09-13 and half of it is void — read `bench/RESULTS.md`'s E10
+section before planning anything.** `fingerprint` came back clean (M 3/3, P
+3/3, S 3/3, C 0/3: no large prompt-time harm at 1847 tokens). `response_text`
+is uninterpretable because **control resolved 3/3**, against a 1-in-13 history,
+with zero injections and a clean library. Contamination, vacuous scoring, task
+drift, clone contents and the plugin set are all ruled out by inspection; the
+model behind the `claude-opus-5` alias, the CLI build and plain variance are
+not, and the rows cannot tell you which, because nothing fingerprints the
+environment. **Re-measure control before trusting that task again.**
+
 ### 3.1 Land the selector fix, then re-derive the budget
 
 In order:
@@ -179,6 +189,15 @@ In order:
 Only then re-derive the budget. Under `break` on a consolidated library the
 target is around **1850 for two skills**, not 3000 for three, which is a much
 smaller step past E6's measured no-harm at ~1118 tokens for two.
+
+**E10 tested that step and licensed only half of it.** At 1847 tokens a
+wrong-bug skill riding *behind* the correct one cost nothing on `fingerprint`
+(3/3 against a 0/3 control, n=3). The case that motivates the raise in the
+first place — E8's ranking failure, where the correct skill is the one that
+comes **second** — went void with the `response_text` control. So the raise is
+evidenced for the ordering that never needed it, and unevidenced for the
+ordering that does. A re-run needs a task whose control still sits at the
+floor.
 
 ### 3.2 What happens when ranking fails on a trap with no symptoms?
 
@@ -327,6 +346,11 @@ untested in anger.
   section and `bench/rank_check.py`; both are now fixed. The E8 and E9 specs
   keep the wrong name as pre-registered record. **Re-derive from
   the files; do not describe them from memory.**
+- **The evidence does not fingerprint its environment.** A results row records
+  `model`, which is a moving alias, and nothing about the CLI build, the plugin
+  versions, or their shas. When E10's `response_text` control jumped from a
+  1-in-13 history to 3/3, that gap is why the cause could be narrowed by
+  elimination but never identified. Add the fingerprint before the next batch.
 - **The SDD execution ledgers are gone.** `.superpowers/sdd/` is git-ignored
   and no longer exists in this worktree. The rulings made during
   `/consolidate`'s build survive only in the commit messages.
