@@ -195,6 +195,12 @@ has that *mode*, not bug difficulty, sets the floor. (An earlier revision of
 this line said "four distinct bugs", which was wrong and hid that comparison.)
 Screening is finished as a source of supply. See §3.8.
 
+**E12 (2026-09-13) found no large harm from an irrelevant skill.** Every arm
+scored 12/12, on repair-mode tasks whose tests are visible. That is the third
+harm null. The cost this bench has actually measured is the *missed* skill, not
+the wrong one, so the delivery gate and ranking are the next target (see the
+delivery-gate section of `bench/RESULTS.md`).
+
 ### 3.1 Land the selector fix, then re-derive the budget — **STEPS 1–8 DONE 2026-09-13**
 
 In order:
@@ -330,6 +336,13 @@ disruptive enough to survive that signal before harm appears. A null would be
 ambiguous between "no harm" and "the tests rescued it" — write that down before
 the batch, not after. Nothing above in this section is superseded: the
 leaky-stub warning and the re-derive-don't-quote rule still hold.
+
+**E12 ran that proposal on 2026-09-13 and found no large harm.** Control,
+relevant and irrelevant all scored 12/12, with the pre-registered caveat that
+visible failing tests may have rescued the session. E4 is now answered for
+repair mode at ceiling only. **Don't spend more sessions on harm.** It is the
+third null after E6 and E10, and no author-mode task has the headroom to run the
+other half. See E12 in `bench/RESULTS.md`.
 
 **Control figures: re-derive them, do not quote them.** The "1/6 and 0/6"
 carried in three specs cannot be reproduced from one consistent rule. E7's own
