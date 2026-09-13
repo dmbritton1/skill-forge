@@ -159,12 +159,13 @@ the trap in the change and it is not visible from `retrieve.py`.
 **E10 ran on 2026-09-13 and half of it is void — read `bench/RESULTS.md`'s E10
 section before planning anything.** `fingerprint` came back clean (M 3/3, P
 3/3, S 3/3, C 0/3: no large prompt-time harm at 1847 tokens). `response_text`
-is uninterpretable because **control resolved 3/3**, against a 1-in-13 history,
-with zero injections and a clean library. Contamination, vacuous scoring, task
-drift, clone contents and the plugin set are all ruled out by inspection; the
-model behind the `claude-opus-5` alias, the CLI build and plain variance are
-not, and the rows cannot tell you which, because nothing fingerprints the
-environment. **Re-measure control before trusting that task again.**
+is void because **control resolved 3/3, and 3/3 again on a dedicated
+re-measure** — 6/6 against a 1/13 history, zero injections, clean library.
+**That task is retired as a discriminator.** It is not a general capability
+shift: `fingerprint`'s control ran minutes earlier in the same batch and stayed
+at 0/3, 0/18 lifetime. `response_text` was simply the marginal trap — its floor
+was never zero. A control floor decays; read it as a live number before putting
+a task in a batch.
 
 ### 3.1 Land the selector fix, then re-derive the budget
 
@@ -346,11 +347,13 @@ untested in anger.
   section and `bench/rank_check.py`; both are now fixed. The E8 and E9 specs
   keep the wrong name as pre-registered record. **Re-derive from
   the files; do not describe them from memory.**
-- **The evidence does not fingerprint its environment.** A results row records
-  `model`, which is a moving alias, and nothing about the CLI build, the plugin
-  versions, or their shas. When E10's `response_text` control jumped from a
-  1-in-13 history to 3/3, that gap is why the cause could be narrowed by
-  elimination but never identified. Add the fingerprint before the next batch.
+- **The evidence now fingerprints its environment — and it still would not have
+  caught this.** Rows carry `env` (CLI build, every loaded plugin's sha) as of
+  `8e0cf16`. It earns its place by making the next environment change visible at
+  a glance instead of by transcript archaeology. It does not make model drift
+  detectable: every field it records was identical across the batches where
+  `response_text` control read 0/3 and 6/6. `model` stays a moving alias —
+  `claude-opus-5` has no dated snapshot to pin to.
 - **The SDD execution ledgers are gone.** `.superpowers/sdd/` is git-ignored
   and no longer exists in this worktree. The rulings made during
   `/consolidate`'s build survive only in the commit messages.

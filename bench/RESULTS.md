@@ -22,7 +22,7 @@ because nothing indexed the data — see "What the register caught".
 | E8 follow-up (2026-09-11) | Does consolidating the library fix E8's ranking failure? | **No — it makes the ranking worse.** The correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. `/consolidate` works as a feature (E9) but does not fix the problem that motivated building it | `bench/rank_check.py` — deterministic, 0 sessions |
 | Budget derivation (2026-09-11) | What injection budget delivers a *correct* skill? | **3000 works; the curve is not monotonic.** At 1200 (today) the wrong skill wins `response_text`. At 2000 the right one slips in. **At 2400 it is crowded back out.** Greedy skip-and-continue means more budget can deliver a strictly worse set | `bench/budget_sweep.py` — deterministic, 0 sessions |
 | Selector monotonicity (2026-09-11) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed, not fixed.** Greedy skip-and-continue violates set monotonicity at 15 of 69 budget steps and flips the correct skill away at 3. Stopping at the first entry that does not fit scores **0 and 0** and costs nothing on a consolidated library (1850 either way). A score-maximising subset is **worse** than today (8 flips, 57 shrinks) | `bench/selector_check.py` — deterministic, 0 sessions |
-| E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **uninterpretable: control resolved 3/3** against a 1-in-13 history. Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
+| E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **void: control resolved 3/3, and 3/3 again on a dedicated re-measure — 6/6 against a 1/13 history. The task is retired as a discriminator.** Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -1972,3 +1972,65 @@ versions. Today's CLI is 2.1.266.
 n=3 per cell. One budget (2000), one payload (1847 tokens), loud traps only,
 `fingerprint`'s ordering only, two traps in one repository, all
 operator-curated. A null here is "no large effect", never "no effect".
+
+## The control re-measure, and what actually broke
+
+Three more `sf-author-response-text` control sessions, run alone on 2026-09-13
+at 13:07–13:09 against the same worktree, same pinned base, empty library.
+
+**3 of 3 resolved, zero injections.** Six for six across both of today's
+batches. The reading criterion was fixed before the run: control ≥ 2/3 means
+the E10 result was not an outlier and the task is burned as a discriminator.
+It reads at the ceiling. **`sf-author-response-text` is retired as a
+discriminating task.**
+
+These are the first rows in the register to carry the `env` field — CLI build
+and every loaded plugin's sha. It landed as designed and is now on every row
+going forward.
+
+### It is not a general capability shift
+
+The same E10 batch ran three `sf-author-fingerprint-preexisting` controls at
+12:49–12:51 — minutes before the `response_text` controls, same machine, same
+CLI, same plugin set, same process.
+
+| task | control before 09-13 | control on 09-13 |
+| --- | --- | --- |
+| `sf-author-fingerprint-preexisting` | 0/15 | 0/3 |
+| `sf-author-response-text` | 1/13 | **6/6** |
+
+Counts exclude `session_ok: false` rows (a refused batch of three on 09-11).
+
+A change that lifted every session's baseline competence would have moved both.
+One moved to the ceiling and the other did not move at all, in the same batch.
+
+The parsimonious reading is that **`response_text` was always the marginal
+trap**. Its control floor was never zero — it was 1/13, a trap the model
+occasionally beat unaided. `fingerprint-preexisting` has never once been solved
+without the skill in 18 control sessions. A modest capability increase crosses a
+marginal threshold and leaves a hard one untouched; that is what the two columns
+show. Naming the exact upstream change is not possible from this machine, and no
+longer buys anything: the action is the same under every remaining hypothesis.
+
+### What this actually costs
+
+Narrower than feared, and different in kind.
+
+1. **One trap, not the register.** E10's `response_text` half stays void. Every
+   result resting on `fingerprint-preexisting` — its control floor intact at
+   0/18 — stands.
+2. **A control floor is a measurement, not a constant.** It decays. A trap with
+   a non-zero historical floor is a trap on its way out, and 1/13 was the
+   warning this project read as noise for four batches.
+3. **Trap inventory is now the binding constraint.** `fingerprint-preexisting`
+   is the one task with a demonstrated zero floor. E4 was already blocked
+   needing a mid-range task; the bench now also needs a replacement for
+   `response_text` before any comparison that depends on two traps.
+
+### The standing check this earns
+
+Before a task is used in a batch, its control cell is read as a live number, not
+inherited from the register. Any task whose control floor is non-zero over its
+history is a candidate for retirement, not a discriminator. Same-batch controls
+(E5) remain the rule; this is the rule that says which tasks are worth putting
+in a batch at all.
