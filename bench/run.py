@@ -69,6 +69,15 @@ PLUS_SKILL = None
 #: path, because a batch runs two budgets and they must not share a clone.
 INJECT_BUDGET = None
 
+#: What was running when this batch produced its rows. Captured once in main().
+#: E10's control break on sf-author-response-text (0/3 historically, 3/3 on
+#: 2026-09-13) could be narrowed by elimination but never attributed, because
+#: no row recorded the environment. This does not capture the served model --
+#: `claude-opus-5` is an alias with no dated snapshot, and nothing local
+#: reports what it resolved to. Same-batch controls remain the only defence
+#: against a model-side change.
+ENV = {}
+
 
 def expand(value):
     """Substitute `{root}` in any string, recursively through the config."""
@@ -189,6 +198,38 @@ def distilled_parts():
             "--skill-from must be <...>/distilled/<trap>/<distiller>/<draw>/SKILL.md,"
             " got %s" % SKILL_FROM)
     return parts[-3], parts[-2]
+
+
+def plugin_shas(data):
+    """{plugin name: commit sha, or version when the entry carries no sha}.
+
+    installed_plugins.json is {"version": N, "plugins": {name: [entry, ...]}}.
+    swift-lsp carries a version and no gitCommitSha, so the fallback is real
+    rather than defensive. A name with neither maps to "" and is kept: knowing
+    a plugin was installed matters even when its revision is unknown.
+    """
+    out = {}
+    for name, entries in (data.get("plugins") or {}).items():
+        entry = entries[0] if isinstance(entries, list) and entries else entries
+        if isinstance(entry, dict):
+            out[name] = entry.get("gitCommitSha") or entry.get("version") or ""
+    return out
+
+
+def environment():
+    """CLI build and plugin revisions, for the row. Never raises: a missing
+    file or a slow CLI must not cost a batch."""
+    try:
+        cli = sh("claude --version", timeout=30).stdout.strip()
+    except Exception:
+        cli = ""
+    try:
+        raw = (Path.home() / ".claude" / "plugins"
+               / "installed_plugins.json").read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except Exception:
+        data = {}
+    return {"cli": cli, "plugins": plugin_shas(data)}
 
 
 def arm_segment(arm):
@@ -419,6 +460,7 @@ def one(task, arm, run_idx, plugin_dir):
     rec = {"task": task["id"], "arm": arm, "run": run_idx,
            "resolved": all(post.values()), "per_test": post,
            "session_ok": sess["ok"], "secs": sess["secs"], "model": MODEL,
+           "env": ENV,
            "inject_budget": INJECT_BUDGET,
            "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
            "skill_note": skill_note, "test_tail": tail,
@@ -469,6 +511,8 @@ def main(argv=None):
     SKILL_FROM = args.skill_from
     PLUS_SKILL = args.plus_skill
     INJECT_BUDGET = args.inject_budget
+    global ENV
+    ENV = environment()
     if INJECT_BUDGET is not None and INJECT_BUDGET <= 0:
         # retrieve.main swallows the ValueError a bad value would raise and
         # then delivers nothing, silently. Fail here instead.

@@ -379,6 +379,22 @@ def test_every_extra_skill_is_named_on_the_row():
         names = _names_with_plus(paths)
     assert names == ["skill-0", "skill-1", "skill-2"], names
 
+def test_plugin_shas_reads_installed_plugins():
+    """E10's control break could not be attributed after the fact, because no
+    row recorded what was live. Sha when present; version when the entry has
+    no sha (swift-lsp carries none); the name is dropped for neither."""
+    data = {"version": 2, "plugins": {
+        "ponytail@ponytail": [{"gitCommitSha": "c4d1925", "version": "4.8.3"}],
+        "swift-lsp@official": [{"version": "1.0.0"}],
+        "broken@x": [{}],
+    }}
+    got = bench_run.plugin_shas(data)
+    assert got["ponytail@ponytail"] == "c4d1925"
+    assert got["swift-lsp@official"] == "1.0.0"
+    assert got["broken@x"] == ""
+    assert bench_run.plugin_shas({}) == {}
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
