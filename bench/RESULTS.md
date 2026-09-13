@@ -24,6 +24,7 @@ because nothing indexed the data — see "What the register caught".
 | Selector monotonicity (2026-09-11, **fixed 2026-09-13**) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed and now shipped.** Skip-and-continue violated set monotonicity at 15 of 69 budget steps and flipped the correct skill away at 3. `retrieve.run_hook` now stops at the first entry that does not fit: **0 flips, 0 shrinks**, delivery is a prefix of the rank order. A score-maximising subset was **worse** than the old code (8 flips, 57 shrinks) and was rejected. Costs nothing on a consolidated library (1850 either way), ~1050 tokens of headroom on the duplicate-heavy ten | `bench/selector_check.py` — deterministic, 0 sessions |
 | E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **void: control resolved 3/3, and 3/3 again on a dedicated re-measure — 6/6 against a 1/13 history. The task is retired as a discriminator.** Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
 | E11 (2026-09-13) | After `response_text` was retired, can either never-run task serve as a discriminator? | **Answered: no — both rejected.** A 6/6, B 6/6 control at n=6 each: **ceiling, not marginal**, every graded test green in every session. Same-batch reference R held at 0/3 (**0/21** lifetime), so the screen is valid. Repair mode shows the model the failing tests and is structurally the weaker trap, exactly as §4.4 pre-registered. **The bench now has exactly one trap.** The two rejects have maximum headroom to fall, which may make them *harm* detectors for E4 — a proposal, not a result | `results.jsonl`, the 15 rows dated 2026-09-13 after 13:36; spec `docs/superpowers/specs/2026-09-13-e11-trap-screening-design.md` |
+| Delivery gate (2026-09-13) | Does the retrieval gate discriminate at all? | **No — it admits everything.** All 16 skills clear `score > 0 and matched >= 2` on all four task prompts, and so does a control prompt about a cat. `matched` is incremented **before** IDF is applied, so a term carrying no information gets full gate credit; `not the use when` are in all 16 descriptions and `validate()` guarantees two of them by refusing any description without "do not use". Counting only non-universal terms drops the cat to **1/16** while real prompts hold at 14–16/16. Ranking fails separately: rank 1 is a trap-B skill on all five prompts **including the cat** | `bench/gate_analysis.py` — deterministic, 0 sessions |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -2152,3 +2153,108 @@ honest claim is "no control failure observed at n=6", not "the floor is 1.0".
 Both candidates are one repository, operator-curated, two bugs of the same class
 (a transform upstream of a decision producing a wrong negative). The reference
 cell is n=3.
+
+# The delivery gate does not discriminate (2026-09-13)
+
+Reproduce with `python3 bench/gate_analysis.py`. Deterministic, no sessions.
+
+Found while pre-flighting E12, which needed to know whether an *irrelevant*
+skill would even be delivered before it could measure whether one does harm.
+The answer was yes — and then yes for everything else too.
+
+## The result
+
+`retrieve.run_hook` admits an entry when `score > 0 and matched >=
+MIN_MATCHED_TERMS` (=2). Across all four task prompts, plus a control prompt
+with no technical content at all:
+
+| prompt | clears the gate | ...counting only informative terms | rank 1 | correct trap at rank |
+| --- | --- | --- | --- | --- |
+| repair `escaping` | 16/16 | 14/16 | trap B | **5** |
+| repair `truncation` | 16/16 | 14/16 | trap B | 1 |
+| author `response_text` | 16/16 | 16/16 | trap B | **3** |
+| author `fingerprint` | 16/16 | 15/16 | trap B | 1 |
+| **control — "the cat sat on the mat and did not move when i called"** | **16/16** | **1/16** | trap B | n/a |
+
+**A sentence about a cat admits every skill in the library.** That is the
+finding, and it needs no interpretation.
+
+## The mechanism
+
+In `bm25()`, `matched` is incremented before the IDF weight exists:
+
+```python
+f = tf.get(term)
+if not f:
+    continue
+matched += 1                      # unweighted
+idf = math.log(1 + (n - df[term] + 0.5) / (df[term] + 0.5))
+score += idf * f * ...
+```
+
+IDF does its job — a token present in all 16 descriptions scores **0.0299**,
+near zero. The *score* knows the term is worthless. The *gate* never asks. Two
+worthless matches open it.
+
+That would be harmless if descriptions did not share worthless terms. Four are
+universal here — `not`, `the`, `use`, `when` — and **two of them are mandated**.
+`save_skill.validate()` refuses any description lacking `"do not use"`, which
+guarantees `not` and `use` in every skill in the library.
+
+Precisely: the validator enforces the substring `"do not use"`, so `not` and
+`use` are guaranteed (`do` is dropped by `tokenize`'s `len >= 3` filter).
+`when` is spec 4.1 convention — present in all 16 descriptions, but **not**
+enforced. So the gate is satisfied by house style before topic is considered.
+
+## Raising the threshold does not fix it
+
+At `MIN_MATCHED_TERMS = 5`, 14–16 of 16 still clear. At 7, 5–13 still clear.
+The universal terms are not the only shared ones, and pushing the threshold up
+starts excluding genuinely relevant skills before it excludes irrelevant ones.
+This is not a threshold problem.
+
+## What would fix it, measured but not shipped
+
+Counting only terms that are **not** present in every description separates the
+cat from the real prompts: **1/16 versus 14–16/16**. That is a real
+discriminator, and it is worth stating that it could have come out otherwise —
+a fix that also gutted the real prompts would be no fix.
+
+**This is a measurement, not a change.** `retrieve.py` is untouched. Shipping it
+alters what every session receives, so it needs its own tests and a look at what
+it does to live delivery first. The obvious variants — weight `matched` by IDF,
+or ignore terms with `df == n` — are not equivalent on a corpus that grows.
+
+## Ranking is a second, independent failure
+
+**Rank 1 is a trap-B skill on all five prompts, including the cat.** The top of
+the ranking is essentially prompt-independent on this corpus. On the two trap-A
+prompts the correct skill sits at rank 3 and rank 5, and roughly one skill fits
+the 1200 budget, so the skill actually delivered is the wrong one.
+
+This is E8's ranking failure — "on `response_text` the prompt path delivered a
+wrong-trap skill 3/3" — now with a mechanism instead of an observation. The E8
+follow-up found consolidation made ranking *worse*; that is consistent with a
+ranker whose top slot barely depends on the query.
+
+## What it means for the experiments already run
+
+Nothing already measured is invalidated: every experiment recorded which skills
+were delivered, and those records stand. What changes is the interpretation of
+**delivery** as evidence of retrieval working. It was not selecting; it was
+admitting everything and letting BM25's ordering pick, from a top slot that
+hardly moves with the prompt.
+
+E12's arm I is unaffected and arguably strengthened — a genuinely irrelevant
+skill really is retrieved and delivered by the shipped system on these prompts,
+so measuring whether it does harm is measuring something real rather than
+contrived.
+
+## Limits
+
+Sixteen skills, one library, all operator-written, four task prompts plus one
+control. Universality of a term is a property of *this* corpus: `not` and `use`
+are guaranteed by the validator at any corpus size, but `the` and `when` are
+not, and a larger library would change the df table and possibly the proposed
+fix's numbers. BM25 scores are corpus-relative — the ranks are the claim, not
+the magnitudes.
