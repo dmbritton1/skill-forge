@@ -45,6 +45,82 @@ def test_arm_segment_marks_the_hot_arm():
         _reset()
 
 
+def test_authored_skill_from_must_also_be_absolute():
+    """The absolute-path rule is not a distilled-tree rule. install_skill
+    shells save_skill.py with cwd set to the throwaway clone, so a relative
+    authored path resolves against the clone and is not there -- the same way
+    twelve Q1 probes died before any session started."""
+    _reset()
+    bench_run.SKILL_FROM = "bench/skills/arrow-tzinfo-string-trap.md"
+    try:
+        try:
+            bench_run.distilled_parts()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a relative authored --skill-from must be refused")
+    finally:
+        _reset()
+
+
+def test_arm_segment_encodes_an_authored_skill_by_its_stem():
+    """E12 needs a hand-written skill from bench/skills/ as an arm. The bench
+    has two legitimate skill sources; --skill-from only understood the
+    distilled tree, so an authored path raised and the arm could not run."""
+    _reset()
+    bench_run.SKILL_FROM = "/x/bench/skills/arrow-tzinfo-string-trap.md"
+    try:
+        assert bench_run.distilled_parts() is None
+        assert bench_run.arm_segment("treatment") == "-s-arrowtzinfostringtrap"
+        assert bench_run.arm_segment("control") == ""
+    finally:
+        _reset()
+
+
+def test_arm_segment_separates_authored_arms_from_each_other():
+    """Two authored arms in one batch must not share a clone path -- that is
+    how E5 lost a batch."""
+    _reset()
+    try:
+        bench_run.SKILL_FROM = "/x/bench/skills/arrow-tzinfo-string-trap.md"
+        irrelevant = bench_run.arm_segment("treatment")
+        bench_run.SKILL_FROM = "/x/bench/skills/serialization-corrupts-matching.md"
+        relevant = bench_run.arm_segment("treatment")
+        assert irrelevant != relevant
+        assert "" not in (irrelevant, relevant)
+    finally:
+        _reset()
+
+
+def test_a_malformed_distilled_path_still_raises():
+    """The relaxation must stay narrow. A mistyped path inside a distilled
+    tree is a typo, not an authored skill: turning it into a silent "authored"
+    row is exactly the bogus attribution distilled_parts() exists to stop."""
+    _reset()
+    bench_run.SKILL_FROM = "/x/bench/distilled/A/learn-failure/SKILL.md"
+    try:
+        try:
+            bench_run.distilled_parts()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("a malformed distilled path must still raise")
+    finally:
+        _reset()
+
+
+def test_source_keys_calls_an_authored_skill_authored():
+    _reset()
+    bench_run.SKILL_FROM = "/x/bench/skills/arrow-tzinfo-string-trap.md"
+    try:
+        keys = bench_run.source_keys("treatment", {"skill": "unused"}, "warm")
+        assert keys["skill_source"] == "authored"
+        assert keys["distiller"] is None and keys["draw"] is None
+        assert keys["skill_path"].endswith("arrow-tzinfo-string-trap.md")
+    finally:
+        _reset()
+
+
 def test_arm_segment_encodes_distiller_and_draw():
     _reset()
     bench_run.SKILL_FROM = "/x/bench/distilled/trapA/learn-failure/2/SKILL.md"

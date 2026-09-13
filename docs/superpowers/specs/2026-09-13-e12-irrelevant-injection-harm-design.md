@@ -94,9 +94,40 @@ comparison is not about how much context was spent:
 
 ### 3.3 Harness
 
-No change. `bench/run.py --task <id> --runs 6 --arm control`, and
-`--arm treatment --skill-from <abs path>` for R and I. `--skill-from` decides
-the clone segment, so the three arms cannot collide.
+**Amended 2026-09-13, before any E12 data existed.** This section originally
+read "No change." The §4.3 delivery smoke test — run after this spec was
+committed, exactly so it could not inform the criterion — showed that claim was
+false, and it is corrected here rather than worked around.
+
+`--skill-from` validates its argument as
+`<...>/distilled/<trap>/<distiller>/<draw>/SKILL.md`. It is Q1's lever, built
+for the model-distilled corpus. All three of §3.1's size-matched skills live in
+`bench/skills/`, so every arm would have aborted before its first session.
+
+The fix is a narrow lever extension, not a workaround. The bench has two
+legitimate skill sources — hand-written `bench/skills/` and model-distilled
+`bench/distilled/` — and rows already carry `skill_source` with values
+`"authored"` and `"distilled"` to tell them apart. `distilled_parts()` now
+returns `None` for a path outside a distilled tree, `arm_segment()` emits
+`-s-<stem>` for it, and `source_keys()` records it as `authored` with
+`distiller` and `draw` null.
+
+**The relaxation stays narrow deliberately.** A malformed path *inside* a
+distilled tree still raises. Turning a typo into a silent `authored` row is the
+bogus-attribution failure `distilled_parts()`'s docstring was written to
+prevent, and trading a loud failure for a quiet one would be a worse bug than
+the one being fixed.
+
+The alternative — copying the three skills into
+`bench/distilled/<trap>/<distiller>/<draw>/` — was rejected. `<trap>` is not
+validated, so it would have worked, but it would write hand-authored content
+into the model-distilled tree under an invented distiller name. Satisfying a
+validator by lying to it is not a repair.
+
+Arms then run as: `--arm control` for C, and
+`--arm treatment --skill-from <abs path under bench/skills/>` for R and I,
+whose segments (`-s-serializationcorruptsmatching`,
+`-s-arrowtzinfostringtrap`) differ, so the arms cannot share a clone path.
 
 ## 4. Pre-registration
 

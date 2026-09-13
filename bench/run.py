@@ -193,7 +193,29 @@ def distilled_parts():
         return None
     p = Path(SKILL_FROM).resolve()
     parts = p.parts
-    if p.name != "SKILL.md" or len(parts) < 5 or parts[-5] != "distilled":
+    # The bench has two legitimate skill sources: hand-written bench/skills/
+    # and model-distilled bench/distilled/. The FILENAME tells them apart -- a
+    # distilled draft is always SKILL.md inside <trap>/<distiller>/<draw>/, a
+    # hand-written skill is a bare <name>.md. So a non-SKILL.md file is an
+    # AUTHORED skill, not an error; source_keys() already records that.
+    #
+    # Anything NAMED SKILL.md is claiming to be a distilled draft and is held
+    # to the full layout below. That is deliberate: a malformed path there is a
+    # typo, and turning it into a silent "authored" row is exactly the bogus
+    # attribution this function exists to prevent. E12 section 3.3.
+    if p.name != "SKILL.md":
+        # An authored path has no layout check to fall back on, so the
+        # absolute-path rule has to be stated here: install_skill shells
+        # save_skill.py with cwd=dest -- the throwaway clone -- so a relative
+        # path resolves against the clone and is not there. A distilled path
+        # gets this for free below, which refuses "SKILL.md" and "/SKILL.md"
+        # alike; hoisting the check above that branch broke a relative
+        # distilled path the layout check deliberately tolerates.
+        if not Path(SKILL_FROM).is_absolute():
+            raise ValueError(
+                "--skill-from must be an absolute path, got %s" % SKILL_FROM)
+        return None
+    if len(parts) < 5 or parts[-5] != "distilled":
         raise ValueError(
             "--skill-from must be <...>/distilled/<trap>/<distiller>/<draw>/SKILL.md,"
             " got %s" % SKILL_FROM)
@@ -245,8 +267,14 @@ def arm_segment(arm):
         return "-hot"
     seg = ""
     if SKILL_FROM:
-        distiller, draw = distilled_parts()
-        seg = "-d-%s-%s" % (distiller.replace("-", ""), draw)
+        parts = distilled_parts()
+        if parts:
+            distiller, draw = parts
+            seg = "-d-%s-%s" % (distiller.replace("-", ""), draw)
+        else:
+            # Authored skill: the stem is what distinguishes one arm from
+            # another, and E12 runs two of them in one batch.
+            seg = "-s-%s" % Path(SKILL_FROM).stem.replace("-", "")
     # "-plus" for exactly one extra, which is what E6's twelve archived clones
     # and their manifest entries are named. E8 installs nine, and letting it
     # share E6's segment would put two arms under one clone path -- how E5
