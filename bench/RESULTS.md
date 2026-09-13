@@ -12,7 +12,7 @@ because nothing indexed the data — see "What the register caught".
 | E1 (2026-09-06) | Does packaging both traps as one umbrella destroy the effect? | **Answered.** umbrella 6/6 = matched 6/6. `/consolidate` unblocked. Re-measured 4/6 on 09-08 as E5's arm W — read 6/6 as one draw | `results.jsonl`, the 18 rows dated 09-05/09-06 with **no** `delivery` key |
 | Q1 (2026-09-09) | Does the distiller work end to end? (= brief Q1) | **Answered.** 4/12 draws emitted; those four scored 12/12 against a 1/6 floor. Bottleneck is emission, not delivery or content | `bench/distilled/` + the 24 rows dated 2026-09-09 |
 | E6 (2026-09-10) | Does an irrelevant skill *dilute* a relevant one? | **Answered.** R 6/6, R+I 6/6, zero exclusions, both skills injected on every R+I run. No dilution at n=3 per cell — rules out a large effect only. Does **not** answer E4 | `results.jsonl`, the 12 rows dated 2026-09-10 carrying `extra_skills`; the 09-09 attempt's 3 valid + 9 excluded rows are kept and not pooled |
-| E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Blocked, not yet run — needs a mid-range task.** The graded scorer (2026-09-10) was built to unblock it and did not: it reproduces the binary verdict, and no artifact has scored below control (0.636 `fingerprint`, 0.778 `response_text`; 0.852 in the 2026-09-10 batch, which holds the one resolved control run). The blockage is the task, not the scorer | tasks defined (`sf-author-*-irrelevant`), never run; baselines in `bench/graded.jsonl` |
+| E4 | Does injecting an *irrelevant* skill actively hurt? (= brief Q3) | **Partly answered by E12 (2026-09-13): no large harm on repair-mode tasks at ceiling**, C 12/12 against I 12/12. The author-mode version still cannot run, because no author task has headroom (`fingerprint_preexisting` 0/21, `response_text` retired). The old framing, "needs a mid-range task", was the error: measuring harm needs a ceiling, not a middle. The graded scorer did not unblock it | E12's rows and spec; the original `sf-author-*-irrelevant` tasks were never run |
 | E5 (2026-09-06) | Is the effect the knowledge, or the delivery path? | **Answered.** hot 5/6, warm 4/6, control 0/6 — two measurements of one arm differ by more than the arms do, so content carries it and no ranking is claimable | `results.jsonl`, the 15 rows dated 09-06 carrying `"delivery"` |
 | Hot under the shipped path (2026-09-08) | Does hot delivery still work after `b35f756` moved the materialization path? | **Confirmed.** 4/6, zero injection rows, three markers. Delivery only — ranking, budget, promotion and eviction remain unevidenced | `results.jsonl`, the 6 rows dated 09-08 |
 | Graded scoring (2026-09-10) | Can this bench resolve anything smaller than all-or-nothing? | **Probe half partial, judge half no.** 20 probes over 42 archived artifacts, 0 sessions: falsifier did not fire, the scale is unpinned from zero, but the graded score reproduces the binary `resolved` verdict in 40 of 42 rows — the unblocking of E4 is provisional, not established. The judge's 42 sessions produced a clean negative — its criteria discriminate between tasks, not artifacts (r = -0.308) | `bench/graded.jsonl` (42 rows), `bench/authored/` (54 diffs) |
@@ -25,6 +25,7 @@ because nothing indexed the data — see "What the register caught".
 | E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **void: control resolved 3/3, and 3/3 again on a dedicated re-measure — 6/6 against a 1/13 history. The task is retired as a discriminator.** Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
 | E11 (2026-09-13) | After `response_text` was retired, can either never-run task serve as a discriminator? | **Answered: no — both rejected.** A 6/6, B 6/6 control at n=6 each: **ceiling, not marginal**, every graded test green in every session. Same-batch reference R held at 0/3 (**0/21** lifetime), so the screen is valid. Repair mode shows the model the failing tests and is structurally the weaker trap, exactly as §4.4 pre-registered. **The bench now has exactly one trap.** The two rejects have maximum headroom to fall, which may make them *harm* detectors for E4 — a proposal, not a result | `results.jsonl`, the 15 rows dated 2026-09-13 after 13:36; spec `docs/superpowers/specs/2026-09-13-e11-trap-screening-design.md` |
 | Delivery gate (2026-09-13) | Does the retrieval gate discriminate at all? | **No — it admits everything.** All 16 skills clear `score > 0 and matched >= 2` on all four task prompts, and so does a control prompt about a cat. `matched` is incremented **before** IDF is applied, so a term carrying no information gets full gate credit; `not the use when` are in all 16 descriptions and `validate()` guarantees two of them by refusing any description without "do not use". Counting only non-universal terms drops the cat to **1/16** while real prompts hold at 14–16/16. Ranking fails separately: rank 1 is a trap-B skill on all five prompts **including the cat** | `bench/gate_analysis.py` — deterministic, 0 sessions |
+| E12 (2026-09-13) | Does an irrelevant injected skill actively hurt? | **No large harm.** C 12/12, relevant R 12/12, irrelevant I 12/12 — 6/6 in every cell, zero exclusions, one environment. The pre-registered §4.4 caveat governs: repair-mode tasks show the model its failing tests, so this cannot tell "no harm" from "the tests rescued it". Answers E4 for repair mode at ceiling only. Third consecutive harm null, after E6 and E10 | `results.jsonl`, the 36 rows from 2026-09-13T17:36:28; `bench/e12_read.py`; spec `docs/superpowers/specs/2026-09-13-e12-irrelevant-injection-harm-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -36,7 +37,7 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 |---|---|---|
 | Q1 | Does the pipeline work end to end, or only the injection half? | **Answered 2026-09-09.** It works when it emits, and it emits 4 times in 12. The four that emitted scored 12/12 against a 1/6 floor. The distiller is no longer the untested link — but the 8 novelty-gate refusals are never probed, so whether the gate is right is a new open question |
 | Q2 | Is transfer real at any n? | **Replicated null, still open.** 0/6 in the pilot and 0/6 again on 2026-09-09, the second time against a floor measured in the same batch on the same pinned model. Two nulls at n=6 is not absence at a convincing n |
-| Q3 | Does injection ever hurt? | = E4, **still blocked**. E6 (2026-09-10) answered the neighbouring question — an irrelevant skill alongside a relevant one cost nothing, 6/6 versus 6/6 — which makes E4 less urgent but is a different comparator and does not answer it |
+| Q3 | Does injection ever hurt? | = E4. **Partly answered 2026-09-13 by E12:** no large harm from an irrelevant skill on repair-mode tasks whose tests are visible. Together with E6 and E10 that makes three nulls, so injection has never yet been shown to hurt on this bench. Author-mode harm is still untested, for want of headroom |
 | Q4 | Token cost per unit of benefit? | **No experiment exists** |
 | Q5 | Does the `trusted` gate predict anything? | **Attempted 2026-09-09, no split available.** Pre-registered as a Q1 secondary and run: critique passed all 4 distilled drafts, so there is no failing group to compare against. Still unanswered, and now known to need drafts the gate *rejects* — which this design does not produce |
 
@@ -2258,3 +2259,96 @@ are guaranteed by the validator at any corpus size, but `the` and `when` are
 not, and a larger library would change the df table and possibly the proposed
 fix's numbers. BM25 scores are corpus-relative — the ranks are the claim, not
 the magnitudes.
+
+# E12: does an irrelevant injected skill actively hurt? (2026-09-13)
+
+Pre-registered in `docs/superpowers/specs/2026-09-13-e12-irrelevant-injection-harm-design.md`.
+The criterion was fixed at `239e1fd` before any data existed. Both amendments
+also landed before the data they govern: the `--skill-from` lever (§3.3,
+`d36c34e`), then the §4.2 clarification and the decision to re-run all 36
+sessions (`6577028`).
+
+## Result: no large harm in either arm
+
+| arm | installed | escaping | truncation | pooled |
+| --- | --- | --- | --- | --- |
+| C | nothing | 6/6 | 6/6 | **12/12** |
+| R | the skill distilled from the task's own bug | 6/6 | 6/6 | **12/12** |
+| I | `arrow-tzinfo-string-trap` (timezone handling) | 6/6 | 6/6 | **12/12** |
+
+Read with `python3 bench/e12_read.py --window 2026-09-13T17:36:28 -`, in the
+order the spec fixes. **§4.2 held:** the control cell was complete at 12 valid
+sessions, and no treatment row was missing its skill. Then **§4.1:** R and I
+each came in 0 of 12 below control, which the spec calls *no large harm*.
+Fisher's exact p is 1.000 for both contrasts, reported as a statistic rather
+than used as a threshold.
+
+All 36 sessions were valid, with zero exclusions, run 17:36–18:13 under one
+environment fingerprint (CLI 2.1.266, skillforge `b712e4b`). Sessions took
+43–84s, median 58s. Delivery went exactly as designed: `arrow-tzinfo` arrived
+12 times, each relevant skill 6 times, and no control row received an
+injection.
+
+## How to read it
+
+This is §5's "neither below C" case: **no large harm at ~550 tokens on these
+tasks.**
+
+The reading is bounded by §4.4, which was written before the data. These are
+repair-mode tasks, so the session sees the failing tests, and that is a strong
+signal an irrelevant skill would have to overcome. This result cannot separate
+"no harm" from "the tests rescued it". What it supports is **no large harm on a
+task whose tests are visible**, never "irrelevant injection is harmless".
+
+Arm I was not a contrivance. The delivery-gate analysis above shows shipped
+retrieval really does admit this skill on these prompts, and here it arrived
+12 times out of 12.
+
+The three-arm split in §3.2 was built to separate "irrelevance harms" from
+"injected context harms". That needs at least one arm to move, and none did, so
+the split had nothing to resolve.
+
+## What it answers
+
+E4's question, **for repair-mode tasks at ceiling**. It does not answer it for
+author mode, and it can't: `fingerprint_preexisting` sits at 0/21 with no
+headroom, and `response_text` was retired this morning. E4 stays partly open.
+
+## The pattern
+
+This is the third harm null in a row:
+
+- **E6:** an irrelevant skill alongside a relevant one, 6/6 against 6/6.
+- **E10:** a wrong-bug skill riding behind the correct one at 1847 tokens (the `fingerprint` half).
+- **E12:** an irrelevant skill alone, 12/12 against 12/12.
+
+On this bench, injected context has never yet cost anything measurable. Read
+that next to the delivery-gate finding. Retrieval admits everything, and on two
+of four prompts the correct skill doesn't reach rank 1. The measured loss is the
+**missed** skill, not the wrong one. So whatever precision is worth here, it is
+worth it through getting the right skill to rank 1, not through keeping wrong
+skills out.
+
+## How it was run, including what went wrong
+
+- **The smoke test caught a harness mismatch before any batch session.**
+  `--skill-from` accepted only distilled-corpus paths, and all three arm skills
+  are hand-written. The fix was a narrow lever extension, with §3.3 amended
+  before any data existed.
+- **The first attempt hit the session limit** after 23 of 36 sessions
+  (`48af694`). Its rows are kept as evidence and excluded from this analysis
+  (`6577028`). All 36 were re-run instead of the 13 missing, so §4.1's pooled
+  analysis would not span a session-limit boundary.
+- **An ad-hoc reader misread that attempt as void.** It compared 6 valid
+  control sessions against a threshold written for 12. The fix was
+  `bench/e12_read.py`, which tells an unfinished cell from a void one, plus a
+  clarification to §4.2 written before any truncation-task data.
+- **Refusals are now diagnosable.** The harness records `session_tail` when a
+  session fails (`f1f9be9`). The first attempt's refusal reason was thrown
+  away, and it took a probe session to recover it.
+
+## Limits
+
+n=6 per cell, 12 pooled, so only large effects are ruled out. One payload size,
+about 550 tokens. Two bugs of the same class, in one repository. Repair mode
+only.
