@@ -28,6 +28,7 @@ because nothing indexed the data — see "What the register caught".
 | Real-path delivery (2026-09-13) | Does the real install-and-inject path deliver what the deterministic tools predict? | **Yes, 4 of 4.** Both pools went in through the real `save_skill.py` under a sandboxed HOME, and the real hook ran before and after `9cbb472`. On the consolidated library, `response_text` went from the wrong trap to the right one. The unconsolidated ten stayed wrong, and `fingerprint` was right both times. No session batch followed, because no current task can show an outcome change | `bench/real_path_check.py` — deterministic, 0 sessions |
 | E12 (2026-09-13) | Does an irrelevant injected skill actively hurt? | **No large harm.** C 12/12, relevant R 12/12, irrelevant I 12/12 — 6/6 in every cell, zero exclusions, one environment. The pre-registered §4.4 caveat governs: repair-mode tasks show the model its failing tests, so this cannot tell "no harm" from "the tests rescued it". Answers E4 for repair mode at ceiling only. Third consecutive harm null, after E6 and E10 | `results.jsonl`, the 36 rows from 2026-09-13T17:36:28; `bench/e12_read.py`; spec `docs/superpowers/specs/2026-09-13-e12-irrelevant-injection-harm-design.md` |
 | E13 screen (2026-09-14) | Do any of three new author-mode traps (C `verdict_from`, D `transcript_slice`, E `store_dir`) have a zero control floor? | **Answered: C only.** C 0/6, **admitted**: every session passed 14 of 15 graded tests and failed exactly `test_a_rewrapped_quote_still_counts_as_evidence`, the historical byte-exact-match bug. D 6/6 and E 6/6 were **rejected** at ceiling, so their docstrings suffice. Same-batch reference 0/3 (**0/24** lifetime), so the screen is valid. No injections on any row; every clone's history was stripped to a single fresh baseline commit, with the plugin under test at `4df0d02`. C's second trap (floor measured on the raw span) never sprang | `results.jsonl`, the 21 rows dated 2026-09-14 after 09:36:06; spec `docs/superpowers/specs/2026-09-13-e13-author-traps-design.md` §3 |
+| E13 trap C (2026-09-14) | Does a skill distilled from trap C make its author task pass, and can C carry the tokenizer outcome test? | **Answered: no — C is not a working trap, so the outcome test did not run.** Distillation saved 6/6 draws, every repair resolved. Qualification: `learn-failure` 1 and 3 qualify (the old tokenizer misses them, the new one delivers them); 5 of 6 are deliverable alone. Probe, one fresh batch after a postponed attempt: control 0/3, the three `learn` skills **1/9**, the two `learn-failure` anti-skills **6/6**; pooled **7/15**, one short of the pre-registered half. The skill/anti-skill split is exploratory, not pre-registered. Under §6, C serves neither trap 1 nor trap 2, and both go back to the candidate list | `bench/distilled/C/` (6 draws + `qualification.json`); `results.jsonl`, the 18 rows after 2026-09-14T14:31:15. The 15 rows from 14:09:15 to 14:24:53 are the attempt postponed at the session limit and are **excluded** |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -2509,3 +2510,103 @@ the allowance probe, no session failures.
 n = 6 bounds C's floor only loosely: 0/6 is consistent with a true rate up to
 about 39% (§11 threat 4). The reference's lifetime 0/24 mixes environments from
 before and after the history strip.
+
+# E13 trap C — distil, qualify, probe (2026-09-14)
+
+Pre-registered in `docs/superpowers/specs/2026-09-13-e13-author-traps-design.md`
+§5–§8, planned in `docs/superpowers/plans/2026-09-14-e13-trap-c-skill.md`. C was
+the only survivor of the E13 screen.
+
+**Result: C is not a working trap.** Its deliverable drafts resolved 7 of 15 probe
+runs, one short of the pre-registered half. Under §6 it serves neither trap 1 nor
+trap 2, so the §8 outcome test on the tokenizer fix did not run, and both traps go
+back to the candidate list (§4).
+
+## Stage 1: distillation (6 sessions)
+
+`bench/distill.py --trap C`, both distillers, novelty gate off, 3 draws each, from
+the repair task `sf-repair-verdict-from` (graded:
+`test_a_rewrapped_quote_still_counts_as_evidence`, the one fix-added test the
+historical function fails).
+
+| draw | outcome | skill |
+| --- | --- | --- |
+| `learn-nogate/1` | saved | `whitespace-insensitive-evidence-gate` |
+| `learn-nogate/2` | saved | `whitespace-insensitive-evidence-quotes` |
+| `learn-nogate/3` | saved | `whitespace-tolerant-quote-evidence` |
+| `learn-failure-nogate/1` | saved | `verbatim-quote-gate-breaks-on-rewrapped-text` |
+| `learn-failure-nogate/2` | saved | `verbatim-quote-check-breaks-on-rewrapped-whitespace` |
+| `learn-failure-nogate/3` | saved | `verbatim-quote-gate-breaks-on-rewrapped-llm-quotes` |
+
+Every repair resolved, with no rejections and no session failures. The three
+anti-skills chose global scope and were contained; the operator's library was
+empty afterwards.
+
+## Stage 2: qualification and delivery (0 sessions)
+
+`bench/e13_qualify.py --trap C`: the consolidated seven plus each draft, installed
+through the real `save_skill.py`, with the real hook run on C's author prompt at the
+shipped 1200 budget from `06885c0` (before the tokenizer fix) and `9cbb472` (after
+it). `scripts/` was unchanged since `9cbb472`.
+
+| draw | old hook delivers | new hook delivers | qualifies | delivered alone |
+| --- | --- | --- | --- | --- |
+| `learn-nogate/1`–`3` | yes | yes | no | yes |
+| `learn-failure-nogate/1` | no | yes | **yes** | yes |
+| `learn-failure-nogate/2` | no | no | no | **no** |
+| `learn-failure-nogate/3` | no | yes | **yes** | yes |
+
+The first qualifying draft was `learn-failure-nogate/1`. Five of six were
+deliverable, so five were probed.
+
+## Stage 3: probe batch (18 sessions)
+
+`bench/e13_probe.sh --trap C`, read by
+`bench/e13_probe_read.py --trap C --window 2026-09-14T14:31:15 -`.
+
+| cell | resolved | injected its draft |
+| --- | --- | --- |
+| control | 0/3 | — |
+| `learn-nogate/1` | 0/3 | 3/3 |
+| `learn-nogate/2` | 0/3 | 3/3 |
+| `learn-nogate/3` | 1/3 | 3/3 |
+| `learn-failure-nogate/1` | 3/3 | 3/3 |
+| `learn-failure-nogate/3` | 3/3 | 3/3 |
+| **pooled drafts** | **7/15** | |
+
+The batch is valid: the control held at 0/3, every treatment row injected its
+draft, and no session failed. The criterion is pooled resolution of at least half,
+and 7/15 is below it.
+
+A first attempt at 14:09:15 hit the session limit during `learn-failure-nogate/1`.
+§3 and §7 require a postponed batch to be re-run whole, so its 15 rows are kept but
+excluded, and nothing was read from them.
+
+## What the split suggests (exploratory, not pre-registered)
+
+The pooled figure hides a clean split. The three `learn` skills resolved 1 of 9,
+no better than the control. They are procedures that spell out the fix, collapsing
+whitespace on both sides of the evidence comparison, and two of them name
+`verdict_from` itself. The two `learn-failure` anti-skills resolved 6 of 6. They
+describe the trap instead: a byte-exact check on a model's quote rejects real
+quotes that the model re-wrapped across a line break. Every failing session missed
+the same test, `test_a_rewrapped_quote_still_counts_as_evidence`. The two
+anti-skills that went 6/6 are also the two drafts that qualify for the tokenizer
+test.
+
+The two groups differ in more than wording. The anti-skills are `kind: antiskill`
+at global scope and the skills are `kind: skill` at project scope, so their
+framing, and possibly their delivery, differ too. Every probe row still recorded
+its draft as injected.
+
+That is a hypothesis for a future pre-registered experiment, not a finding. The
+pooling rule was fixed before any delivery was seen, and it governs here. Each cell
+is n = 3, and the anti-skill cells come from two draws of one distiller.
+
+## Limits
+
+- n = 3 per draft and 3 control runs; 7/15 against a half-bar is close to the line.
+- One library (the consolidated seven) and one model.
+- The distillers ran with the novelty gate off (§11 threat 5).
+- The operator's global library was containment-checked, but sessions run with
+  bypassed permissions and could read files on disk (history strip, 2026-09-14).
