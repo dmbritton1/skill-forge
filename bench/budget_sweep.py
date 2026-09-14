@@ -21,6 +21,11 @@ does not fit: the dip is gone. The consolidated seven are correct on both tasks
 from 2000 and hold at every budget above it; the ten-skill pool from 3000. The
 2400 regression was an artefact of skip-and-continue, not a property of the
 budget. See bench/RESULTS.md, "Budget derivation" and "Selector monotonicity".
+
+Re-run again 2026-09-13, after 9cbb472 dropped function words from tokenization:
+the consolidated seven are correct on both tasks from 1200, the shipped budget.
+The case for raising it was largely a ranking defect. The unconsolidated ten
+still need 3000.
 """
 import sys, json, glob, pathlib
 sys.path.insert(0,'scripts'); sys.path.insert(0,'bench')

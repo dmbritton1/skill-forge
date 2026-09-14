@@ -13,6 +13,11 @@ Criterion, fixed before the first run: on each task, does a skill from the
 MATCHING trap win rank 1 and inject within budget?
 
 Answer, 2026-09-11: no. See bench/RESULTS.md, "E8 follow-up".
+
+Re-run 2026-09-13, after 9cbb472 dropped function words from tokenization: the
+consolidated seven now put the matching trap at rank 1 on BOTH tasks, while the
+unconsolidated ten still miss response_text. The 2026-09-11 answer came from the
+function-word defect, not from consolidation itself.
 """
 import sys, json, glob, pathlib
 sys.path.insert(0, 'scripts'); sys.path.insert(0, 'bench')

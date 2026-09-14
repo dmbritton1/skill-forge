@@ -127,6 +127,10 @@ entirely on the duplicate-heavy ten-skill pool, where the stable threshold is
 2900 against an unstable 1750. That is the first legible payoff `/consolidate`
 has shown since the E8 follow-up found it worsened ranking.
 
+**Re-measured after `9cbb472` dropped function words from tokenization:** the
+consolidated pool's lowest stable budget is now **1100**, below the shipped 1200,
+and the ten-skill pool's is 2800. `break` still scores 0 flips and 0 shrinks.
+
 **A cleverer selector was tested and is worse.** Choosing the affordable subset
 with the highest total score more than triples the flips and quadruples the
 shrinks. An optimal subset is not stable under a growing budget either —
@@ -199,7 +203,9 @@ Screening is finished as a source of supply. See §3.8.
 scored 12/12, on repair-mode tasks whose tests are visible. That is the third
 harm null. The cost this bench has actually measured is the *missed* skill, not
 the wrong one, so the delivery gate and ranking are the next target (see the
-delivery-gate section of `bench/RESULTS.md`).
+delivery-gate section of `bench/RESULTS.md`). The gate was fixed the same day
+(`9cbb472`): function words are dropped at tokenization, which also improved
+ranking. See §3.1 for what that does to the budget question.
 
 ### 3.1 Land the selector fix, then re-derive the budget — **STEPS 1–8 DONE 2026-09-13**
 
@@ -257,6 +263,15 @@ comes **second** — went void with the `response_text` control. So the raise is
 evidenced for the ordering that never needed it, and unevidenced for the
 ordering that does. A re-run needs a task whose control still sits at the
 floor.
+
+**2026-09-13, after the tokenizer fix (`9cbb472`): the budget question has
+largely dissolved.** The raise was motivated by E8's ranking failure, where the
+wrong skill won `response_text` at 1200. With function words no longer scored, a
+consolidated library delivers the correct skill on both tasks **at the shipped
+1200** (`bench/budget_sweep.py`), and `selector_check` puts its lowest stable
+budget at 1100. Only the unconsolidated ten-skill pool still needs about 3000. So
+consolidate, and keep the budget at 1200 unless a session measurement says
+otherwise. No session has measured the fixed retrieval yet.
 
 ### 3.2 What happens when ranking fails on a trap with no symptoms?
 

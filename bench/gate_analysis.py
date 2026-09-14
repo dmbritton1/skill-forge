@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Does the delivery gate discriminate? No -- it passes everything.
+"""Did the delivery gate discriminate? Not until 2026-09-13.
+
+FIXED in 9cbb472: retrieve.tokenize now drops function words (NLTK english plus
+`use`). Everything below describes the pre-fix behaviour. Running this script
+now shows the fixed gate; the pre-fix numbers are recorded in bench/RESULTS.md,
+"The delivery gate does not discriminate".
 
 retrieve.run_hook admits an entry when `score > 0 and matched >=
 MIN_MATCHED_TERMS` (=2). `matched` is meant to stand for "this skill is
@@ -87,8 +92,8 @@ def main():
     universal = sorted(t for t, c in df.items() if c == n)
     print("corpus: %d skills | MIN_MATCHED_TERMS = %d" % (n, retrieve.MIN_MATCHED_TERMS))
     print("tokens present in ALL %d descriptions: %s" % (n, " ".join(universal)))
-    print("  of these, save_skill.validate() GUARANTEES: not, use"
-          " (it refuses a description without 'do not use')")
+    print("  pre-fix these were `not the use when`; validate() guarantees"
+          " `not` and `use`, which tokenize now drops")
     print("  idf of a token with df == n: %.4f -- near zero score, full gate credit"
           % retrieve.math.log(1 + (n - n + 0.5) / (n + 0.5)))
 
@@ -123,13 +128,12 @@ def main():
     print("\nREADING")
     print("  clears      -- entries admitted by the shipped gate")
     print("  informative -- entries admitted if `matched` counted only terms that")
-    print("                 are NOT in every description. This is the proposed fix.")
-    print("  A prompt about a cat clearing the gate against every skill is the")
-    print("  defect stated as plainly as it can be.")
-    print("\n  Ranking is a separate failure: rank 1 is a trap-B skill on ALL five")
-    print("  prompts, including the cat. Roughly one skill fits the 1200 budget, so")
-    print("  on trap-A prompts the wrong skill is the one delivered -- which is E8's")
-    print("  ranking failure, now with a mechanism rather than an observation.")
+    print("                 are NOT in every description. Before 9cbb472 the two")
+    print("                 columns diverged (cat 16/16 vs 1/16). tokenize now drops")
+    print("                 function words, no universal terms remain, and they agree.")
+    print("  Before the fix, a prompt about a cat cleared the gate against all 16")
+    print("  skills, and rank 1 was a trap-B skill on all five prompts. Both are")
+    print("  recorded in bench/RESULTS.md. This output shows the fixed gate.")
     return 0
 
 

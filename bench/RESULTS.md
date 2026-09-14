@@ -19,12 +19,12 @@ because nothing indexed the data — see "What the register caught".
 | E7 (2026-09-11) | Is the distiller's novelty self-gate over-refusing? | **Answered: yes.** Suspending step 2 alone took emission from 1/6 to **6/6**. Those six drafts scored **16/18** against a same-batch control of **0/6** — every one of the six beat the floor. n=3 per cell, and the 18 runs are 6 artifacts × 3, not 18 independent draws | `bench/distilled/*/learn-nogate/` (6 draws), the 24 rows in `results.jsonl` dated 2026-09-11, 24 `batch: e7` rows in `bench/graded.jsonl`; the 2026-09-10T21:01 control row is **excluded** (spec §5.1) |
 | E8 (2026-09-11) | Does retrieval survive a library of ten? | **Answered, and the mechanism is not the one predicted.** M 3/3, L 3/3, C 0/3 on **both** tasks. On `response_text` the prompt path delivered a **wrong-trap** skill 3/3 and the **symptom path rescued it** 3/3. The rescue rides on anti-skills, which cannot exist for a silent trap — so the dangerous case was never tested. First attempt refused at the session limit and excluded | `results.jsonl`, the 18 rows dated 2026-09-11 after 00:50 carrying `extra_skills` of 9 or 0; 18 `batch: e8` rows in `bench/graded.jsonl`; the 13 refused + 5 valid rows of the 00:41–00:46 attempt are **excluded** (spec §4.1) |
 | E9 (2026-09-11) | Does a consolidated skill still work? | **Answered: yes, and it fits.** Merges compressed 3 and 2 skills to **44%** and **54%** of their concatenation, landing at 1095 and 1088 tokens against a 1200 budget. R 3/3, K 3/3, C 0/3 on both tasks, zero exclusions. n=3 per cell, and every trap-A member was already at ceiling so that half could only hold or fall | `bench/distilled/*/consolidated/1/`, the 18 rows in `results.jsonl` dated 2026-09-11 after 15:10, 18 `batch: e9` rows in `bench/graded.jsonl` |
-| E8 follow-up (2026-09-11) | Does consolidating the library fix E8's ranking failure? | **No — it makes the ranking worse.** The correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. `/consolidate` works as a feature (E9) but does not fix the problem that motivated building it | `bench/rank_check.py` — deterministic, 0 sessions |
-| Budget derivation (2026-09-11, **re-run 2026-09-13**) | What injection budget delivers a *correct* skill? | **Superseded by the selector fix.** The 2026-09-11 reading was 3000, with the correct skill crowded back out at 2400 — an artefact of skip-and-continue, not of the budget. Under the shipped `break` selector the dip is gone: the consolidated seven are correct on both tasks from **2000** and hold at every budget above it; the ten-skill pool from 3000 | `bench/budget_sweep.py` — deterministic, 0 sessions |
-| Selector monotonicity (2026-09-11, **fixed 2026-09-13**) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed and now shipped.** Skip-and-continue violated set monotonicity at 15 of 69 budget steps and flipped the correct skill away at 3. `retrieve.run_hook` now stops at the first entry that does not fit: **0 flips, 0 shrinks**, delivery is a prefix of the rank order. A score-maximising subset was **worse** than the old code (8 flips, 57 shrinks) and was rejected. Costs nothing on a consolidated library (1850 either way), ~1050 tokens of headroom on the duplicate-heavy ten | `bench/selector_check.py` — deterministic, 0 sessions |
+| E8 follow-up (2026-09-11, **re-run 2026-09-13**) | Does consolidating the library fix E8's ranking failure? | **It didn't then. It does now.** Under the original tokenizer the correct skill fell from rank 3 (8.40) to rank 5 (4.70) after merging, and only rank 1 ever injects. After `9cbb472` dropped function words, the consolidated seven put the matching trap at rank 1 on **both** tasks, while the unconsolidated ten still miss `response_text`. The old result came from the function-word defect, not from consolidation itself | `bench/rank_check.py` — deterministic, 0 sessions |
+| Budget derivation (2026-09-11, re-run twice 2026-09-13) | What injection budget delivers a *correct* skill? | **The shipped 1200, on a consolidated library.** The 2026-09-11 reading (3000, dipping at 2400) came from skip-and-continue, and under `break` it read 2000. After `9cbb472` dropped function words, the consolidated seven are correct on both tasks from **1200** and hold above it. The case for raising the budget was largely a ranking defect. The unconsolidated ten still need 3000 | `bench/budget_sweep.py` — deterministic, 0 sessions |
+| Selector monotonicity (2026-09-11, **fixed 2026-09-13**) | Why is the budget curve not monotonic, and what fixes it? | **Diagnosed and shipped.** Skip-and-continue broke set monotonicity at 15 of 69 budget steps and flipped the correct skill away at 3. `retrieve.run_hook` now stops at the first entry that doesn't fit: **0 flips, 0 shrinks**. A score-maximising subset did **worse** (8 flips, 57 shrinks) and was rejected. The lowest stable budget was ten 2900 / seven 1850. After `9cbb472` it is ten 2800 / seven **1100**, and `break` still scores 0 and 0 | `bench/selector_check.py` — deterministic, 0 sessions |
 | E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **void: control resolved 3/3, and 3/3 again on a dedicated re-measure — 6/6 against a 1/13 history. The task is retired as a discriminator.** Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
 | E11 (2026-09-13) | After `response_text` was retired, can either never-run task serve as a discriminator? | **Answered: no — both rejected.** A 6/6, B 6/6 control at n=6 each: **ceiling, not marginal**, every graded test green in every session. Same-batch reference R held at 0/3 (**0/21** lifetime), so the screen is valid. Repair mode shows the model the failing tests and is structurally the weaker trap, exactly as §4.4 pre-registered. **The bench now has exactly one trap.** The two rejects have maximum headroom to fall, which may make them *harm* detectors for E4 — a proposal, not a result | `results.jsonl`, the 15 rows dated 2026-09-13 after 13:36; spec `docs/superpowers/specs/2026-09-13-e11-trap-screening-design.md` |
-| Delivery gate (2026-09-13) | Does the retrieval gate discriminate at all? | **No — it admits everything.** All 16 skills clear `score > 0 and matched >= 2` on all four task prompts, and so does a control prompt about a cat. `matched` is incremented **before** IDF is applied, so a term carrying no information gets full gate credit; `not the use when` are in all 16 descriptions and `validate()` guarantees two of them by refusing any description without "do not use". Counting only non-universal terms drops the cat to **1/16** while real prompts hold at 14–16/16. Ranking fails separately: rank 1 is a trap-B skill on all five prompts **including the cat** | `bench/gate_analysis.py` — deterministic, 0 sessions |
+| Delivery gate (2026-09-13, **fixed same day**) | Does the retrieval gate discriminate at all? | **It didn't. Fixed in `9cbb472`.** Before the fix, all 16 skills cleared `score > 0 and matched >= 2` on all four task prompts and on a control prompt about a cat, because function words scored as topic: common ones opened the gate and rare ones decided rank 1. `tokenize` now drops a fixed stopword list (NLTK english plus `use`). A frequency-based filter was rejected because it would admit nothing in a one-skill library. After the fix: the cat 0/16, real prompts 5–10/16, the correct trap at rank 1 on 3/4 prompts (was 2/4), dedupe unchanged | `bench/gate_analysis.py` — deterministic, 0 sessions |
 | E12 (2026-09-13) | Does an irrelevant injected skill actively hurt? | **No large harm.** C 12/12, relevant R 12/12, irrelevant I 12/12 — 6/6 in every cell, zero exclusions, one environment. The pre-registered §4.4 caveat governs: repair-mode tasks show the model its failing tests, so this cannot tell "no harm" from "the tests rescued it". Answers E4 for repair mode at ceiling only. Third consecutive harm null, after E6 and E10 | `results.jsonl`, the 36 rows from 2026-09-13T17:36:28; `bench/e12_read.py`; spec `docs/superpowers/specs/2026-09-13-e12-irrelevant-injection-harm-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
@@ -2352,3 +2352,78 @@ skills out.
 n=6 per cell, 12 pooled, so only large effects are ruled out. One payload size,
 about 550 tokens. Two bugs of the same class, in one repository. Repair mode
 only.
+
+# Function words dropped at tokenization (2026-09-13)
+
+Commit `9cbb472`. This is the root cause behind the delivery-gate finding above, and its fix.
+
+## Root cause: one defect, two symptoms
+
+Function words were being scored as if they carried topic.
+
+- **Common ones opened the gate.** `the`, `not`, `when` and `use` appear in every
+  house-style description. IDF correctly drove their score to about zero, but the
+  gate still counted them as matches, so any two of them opened it.
+- **Rare ones decided the ranking.** `you`, `are` and `did` appear in only a few
+  short descriptions, and IDF rewarded them for that rarity. The cat prompt's
+  rank-1 skill was chosen on the word `did` alone (+2.52).
+
+`retrieve.py` described its noise control as two layers, IDF plus a
+≥2-matched-term gate. The intent was right: "2 distinct matched terms" was always
+meant to mean 2 meaningful ones. The layers just didn't compose.
+
+## The fix, and why not the obvious one
+
+`tokenize()` now drops NLTK's english stopword list (179 words, copied rather than
+imported) plus `use`, which `save_skill.validate()` guarantees in every
+description. The list was fixed before anything was measured.
+
+The obvious fix was frequency-based: ignore terms that appear in every document.
+It was rejected. IDF runs over the session's *eligible* skills, which can be a
+single skill, and with one skill every term is in every document. That filter
+would never inject anything, and this was verified rather than assumed. A fixed
+list behaves the same at one skill as at a thousand.
+
+## Pre-registered check: six criteria, all passed
+
+| criterion | before | after |
+| --- | --- | --- |
+| cat prompt admitted | 16/16 | **0/16** |
+| correct skill still admitted, all 4 task prompts | yes | yes |
+| one-skill library injects on a matching prompt | yes | yes |
+| one-skill library injects on the cat prompt | **yes** | **no** |
+| correct trap at rank 1 | 2/4 | **3/4** |
+| cross-trap false duplicates | 0 | 0 |
+
+Same-trap duplicate flags stayed at 7, so dedupe is unaffected on this corpus.
+
+## What moved in the deterministic tools
+
+| tool | before | after |
+| --- | --- | --- |
+| `gate_analysis`: real prompts admitted | 16/16 each | 5–10/16 |
+| `rank_check`: consolidated library, `response_text` | wrong trap | **correct trap** |
+| `selector_check`: `break`, lowest stable budget | ten 2900 / seven 1850 | ten 2800 / seven **1100** |
+| `budget_sweep`: consolidated library at 1200 | wrong on `response_text` | **correct on both** |
+
+## What this changes about earlier findings
+
+- **The budget.** The argument for raising 1200 was that the wrong skill won
+  `response_text` at 1200. A consolidated library now delivers the correct skill
+  there. The budget derivation, selector_check's 1850, and E10's motivation were
+  all measured against the old tokenizer. Those readings still describe that code
+  accurately, but they no longer describe shipped retrieval.
+- **E8 follow-up.** "Consolidation makes ranking worse" was true of the old
+  tokenizer. Under the fixed one, consolidation *helps* ranking.
+- **E12.** E12's remark that shipped retrieval admits the timezone skill on its prompts describes the pre-fix tokenizer. Under the fixed tokenizer, in a one-skill library as E12 ran, it clears the gate on 0 of 2 repair prompts. E12 stands as a measurement, because arm I's skill was installed and delivered by construction, but its point about ecological validity no longer describes shipped retrieval.
+- **Session experiments, E5 through E12.** Their measurements are unaffected,
+  because every row recorded what was actually delivered.
+
+## Limits
+
+The corpus is 16 skills, 4 prompts and 2 traps. The results are consistent with
+this root cause but don't prove it generalises. What keeps this from being a
+result tuned to the bench is that the list was fixed in advance, not the size of
+the check. `response_text` still ranks the wrong skill first on the unconsolidated
+library: it loses on the content words `function`, `make` and `test`, and the list
+was not adjusted to chase that. **No session has measured the fixed retrieval yet.**

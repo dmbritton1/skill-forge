@@ -29,6 +29,11 @@ Deterministic and free. Run:
 Answer, 2026-09-11: `break` is the only one with zero flips and zero shrinks.
 `knapsack` is worse than today's code, not better -- an optimal subset is not
 stable under a growing budget either. See docs/session-handoff.md section 2.
+
+Re-run 2026-09-13, after 9cbb472 dropped function words from tokenization:
+`break` still has 0 flips and 0 shrinks. Its lowest stable budget is now ten 2800
+/ seven 1100 (was 2900 / 1850), so a consolidated library is correct below the
+shipped 1200.
 """
 import itertools
 import sys
