@@ -531,6 +531,69 @@ def test_plugin_shas_reads_installed_plugins():
     assert bench_run.plugin_shas({}) == {}
 
 
+def _git_repo_with_plugin_file(root):
+    import subprocess
+    run = lambda *a: subprocess.run(["git", *a], cwd=str(root), check=True,
+                                    capture_output=True)
+    run("init", "-q")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (root / "scripts").mkdir()
+    (root / "scripts" / "x.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "bench").mkdir()
+    (root / "bench" / "results.jsonl").write_text("", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-q", "-m", "init")
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root),
+                          capture_output=True, text=True).stdout.strip()
+
+
+def test_plugin_commit_names_the_commit_and_flags_plugin_edits_only():
+    """Every batch appends to bench/results.jsonl, so dirt outside the plugin's
+    own paths must not mark the row: otherwise every row after the first reads
+    +dirty and the flag means nothing."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(os.path.realpath(tmp))
+        sha = _git_repo_with_plugin_file(root)
+        assert bench_run.plugin_commit(root) == sha
+        (root / "bench" / "results.jsonl").write_text("{}\n", encoding="utf-8")
+        assert bench_run.plugin_commit(root) == sha, "bench/ dirt must not count"
+        (root / "scripts" / "x.py").write_text("x = 2\n", encoding="utf-8")
+        assert bench_run.plugin_commit(root) == sha + "+dirty"
+
+
+def test_plugin_commit_is_empty_outside_a_git_checkout():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert bench_run.plugin_commit(tmp) == ""
+
+
+def test_environment_carries_the_plugin_commit():
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(os.path.realpath(tmp))
+        sha = _git_repo_with_plugin_file(root)
+        env = bench_run.environment(root)
+        assert env["plugin_commit"] == sha
+        assert set(env) == {"cli", "plugins", "plugin_commit"}
+    assert bench_run.environment()["plugin_commit"] == ""
+
+
+def test_check_config_refuses_a_task_that_grades_nothing():
+    """score() returns {} for an empty fail_to_pass, and all({}.values()) is
+    True, so such a task would read every run -- control included -- as
+    resolved."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        (root / "scripts").mkdir()
+        (root / ".git").mkdir()
+        cfg = {"plugin_dir": str(root), "tasks": [
+            {"id": "grades-nothing", "repo": str(root), "fail_to_pass": []},
+            {"id": "grades-something", "repo": str(root), "fail_to_pass": ["test_x"]},
+        ]}
+        bad = bench_run.check_config(cfg)
+        assert any("grades-nothing" in b and "fail_to_pass is empty" in b for b in bad), bad
+        assert not any("grades-something" in b for b in bad), bad
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

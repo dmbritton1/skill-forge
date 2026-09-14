@@ -103,6 +103,9 @@ def check_config(cfg):
     for task in cfg["tasks"]:
         if not (Path(task["repo"]) / ".git").exists():
             bad.append("%s: repo is not a git checkout: %s" % (task["id"], task["repo"]))
+        if not task.get("fail_to_pass"):
+            bad.append("%s: fail_to_pass is empty -- score() would read every run "
+                       "as resolved" % task["id"])
         for key in ("stub_cmd", "hidden_patch_cmd"):
             cmd = task.get(key)
             if not cmd:
@@ -238,9 +241,36 @@ def plugin_shas(data):
     return out
 
 
-def environment():
-    """CLI build and plugin revisions, for the row. Never raises: a missing
-    file or a slow CLI must not cost a batch."""
+# The paths that make up the plugin under test. Dirt anywhere else -- above all
+# bench/results.jsonl, which every batch appends to -- is not a change to it.
+PLUGIN_PATHS = ("scripts", "hooks", "skills", ".claude-plugin")
+
+
+def plugin_commit(plugin_dir):
+    """The plugin under test as `<sha>`, `<sha>+dirty`, or "" if not a checkout.
+
+    `env` records installed plugins, but the plugin a batch actually tests comes
+    from --plugin-dir, which it never recorded. E13 spec section 9: with another
+    session editing retrieve.py in parallel, a row must say which code ran.
+    Never raises.
+    """
+    try:
+        head = subprocess.run(["git", "-C", str(plugin_dir), "rev-parse", "HEAD"],
+                              capture_output=True, text=True, timeout=30)
+        if head.returncode:
+            return ""
+        dirt = subprocess.run(["git", "-C", str(plugin_dir), "status", "--porcelain",
+                               "--", *PLUGIN_PATHS],
+                              capture_output=True, text=True, timeout=30)
+        return head.stdout.strip() + ("+dirty" if dirt.stdout.strip() else "")
+    except Exception:
+        return ""
+
+
+def environment(plugin_dir=None):
+    """CLI build, installed plugin revisions, and the commit of the plugin under
+    test, for the row. Never raises: a missing file or a slow CLI must not cost
+    a batch."""
     try:
         cli = sh("claude --version", timeout=30).stdout.strip()
     except Exception:
@@ -251,7 +281,8 @@ def environment():
         data = json.loads(raw)
     except Exception:
         data = {}
-    return {"cli": cli, "plugins": plugin_shas(data)}
+    return {"cli": cli, "plugins": plugin_shas(data),
+            "plugin_commit": plugin_commit(plugin_dir) if plugin_dir else ""}
 
 
 def arm_segment(arm):
@@ -576,8 +607,6 @@ def main(argv=None):
     SKILL_FROM = args.skill_from
     PLUS_SKILL = args.plus_skill
     INJECT_BUDGET = args.inject_budget
-    global ENV
-    ENV = environment()
     if INJECT_BUDGET is not None and INJECT_BUDGET <= 0:
         # retrieve.main swallows the ValueError a bad value would raise and
         # then delivers nothing, silently. Fail here instead.
@@ -596,6 +625,8 @@ def main(argv=None):
         print("config ok: %d task(s), all paths resolve" % len(cfg["tasks"]))
         return 0
     plugin_dir = Path(cfg["plugin_dir"])
+    global ENV
+    ENV = environment(plugin_dir)
     tasks = [t for t in cfg["tasks"] if args.all or t["id"] == args.task]
     if not tasks:
         print("no matching task; use --all or --task <id>")
