@@ -23,11 +23,20 @@ def cand_rows(task, resolved=0, n=sr.N_CANDIDATE):
 
 
 def test_zero_of_six_admits_and_one_resolved_rejects():
-    res = sr.read_screen(ref_rows() + cand_rows(C) + cand_rows(D, resolved=1))
+    res = sr.read_screen(ref_rows() + cand_rows(C) + cand_rows(D, resolved=1), expected=(C, D))
     assert res["screen"] == "complete", res
     assert res["cells"][C]["verdict"] == "admitted"
     assert res["cells"][D]["verdict"] == "rejected"
-    assert E not in res["cells"], "a candidate with no rows was not screened"
+    assert E not in res["cells"], "a candidate excluded from expected was not screened"
+
+
+def test_expected_candidate_with_no_rows_is_incomplete_not_dropped():
+    res = sr.read_screen(ref_rows() + cand_rows(C) + cand_rows(D, resolved=1))
+    assert E in res["cells"], "a candidate with no rows must still be reported when expected"
+    cell = res["cells"][E]
+    assert cell["valid"] == 0 and cell["needed"] == sr.N_CANDIDATE
+    assert cell["verdict"] == "incomplete"
+    assert res["screen"] == "incomplete", "a missing expected candidate cannot read as complete"
 
 
 def test_a_resolved_reference_voids_the_screen_and_hides_candidates():

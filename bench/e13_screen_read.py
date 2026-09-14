@@ -39,7 +39,11 @@ def _cell(control, task, needed):
             "rerun": len(rows) - len(valid)}
 
 
-def read_screen(rows):
+def read_screen(rows, expected=CANDIDATES):
+    """expected: the candidate ids the screen script actually ran (bench/tasks.json
+    membership, in CANDIDATES order). A candidate expected but with no rows still
+    gets a cell -- valid 0/N, verdict "incomplete" -- rather than vanishing, so a
+    candidate that errored on every run can't read the screen as "complete"."""
     control = [r for r in rows if r.get("arm") == "control"]
     if any(not r.get("session_ok") and LIMIT_MARK in (r.get("session_tail") or "")
            for r in control):
@@ -56,7 +60,7 @@ def read_screen(rows):
         out.update(screen="incomplete",
                    reason="the reference is not fully measured, so no candidate is read yet")
         return out
-    present = [t for t in CANDIDATES if any(r.get("task") == t for r in control)]
+    present = [t for t in CANDIDATES if t in expected]
     for task in present:
         cell = _cell(control, task, N_CANDIDATE)
         cell["verdict"] = ("rejected" if cell["resolved"] else
@@ -73,9 +77,12 @@ def main(argv=None):
     ap.add_argument("--window", nargs=2, action="append", required=True,
                     metavar=("FROM", "TO"))
     args = ap.parse_args(argv)
+    task_ids = {t["id"] for t in
+                json.loads((ROOT / "tasks.json").read_text(encoding="utf-8"))["tasks"]}
+    expected = tuple(t for t in CANDIDATES if t in task_ids)
     rows = [json.loads(line) for line in
             (ROOT / "results.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
-    res = read_screen(select(rows, args.window))
+    res = read_screen(select(rows, args.window), expected)
     print("screen: %s%s" % (res["screen"], " -- " + res["reason"] if res["reason"] else ""))
     for task, c in res["cells"].items():
         role = "reference" if task == REFERENCE else "candidate"

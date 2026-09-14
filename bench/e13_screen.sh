@@ -13,7 +13,11 @@
 #
 # Up to 21 sessions plus one allowance probe. Admission is 0 of 6. If R resolves
 # even once, the screen is void. A session refused at the session limit
-# postpones the whole screen: re-run it as one fresh batch, never stitched.
+# postpones the whole screen: re-run it as one fresh batch, never stitched --
+# this script checks for that after every run.py call and stops itself.
+# A session that fails for any OTHER reason is just re-run within the batch,
+# by hand: python3 bench/run.py --task <id> --runs 1 --arm control
+# (the reader's re-run column counts it).
 #
 # Read with: python3 bench/e13_screen_read.py --window <SCREEN_START> -
 #
@@ -70,12 +74,32 @@ fi
 PROBE="$(claude -p 'reply with the single word: ok' --model claude-opus-5 < /dev/null 2>&1)" \
   || { echo "FATAL: session probe failed: $PROBE"; exit 1; }
 
-echo "SCREEN_START $(date +%Y-%m-%dT%H:%M:%S)"
+START="$(date +%Y-%m-%dT%H:%M:%S)"
+echo "SCREEN_START $START"
+
+# After every run.py call, read the screen so far. A session-limit refusal
+# postpones the WHOLE screen (spec section 3) -- stop spending sessions on it
+# rather than keep burning the rest of the batch on a screen that will have
+# to be thrown away and re-run whole anyway.
+check_postponed() {
+  READ_OUT="$(python3 bench/e13_screen_read.py --window "$START" - 2>&1)"
+  echo "$READ_OUT"
+  case "$READ_OUT" in
+    "screen: postponed"*)
+      echo "STOP: a session hit the session limit -- the screen is postponed."
+      echo "Re-run the WHOLE screen as one fresh batch (never stitched); spec section 3."
+      exit 1
+      ;;
+  esac
+}
+
 for id in "${CELLS[@]}"; do
   echo "### $id  (control, n=6)"
   python3 bench/run.py --task "$id" --runs 6 --arm control || echo "run.py exited non-zero for $id"
+  check_postponed
 done
 echo "### sf-author-fingerprint-preexisting  (reference, control, n=3)"
 python3 bench/run.py --task sf-author-fingerprint-preexisting --runs 3 --arm control \
   || echo "run.py exited non-zero for the reference"
+check_postponed
 echo "### E13 SCREEN DONE"
