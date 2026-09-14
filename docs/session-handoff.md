@@ -271,7 +271,8 @@ consolidated library delivers the correct skill on both tasks **at the shipped
 1200** (`bench/budget_sweep.py`), and `selector_check` puts its lowest stable
 budget at 1100. Only the unconsolidated ten-skill pool still needs about 3000. So
 consolidate, and keep the budget at 1200 unless a session measurement says
-otherwise. No session has measured the fixed retrieval yet.
+otherwise. The real install-and-inject path confirms this (`bench/real_path_check.py`,
+4 of 4). No session can measure the effect on outcomes until a new trap exists.
 
 ### 3.2 What happens when ranking fails on a trap with no symptoms?
 
@@ -503,6 +504,14 @@ bugs happen to carry for a constraint on which bugs are eligible.
 - **The SDD execution ledgers are gone.** `.superpowers/sdd/` is git-ignored
   and no longer exists in this worktree. The rulings made during
   `/consolidate`'s build survive only in the commit messages.
+
+- **Scope matching compares paths as strings.** `save_skill.py` records a
+  project root with symlinks resolved, but `retrieve.in_scope()` doesn't resolve
+  anything. A caller that passes an unresolved `cwd` silently puts every project
+  skill out of scope. Real sessions are fine, because Claude Code sends a
+  physical `cwd` (E12's re-run under `/tmp` still logged 24/24 prompt
+  injections). Any tool that calls the hook directly has to resolve its paths
+  first, as `bench/real_path_check.py` does.
 
 ---
 

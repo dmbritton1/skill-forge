@@ -25,6 +25,7 @@ because nothing indexed the data — see "What the register caught".
 | E10 (2026-09-13) | Does a wrong-bug skill hurt at prompt time beside the right one? | **Half answered, half void.** `fingerprint`: M 3/3, P 3/3, S 3/3, C 0/3 — no large prompt-time harm at 1847 tokens with a wrong-bug skill alongside, n=3. But that task ranks the **correct** skill first. `response_text`, which ranks the wrong one first and is the case that motivated raising the budget, is **void: control resolved 3/3, and 3/3 again on a dedicated re-measure — 6/6 against a 1/13 history. The task is retired as a discriminator.** Prompt-path delivery matched the pre-registered prediction **12/12** | `results.jsonl`, the 24 rows dated 2026-09-13; `bench/authored/e10-*.diff` (24); spec `docs/superpowers/specs/2026-09-11-e10-prompt-time-budget-design.md` |
 | E11 (2026-09-13) | After `response_text` was retired, can either never-run task serve as a discriminator? | **Answered: no — both rejected.** A 6/6, B 6/6 control at n=6 each: **ceiling, not marginal**, every graded test green in every session. Same-batch reference R held at 0/3 (**0/21** lifetime), so the screen is valid. Repair mode shows the model the failing tests and is structurally the weaker trap, exactly as §4.4 pre-registered. **The bench now has exactly one trap.** The two rejects have maximum headroom to fall, which may make them *harm* detectors for E4 — a proposal, not a result | `results.jsonl`, the 15 rows dated 2026-09-13 after 13:36; spec `docs/superpowers/specs/2026-09-13-e11-trap-screening-design.md` |
 | Delivery gate (2026-09-13, **fixed same day**) | Does the retrieval gate discriminate at all? | **It didn't. Fixed in `9cbb472`.** Before the fix, all 16 skills cleared `score > 0 and matched >= 2` on all four task prompts and on a control prompt about a cat, because function words scored as topic: common ones opened the gate and rare ones decided rank 1. `tokenize` now drops a fixed stopword list (NLTK english plus `use`). A frequency-based filter was rejected because it would admit nothing in a one-skill library. After the fix: the cat 0/16, real prompts 5–10/16, the correct trap at rank 1 on 3/4 prompts (was 2/4), dedupe unchanged | `bench/gate_analysis.py` — deterministic, 0 sessions |
+| Real-path delivery (2026-09-13) | Does the real install-and-inject path deliver what the deterministic tools predict? | **Yes, 4 of 4.** Both pools went in through the real `save_skill.py` under a sandboxed HOME, and the real hook ran before and after `9cbb472`. On the consolidated library, `response_text` went from the wrong trap to the right one. The unconsolidated ten stayed wrong, and `fingerprint` was right both times. No session batch followed, because no current task can show an outcome change | `bench/real_path_check.py` — deterministic, 0 sessions |
 | E12 (2026-09-13) | Does an irrelevant injected skill actively hurt? | **No large harm.** C 12/12, relevant R 12/12, irrelevant I 12/12 — 6/6 in every cell, zero exclusions, one environment. The pre-registered §4.4 caveat governs: repair-mode tasks show the model its failing tests, so this cannot tell "no harm" from "the tests rescued it". Answers E4 for repair mode at ceiling only. Third consecutive harm null, after E6 and E10 | `results.jsonl`, the 36 rows from 2026-09-13T17:36:28; `bench/e12_read.py`; spec `docs/superpowers/specs/2026-09-13-e12-irrelevant-injection-harm-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
@@ -2426,4 +2427,55 @@ this root cause but don't prove it generalises. What keeps this from being a
 result tuned to the bench is that the list was fixed in advance, not the size of
 the check. `response_text` still ranks the wrong skill first on the unconsolidated
 library: it loses on the content words `function`, `make` and `test`, and the list
-was not adjusted to chase that. **No session has measured the fixed retrieval yet.**
+was not adjusted to chase that. No session has measured whether the fix changes
+*outcomes*, and none of the current tasks can. See below.
+
+## Confirmed through the real install-and-inject path
+
+Reproduce with `python3 bench/real_path_check.py --baseline 06885c0`. It runs no
+sessions.
+
+The deterministic tools model delivery in-process. Sessions take a different path:
+skills go in through `save_skill.py`, which compiles an index, and `retrieve.py`
+reads that index as a hook. This check installed both pools through the real save
+path into a sandboxed HOME and called the real hook once before the fix and once
+after. Between the two commits, `scripts/` differs only in `retrieve.py`, so the
+tokenizer is the only thing that changed.
+
+| pool | task | before the fix | after the fix |
+| --- | --- | --- | --- |
+| ten | `response_text` | wrong trap | wrong trap |
+| ten | `fingerprint` | right | right |
+| seven | `response_text` | wrong trap | **right** |
+| seven | `fingerprint` | right | right |
+
+All four cells matched the prediction written down before the run. After the fix,
+the real path agreed with `budget_sweep`'s model in every cell, all 17 skills saved
+cleanly, and the operator's library was unchanged.
+
+## Why no session batch followed
+
+A session batch would add only the model's outcome, and no current task can show
+that changing. The fix changes delivery only on `response_text`, whose control
+already solves 6/6 without any skill, so better delivery can't raise its score.
+`fingerprint` has headroom (0/21), but its correct skill already ranked first
+before the fix, so there is nothing to compare. Measuring outcome needs a new
+author-mode trap that the control can't solve unaided and whose delivered skill
+the fix actually changes.
+
+## A latent path mismatch found along the way
+
+The first version of this check delivered nothing in any cell, before the fix or
+after it. `save_skill.py` records a project root with symlinks resolved, but
+`retrieve.in_scope()` compares paths as plain strings. The check's sandbox sat in
+macOS's temp dir, `/var/folders`, which is a symlink to `/private/var/folders`.
+So the unresolved `cwd` it passed never matched the recorded root, and every skill
+was out of scope.
+
+Real sessions aren't affected. Claude Code sends a physical `cwd`: bench sessions
+run under `/tmp/skillforge-bench`, which is itself a symlink to `/private/tmp`,
+and all 24 treatment rows in E12's re-run still recorded prompt-path injections.
+The check now resolves its sandbox directory to match. `in_scope()` itself is
+unchanged. Hardening it is a separate change, because `retrieve.py`, `detect.py`
+and `reconcile.py` all use it, and `retrieve.project_key()` already resolves
+`cwd` while `in_scope()` doesn't.
