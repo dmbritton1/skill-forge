@@ -1,0 +1,38 @@
+{
+  "trap": "C",
+  "distiller": "learn-failure",
+  "draw": 3,
+  "novelty_gate": false,
+  "task": "sf-repair-verdict-from",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_a_rewrapped_quote_still_counts_as_evidence": true
+  },
+  "timed_out": false,
+  "secs": 88.3,
+  "session_ok": true,
+  "skill_name": "verbatim-quote-gate-breaks-on-rewrapped-llm-quotes",
+  "chose_global_scope": [
+    "verbatim-quote-gate-breaks-on-rewrapped-llm-quotes"
+  ],
+  "containment_rc": 0,
+  "pruned_trust": [],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "verbatim-quote-gate-breaks-on-rewrapped-llm-quotes",
+      "outcome": "saved",
+      "ts": "2026-09-14T18:07:40+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "All 55 tests in `tests/test_validate.py` pass now; I ran the suite again after the fix to confirm. Nothing under `tests/` was changed.\n\n**Fix:** only `test_a_rewrapped_quote_still_counts_as_evidence` was failing. The check in `scripts/validate.py:284` that a model's quote really appears in the skill text compared the two byte for byte. A correct quote failed if the model had removed a line break from the original. The check now collapses runs of whitespace in both the quote and the text before comparing, and applies the 12-character minimum to the collapsed quote. It still fails quotes with the words in a different order, quotes that aren't in the text, and quotes that are too short, and the tests for those cases still pass.\n\n**Distilled anti-skill:** saved at `~/.claude/skillforge/antiskills/verbatim-quote-gate-breaks-on-rewrapped-llm-quotes/SKILL.md`, global scope. It went into the warm tier as unproven.\n- **Contract steps:** as you asked, I skipped step 2, the novelty self-gate. No other step stopped me. There were no existing anti-skills to check for duplicates against, and the secret scan came back clean.\n- **Self-review:** I reviewed the draft on every criterion except novelty and changed one thing before saving. One of the `symptoms:` entries was a phrase I had made up, so I replaced it with the literal failing assertion. Both fingerprints are lines my fix added. I left out `verification.command`.\n- **Recorded as:** `--decision edited`, with a reason noting there was no human reviewer and the novelty gate was skipped.\n- **Weak point:** the lesson took about 5 minutes to find, and only that quickly because the failing test's docstring explained the cause. It will only be worth its place if the same trap turns up where nothing explains it.\n",
+  "test_tail": "entry_returns_the_matching_entry\nPASS test_skill_text_cannot_close_its_own_data_section\nPASS test_the_follow_prompt_nonce_differs_per_call\nPASS test_the_follow_prompt_text_cannot_close_its_own_data_section\nPASS test_the_prompt_asks_for_both_grades_and_defines_them\nPASS test_the_worktree_is_removed_even_when_the_run_raises\nPASS test_unknown_skill_exits_zero_and_says_nothing_on_stdout\nPASS test_verification_argv_ignores_a_command_in_the_body\nPASS test_verification_argv_is_none_when_absent\nPASS test_verification_argv_refuses_shell_metacharacters\nPASS test_verification_argv_splits_without_a_shell\n",
+  "ts": "2026-09-14T14:07:53"
+}

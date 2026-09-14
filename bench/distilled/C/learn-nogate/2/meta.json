@@ -1,0 +1,38 @@
+{
+  "trap": "C",
+  "distiller": "learn",
+  "draw": 2,
+  "novelty_gate": false,
+  "task": "sf-repair-verdict-from",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_a_rewrapped_quote_still_counts_as_evidence": true
+  },
+  "timed_out": false,
+  "secs": 105.4,
+  "session_ok": true,
+  "skill_name": "whitespace-insensitive-evidence-quotes",
+  "chose_global_scope": [],
+  "containment_rc": 0,
+  "pruned_trust": [
+    "whitespace-insensitive-evidence-quotes"
+  ],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "whitespace-insensitive-evidence-quotes",
+      "outcome": "saved",
+      "ts": "2026-09-14T18:01:23+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "erdict_from` checked a finding's quoted evidence with an exact substring match (`ev not in text`). When the model quoted a line from the skill file that was broken across two lines, it rejoined it into one. That one-character difference made a quote that really was in the file fail.\n\n**The fix:** before comparing, both the evidence and the skill text now have every run of spaces, tabs and newlines turned into a single space (`\" \".join(s.split())`). The 12-character minimum is checked after that, so padding a short quote with spaces doesn't get it through. Word order still has to match, so the tests for reordered words and made-up quotes still fail as they should. `scripts/library.py` also reads the evidence, but only to print it, so it didn't need changing.\n\n**Tests:** after the fix, `python3 tests/test_validate.py` prints 55 PASS lines and no FAIL lines. I also ran every other file in `tests/` and none of them failed. Nothing is committed.\n\n**Distillation:** I followed the skill's steps and skipped only step 2 (novelty), as you asked. None of the other steps stopped me.\n- **Duplicate check:** no existing skills in either location.\n- **Scope:** `project`, because the check it uses, `python3 tests/test_validate.py`, only exists in this repo. Without the fix, the rewrapped-quote test fails; if matching gets too loose, the reordered-words and absent-evidence tests fail.\n- **Where the bug came from:** I left out `introduced_by`. The exact match was already there in the `baseline` commit, so no later commit introduced it.\n- **Secret scan:** clean.\n- **Self-review:** it passed every criterion except novelty, so I saved it unedited with `--decision approved` and a reason saying it was self-reviewed.\n- **Saved to:** `.claude/skillforge/skills/whitespace-insensitive-evidence-quotes/SKILL.md`. It's in the warm tier (not yet proven).\n\nThe Gamma and Google Calendar connectors need authorizing in your claude.ai connector settings before they'll work; this task didn't need them.\n",
+  "test_tail": "entry_returns_the_matching_entry\nPASS test_skill_text_cannot_close_its_own_data_section\nPASS test_the_follow_prompt_nonce_differs_per_call\nPASS test_the_follow_prompt_text_cannot_close_its_own_data_section\nPASS test_the_prompt_asks_for_both_grades_and_defines_them\nPASS test_the_worktree_is_removed_even_when_the_run_raises\nPASS test_unknown_skill_exits_zero_and_says_nothing_on_stdout\nPASS test_verification_argv_ignores_a_command_in_the_body\nPASS test_verification_argv_is_none_when_absent\nPASS test_verification_argv_refuses_shell_metacharacters\nPASS test_verification_argv_splits_without_a_shell\n",
+  "ts": "2026-09-14T14:01:38"
+}

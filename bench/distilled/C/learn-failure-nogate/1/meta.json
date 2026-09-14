@@ -1,0 +1,38 @@
+{
+  "trap": "C",
+  "distiller": "learn-failure",
+  "draw": 1,
+  "novelty_gate": false,
+  "task": "sf-repair-verdict-from",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_a_rewrapped_quote_still_counts_as_evidence": true
+  },
+  "timed_out": false,
+  "secs": 97.2,
+  "session_ok": true,
+  "skill_name": "verbatim-quote-gate-breaks-on-rewrapped-text",
+  "chose_global_scope": [
+    "verbatim-quote-gate-breaks-on-rewrapped-text"
+  ],
+  "containment_rc": 0,
+  "pruned_trust": [],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "verbatim-quote-gate-breaks-on-rewrapped-text",
+      "outcome": "saved",
+      "ts": "2026-09-14T18:04:40+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": " copied a line-wrapped sentence as one line, so a real quote was rejected over a single newline.\n\n**Fix** (`scripts/validate.py:284`): I now collapse every run of spaces, tabs and newlines to one space in both the quote and the skill text before checking. The length minimum is applied to the collapsed quote.\n```python\nev = \" \".join((f.get(\"evidence\") or \"\").split())\nif len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):\n```\nWord order still counts, so `test_reordered_words_are_not_accepted_as_a_quote` still passes. That test guards the point of the check: a model shouldn't be able to pass by writing a quote it didn't actually copy from the skill.\n\n**Distillation** (`skillforge:distilling-failures`, skipping step 2 as you asked; no other step stopped me):\n- **Duplicate check:** there were no existing anti-skills in either location.\n- **Self-review:** I checked the draft against every criterion except novelty.\n  - It has all four required sections: Trap, Symptom, Cause and Fix.\n  - It lists three symptoms, each at least 8 characters and 2 words.\n  - Its two fingerprints are text from the lines the fix added.\n  - Its scope is global, because the trap applies to any check that requires a model to quote text word for word.\n  - It warns against the tempting overcorrection of ignoring word order.\n- **Secret scan:** clean.\n- **Saved** with `--decision approved`. The reason I recorded says there was no human reviewer and the novelty check was skipped. It's at `~/.claude/skillforge/antiskills/verbatim-quote-gate-breaks-on-rewrapped-text/SKILL.md` and indexed in the warm tier, which means it hasn't been checked in a real session yet.\n\nThe time cost in the anti-skill is honest: about 5 minutes. This session found the cause fast, so the lesson's value is mostly the warning against that overcorrection.\n\nTwo connectors, claude.ai Gamma and Google Calendar, need to be authorized in your claude.ai connector settings before they can be used. This task didn't need them.\n",
+  "test_tail": "entry_returns_the_matching_entry\nPASS test_skill_text_cannot_close_its_own_data_section\nPASS test_the_follow_prompt_nonce_differs_per_call\nPASS test_the_follow_prompt_text_cannot_close_its_own_data_section\nPASS test_the_prompt_asks_for_both_grades_and_defines_them\nPASS test_the_worktree_is_removed_even_when_the_run_raises\nPASS test_unknown_skill_exits_zero_and_says_nothing_on_stdout\nPASS test_verification_argv_ignores_a_command_in_the_body\nPASS test_verification_argv_is_none_when_absent\nPASS test_verification_argv_refuses_shell_metacharacters\nPASS test_verification_argv_splits_without_a_shell\n",
+  "ts": "2026-09-14T14:04:56"
+}

@@ -1,0 +1,38 @@
+{
+  "trap": "C",
+  "distiller": "learn-failure",
+  "draw": 2,
+  "novelty_gate": false,
+  "task": "sf-repair-verdict-from",
+  "model": "claude-opus-5",
+  "outcome": "saved",
+  "probeable": true,
+  "error": null,
+  "repair_resolved": true,
+  "per_test": {
+    "test_a_rewrapped_quote_still_counts_as_evidence": true
+  },
+  "timed_out": false,
+  "secs": 81.9,
+  "session_ok": true,
+  "skill_name": "verbatim-quote-check-breaks-on-rewrapped-whitespace",
+  "chose_global_scope": [
+    "verbatim-quote-check-breaks-on-rewrapped-whitespace"
+  ],
+  "containment_rc": 0,
+  "pruned_trust": [],
+  "drafts_found": 1,
+  "ledger_rows": [
+    {
+      "event_type": "save",
+      "skill": "verbatim-quote-check-breaks-on-rewrapped-whitespace",
+      "outcome": "saved",
+      "ts": "2026-09-14T18:06:08+00:00"
+    }
+  ],
+  "ledger_read_error": null,
+  "rejections": [],
+  "session_tail": "All tests pass now. I re-ran `tests/test_validate.py` and got 55 of 55. I also ran `tests/test_validation_e2e.py` as an extra check, and it passes too.\n\n**Fix** (`scripts/validate.py`, in `verdict_from`): the check that a finding quotes the skill text used an exact substring match. It failed `test_a_rewrapped_quote_still_counts_as_evidence` because the model's quote had a space where the skill text had a line break plus indentation. The check now collapses runs of whitespace in both the quote and the skill text before matching:\n\n```python\nev = \" \".join((f.get(\"evidence\") or \"\").split())\nif len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):\n```\n\nWord order still has to match, and the minimum-length rule still applies (to the collapsed quote). Quotes that aren't in the text, reordered words and too-short quotes all still fail their tests. Nothing under `tests/` was changed.\n\n**Anti-skill:** I followed the skill's contract with step 2 (the novelty check) skipped, as you asked, and no other step stopped me.\n- **Duplicates:** the global anti-skill folder is empty and there's no project one, so this is new.\n- **Draft:** it covers the trap, symptom, cause and fix, plus 2 symptom entries and 2 fingerprints. The fingerprints are the two changed lines, copied exactly. I left out a verification command because the fix has no single command to run.\n- **Secret scan:** clean.\n- **Review:** I checked the draft on every criterion except novelty and found nothing to change.\n- **Saved** with `--scope global --decision approved`, noting in the reason that I reviewed it myself: `~/.claude/skillforge/antiskills/verbatim-quote-check-breaks-on-rewrapped-whitespace/SKILL.md`. It went into the warm tier, marked unproven until a real session uses it.\n\nThe cost estimate is honest but small (about 3 minutes), because the failing test pointed straight at the problem. I haven't committed anything.\n",
+  "test_tail": "entry_returns_the_matching_entry\nPASS test_skill_text_cannot_close_its_own_data_section\nPASS test_the_follow_prompt_nonce_differs_per_call\nPASS test_the_follow_prompt_text_cannot_close_its_own_data_section\nPASS test_the_prompt_asks_for_both_grades_and_defines_them\nPASS test_the_worktree_is_removed_even_when_the_run_raises\nPASS test_unknown_skill_exits_zero_and_says_nothing_on_stdout\nPASS test_verification_argv_ignores_a_command_in_the_body\nPASS test_verification_argv_is_none_when_absent\nPASS test_verification_argv_refuses_shell_metacharacters\nPASS test_verification_argv_splits_without_a_shell\n",
+  "ts": "2026-09-14T14:06:21"
+}
