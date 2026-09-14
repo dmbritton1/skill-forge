@@ -90,6 +90,13 @@ def test_a_wrong_extra_skill_count_row_is_not_counted():
     assert res["batch"] == "incomplete"
 
 
+def test_a_void_row_does_not_fill_out_the_arm():
+    leak = dict(row(NEW, resolved=True), sandbox=True, audit={"verdict": "leak"})
+    res = outcome(arm(OLD, 0) + some_rows(NEW, 5, resolved=5) + [leak])
+    assert res["arms"]["new"]["valid"] == 5 and res["arms"]["new"]["void"] == 1
+    assert res["batch"] == "incomplete"
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -56,7 +56,9 @@ def counted_drafts(archive, letter):
             draft = meta.parent / "SKILL.md"
             if m.get("outcome") == "saved" and draft.is_file():
                 out.append({"segment": seg.name, "draw": int(meta.parent.name),
-                            "path": draft, "name": m.get("skill_name")})
+                            "path": draft, "name": m.get("skill_name"),
+                            # Sandbox spec 3.4: its session read the trap's fixed file.
+                            "tainted": bool(m.get("tainted"))})
     return out
 
 
@@ -117,7 +119,11 @@ def main(argv=None):
         return 1
     task = PROBES[args.trap]
     prompt = bs.P[task]
-    drafts = counted_drafts(ARCHIVE, args.trap)
+    counted = counted_drafts(ARCHIVE, args.trap)
+    tainted = [_rel(d["path"]) for d in counted if d["tainted"]]
+    drafts = [d for d in counted if not d["tainted"]]
+    for t in tainted:
+        print("tainted, not qualified: %s" % t)
     if not drafts:
         print("no counted draft for trap %s" % args.trap)
         return 1
@@ -151,7 +157,8 @@ def main(argv=None):
     untouched = libguard.snapshot() == before
     first = first_qualifying(rows)
     result = {"trap": args.trap, "task": task, "old_ref": OLD_REF, "new_ref": NEW_REF,
-              "drafts": rows, "first_qualifying": first["path"] if first else None,
+              "drafts": rows, "tainted": tainted,
+              "first_qualifying": first["path"] if first else None,
               "deliverable": [r["path"] for r in rows if r["deliverable"]],
               "problems": problems, "library_untouched": untouched}
     for r in rows:

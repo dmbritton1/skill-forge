@@ -101,6 +101,31 @@ def test_a_fourth_delivered_run_does_not_count_toward_the_cell():
     assert res["pooled"] == [0, 3] and res["verdict"] == "not working"
 
 
+def sandboxed(r, verdict="clean"):
+    """The row as written after the sandbox: a snapshot commit and an audit."""
+    return dict(r, sandbox=True, audit={"verdict": verdict},
+                env={"plugin_commit": "archive:" + "c" * 40})
+
+
+def test_a_void_row_does_not_count_and_is_re_run():
+    rows = [ctl()] * 3 + full(D1, 0) + [sandboxed(trt(D1, resolved=True), verdict="leak")]
+    cell = pr.read_probe(rows, TASK, [D1])["cells"][D1["path"]]
+    assert cell["valid"] == 3 and cell["resolved"] == 0
+    assert cell["void"] == 1 and cell["rerun"] == 1
+
+
+def test_a_void_control_that_resolved_does_not_void_the_batch():
+    rows = [sandboxed(ctl(resolved=True), verdict="missing")] + [ctl()] * 3 + full(D1, 0)
+    res = pr.read_probe(rows, TASK, [D1])
+    assert res["batch"] == "complete" and res["control"]["void"] == 1
+
+
+def test_a_sandboxed_snapshot_row_is_a_probe_row():
+    rows = [sandboxed(ctl())] * 3 + [sandboxed(trt(D1, resolved=True))] * 3
+    res = pr.read_probe(rows, TASK, [D1])
+    assert res["pooled"] == [3, 3] and res["verdict"] == "working"
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

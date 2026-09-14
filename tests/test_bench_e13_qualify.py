@@ -9,10 +9,13 @@ sys.path[:0] = [str(ROOT / "scripts"), str(ROOT / "bench")]
 import e13_qualify as q
 
 
-def _draw(archive, segment, draw, outcome="saved", name=None, draft=True):
+def _draw(archive, segment, draw, outcome="saved", name=None, draft=True, tainted=None):
     d = archive / "C" / segment / str(draw)
     d.mkdir(parents=True)
-    (d / "meta.json").write_text(json.dumps({"outcome": outcome, "skill_name": name}), encoding="utf-8")
+    meta = {"outcome": outcome, "skill_name": name}
+    if tainted is not None:
+        meta["tainted"] = tainted
+    (d / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
     if draft:
         (d / "SKILL.md").write_text("---\nname: %s\n---\n" % name, encoding="utf-8")
 
@@ -50,6 +53,15 @@ def test_plugin_drift_flags_a_ref_that_differs_under_scripts_or_hooks():
     9cbb472 (NEW_REF) does not, as of 2026-09-14 -- the guard this protects."""
     assert q.plugin_drift("06885c0") is True
     assert q.plugin_drift(q.NEW_REF) is False
+
+
+def test_counted_drafts_flag_a_tainted_draft():
+    with tempfile.TemporaryDirectory() as tmp:
+        a = pathlib.Path(tmp)
+        _draw(a, "learn-nogate", 1, name="clean")
+        _draw(a, "learn-nogate", 2, name="read-the-fix", tainted=True)
+        got = [(d["name"], d["tainted"]) for d in q.counted_drafts(a, "C")]
+        assert got == [("clean", False), ("read-the-fix", True)], got
 
 
 if __name__ == "__main__":

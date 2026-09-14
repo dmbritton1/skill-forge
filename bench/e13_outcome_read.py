@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from e12_read import select  # noqa: E402
 from e13_probe_read import _draft_path  # noqa: E402
+from audit import counts  # noqa: E402
 
 N_ARM = 6
 LIMIT_MARK = "session limit"
@@ -58,6 +59,8 @@ def read_outcome(rows, task, draft_name, draft_path, old_commit, new_commit):
            for r in mine):
         return {"batch": "postponed", "arms": {}, "diff": None, "verdict": None, "p": None,
                 "reason": "a session hit the session limit: re-run the whole batch"}
+    void = [r for r in mine if not counts(r)]
+    mine = [r for r in mine if counts(r)]
     arms = {}
     for label, commit, want in (("old", old_commit, False), ("new", new_commit, True)):
         trt = [r for r in mine if (r.get("env") or {}).get("plugin_commit") == commit
@@ -67,9 +70,12 @@ def read_outcome(rows, task, draft_name, draft_path, old_commit, new_commit):
         match = [r for r in ran
                  if (draft_name in {i.get("skill") for i in r.get("injections") or []}) == want]
         counted = match[:N_ARM]
+        void_arm = sum(1 for r in void if (r.get("env") or {}).get("plugin_commit") == commit
+                       and _draft_path(r.get("skill_path")) == draft_path)
         a = {"valid": len(counted), "needed": N_ARM,
              "resolved": sum(1 for r in counted if r.get("resolved")),
-             "mismatched": len(ran) - len(match), "rerun": len(trt) - len(match)}
+             "mismatched": len(ran) - len(match), "void": void_arm,
+             "rerun": len(trt) - len(match) + void_arm}
         a["status"] = ("void" if a["mismatched"] >= 2 else
                        "complete" if a["valid"] >= N_ARM else "incomplete")
         arms[label] = a
@@ -101,8 +107,9 @@ def main(argv=None):
                         full(OLD_REF), full(NEW_REF))
     print("batch: %s%s" % (res["batch"], " -- " + res["reason"] if res["reason"] else ""))
     for label, a in res["arms"].items():
-        print("  %-3s valid %d/%d  resolved %d  mismatched %d  re-run %d  %s"
-              % (label, a["valid"], a["needed"], a["resolved"], a["mismatched"], a["rerun"], a["status"]))
+        print("  %-3s valid %d/%d  resolved %d  mismatched %d  void %d  re-run %d  %s"
+              % (label, a["valid"], a["needed"], a["resolved"], a["mismatched"], a["void"],
+                 a["rerun"], a["status"]))
     if res["verdict"]:
         print("verdict: %s (new - old = %+d, Fisher p = %.3f)" % (res["verdict"], res["diff"], res["p"]))
     return 0

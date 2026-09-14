@@ -22,6 +22,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from e12_read import select  # noqa: E402  -- one window rule, not two
+from audit import counts  # noqa: E402  -- sandbox spec 4.1, one rule for every reader
 
 N_CONTROL = 3
 N_RUNS = 3
@@ -42,7 +43,9 @@ def _is_outcome_row(r):
     the draft ALONE (section 7) and never carries either."""
     if r.get("extra_skills"):
         return True
-    if (r.get("env") or {}).get("plugin_commit", "").startswith("archive:"):
+    # Every sandboxed row runs from a snapshot (sandbox spec 2.1), so archive:
+    # marks an outcome row only among rows written before the sandbox.
+    if "sandbox" not in r and (r.get("env") or {}).get("plugin_commit", "").startswith("archive:"):
         return True
     return False
 
@@ -54,11 +57,15 @@ def read_probe(rows, task, drafts):
         return {"batch": "postponed", "control": None, "cells": {}, "verdict": None,
                 "pooled": None,
                 "reason": "a session hit the session limit: re-run the whole batch"}
+    void = [r for r in mine if not counts(r)]
+    mine = [r for r in mine if counts(r)]
     control = [r for r in mine if r.get("arm") == "control"]
     ok = [r for r in control if r.get("session_ok")]
+    void_control = sum(1 for r in void if r.get("arm") == "control")
     out = {"control": {"valid": len(ok), "needed": N_CONTROL,
                        "resolved": sum(1 for r in ok if r.get("resolved")),
-                       "rerun": len(control) - len(ok)},
+                       "void": void_control,
+                       "rerun": len(control) - len(ok) + void_control},
            "cells": {}, "verdict": None, "pooled": None}
     if out["control"]["resolved"]:
         out.update(batch="void", reason="the control resolved (spec section 7)")
@@ -71,10 +78,12 @@ def read_probe(rows, task, drafts):
         ran = [r for r in trt if r.get("session_ok")]
         hit = [r for r in ran if d["name"] in {i.get("skill") for i in r.get("injections") or []}]
         counted = hit[:N_RUNS]
+        void_cell = sum(1 for r in void if r.get("arm") == "treatment"
+                        and _draft_path(r.get("skill_path")) == d["path"])
         cell = {"valid": len(counted), "needed": N_RUNS,
                 "resolved": sum(1 for r in counted if r.get("resolved")),
-                "undelivered": len(ran) - len(hit),
-                "rerun": (len(trt) - len(ran)) + (len(ran) - len(hit))}
+                "undelivered": len(ran) - len(hit), "void": void_cell,
+                "rerun": (len(trt) - len(ran)) + (len(ran) - len(hit)) + void_cell}
         cell["status"] = ("void" if cell["undelivered"] >= 2 else
                           "complete" if cell["valid"] >= N_RUNS else "incomplete")
         if cell["status"] == "incomplete":
@@ -105,12 +114,12 @@ def main(argv=None):
     print("batch: %s%s" % (res["batch"], " -- " + res["reason"] if res["reason"] else ""))
     if res["control"]:
         c = res["control"]
-        print("  control %-44s valid %d/%d  resolved %d  re-run %d"
-              % (q["task"], c["valid"], c["needed"], c["resolved"], c["rerun"]))
+        print("  control %-44s valid %d/%d  resolved %d  void %d  re-run %d"
+              % (q["task"], c["valid"], c["needed"], c["resolved"], c["void"], c["rerun"]))
     for path, c in res["cells"].items():
-        print("  draft   %-44s valid %d/%d  resolved %d  undelivered %d  %s"
+        print("  draft   %-44s valid %d/%d  resolved %d  undelivered %d  void %d  %s"
               % (path.replace("bench/distilled/", ""), c["valid"], c["needed"], c["resolved"],
-                 c["undelivered"], c["status"]))
+                 c["undelivered"], c["void"], c["status"]))
     if res["verdict"]:
         print("verdict: %s (pooled %d/%d)" % (res["verdict"], res["pooled"][0], res["pooled"][1]))
     return 0
