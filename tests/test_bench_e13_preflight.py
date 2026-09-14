@@ -148,6 +148,14 @@ def test_upsert_replaces_by_id_and_appends_otherwise():
     assert cfg["tasks"] == [{"id": "a", "v": 2}, {"id": "b", "v": 1}, {"id": "c", "v": 1}]
 
 
+def test_docstrings_match_compares_raw_docstrings_of_named_functions():
+    parent = 'def f(a):\n    """Exact  text.\n\n    More.\n    """\n    return a\n'
+    same = 'def f(a):\n    """Exact  text.\n\n    More.\n    """\n    raise NotImplementedError("implement me")\n'
+    edited = 'def f(a):\n    """Exact text.\n\n    More.\n    """\n    raise NotImplementedError("implement me")\n'
+    assert pf.docstrings_match(same, parent, ["f"]) is True
+    assert pf.docstrings_match(edited, parent, ["f"]) is False, "a collapsed double space is a change"
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

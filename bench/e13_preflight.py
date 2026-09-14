@@ -13,6 +13,17 @@ nothing, and score() reads that as resolved.
 """
 import ast
 import re
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+REPO_ROOT = ROOT.parent
 
 SPEC = "docs/superpowers/specs/2026-09-13-e13-author-traps-design.md"
 
@@ -173,3 +184,100 @@ def upsert(cfg, entry):
             return cfg
     cfg["tasks"].append(entry)
     return cfg
+
+
+def docstrings_match(stubbed_src, parent_src, names):
+    """True if every named function carries the same raw docstring in both."""
+    def docs(src):
+        nodes = {n.name: n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef)}
+        return {n: ast.get_docstring(nodes[n], clean=False) if n in nodes else None
+                for n in names}
+    return docs(stubbed_src) == docs(parent_src)
+
+
+def _git(*args):
+    return subprocess.run(["git", *args], cwd=str(REPO_ROOT), capture_output=True,
+                          text=True, check=True).stdout
+
+
+def run_variant(cand, variant, work):
+    """Prepare one clone at the fix's parent and run its fix-commit tests.
+
+    variant is "stub" (stub applied, then the hidden tests), "original" (the
+    parent's own code with the fix's tests), or "fix" (the fix's changed
+    definitions transplanted in). Returns ({test: passed}, clone path).
+    """
+    import run as bench_run
+    task = {"id": "e13pf-%s-%s" % (cand["id"], variant), "repo": str(REPO_ROOT),
+            "fix_commit": cand["fix"], "test_path": cand["test_path"],
+            "setup_cmd": "true", "mode": "author" if variant == "stub" else "repair",
+            "stub_cmd": "python3 %s" % (REPO_ROOT / cand["stub"])}
+    dest = Path(work) / task["id"]
+    bench_run.prepare(task, dest)
+    if variant == "stub":
+        bench_run.apply_hidden_tests(task, dest)
+    elif variant == "fix":
+        src = dest / cand["source"]
+        fixed, _ = transplant(src.read_text(encoding="utf-8"),
+                              _git("show", "%s:%s" % (cand["fix"], cand["source"])))
+        src.write_text(fixed, encoding="utf-8")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("SKILLFORGE_")}
+    r = bench_run.sh("python3 %s %s" % (ROOT / "run_named_tests.py", cand["test_path"]),
+                     cwd=dest, timeout=900, env=env)
+    return parse_results(r.stdout), dest
+
+
+def _summary(results):
+    return "%d pass / %d fail" % (sum(results.values()), sum(not v for v in results.values()))
+
+
+def main(argv=None):
+    import run as bench_run
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--only", action="append", choices=sorted(CANDIDATES))
+    ap.add_argument("--write", action="store_true",
+                    help="write valid candidates into bench/tasks.json")
+    args = ap.parse_args(argv)
+    letters = args.only or sorted(CANDIDATES)
+    work = Path(os.path.realpath(tempfile.mkdtemp(prefix="e13-preflight-")))
+    bench_run.WORK = work
+    valid = {}
+    try:
+        for letter in letters:
+            cand = CANDIDATES[letter]
+            parent_src = _git("show", "%s~1:%s" % (cand["fix"], cand["source"]))
+            fix_added = (test_names(_git("show", "%s:%s" % (cand["fix"], cand["test_path"])))
+                         - test_names(_git("show", "%s~1:%s" % (cand["fix"], cand["test_path"]))))
+            stub, stub_dest = run_variant(cand, "stub", work)
+            original, _ = run_variant(cand, "original", work)
+            fix, _ = run_variant(cand, "fix", work)
+            doc_ok = (not cand["verbatim_docstring"]) or docstrings_match(
+                (stub_dest / cand["source"]).read_text(encoding="utf-8"),
+                parent_src, cand["functions"])
+            graded, problems = assess(stub, original, fix, fix_added, doc_ok)
+            print("=== %s  %s  (fix %s)" % (letter, cand["id"], cand["fix"]))
+            print("  stub:     %s" % _summary(stub))
+            print("  original: %s" % _summary(original))
+            print("  fix:      %s" % _summary(fix))
+            print("  tests the fix added: %s" % sorted(fix_added))
+            print("  graded (%d): %s" % (len(graded), graded))
+            if problems:
+                print("  INVALID: " + "; ".join(problems))
+            else:
+                print("  VALID")
+                valid[letter] = task_entry(letter, cand, graded,
+                                           signatures(parent_src, cand["functions"]))
+    finally:
+        shutil.rmtree(str(work), ignore_errors=True)
+    if args.write and valid:
+        path = ROOT / "tasks.json"
+        cfg = json.loads(path.read_text(encoding="utf-8"))
+        for entry in valid.values():
+            upsert(cfg, entry)
+        path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+        print("wrote %s into bench/tasks.json" % sorted(e["id"] for e in valid.values()))
+    return 0 if len(valid) == len(letters) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

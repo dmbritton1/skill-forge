@@ -184,6 +184,88 @@
       "selection_rule": "E1: injects one umbrella skill covering BOTH specific traps as a class, against the matched arm's single specific skill. If the umbrella holds matched-arm performance, consolidation is safe; if it decays toward the transfer null, generalization destroys the effect and the v0.3 /consolidate roadmap item should be killed.",
       "hidden_patch_cmd": "python3 {root}/bench/stubs/patch_file_cap_test.py",
       "skill_source_commit": "authored 2026-09-05 for E1"
+    },
+    {
+      "id": "sf-author-verdict-from",
+      "mode": "author",
+      "repo": "{root}",
+      "fix_commit": "c0d7d88",
+      "test_path": "tests/test_validate.py",
+      "test_cmd": "python3 tests/test_validate.py",
+      "setup_cmd": "true",
+      "stub_cmd": "python3 {root}/bench/stubs/stub_verdict_from.py",
+      "fail_to_pass": [
+        "test_a_blocking_textual_objection_still_fails",
+        "test_a_finding_missing_the_new_fields_still_gates",
+        "test_a_finding_without_quoted_evidence_does_not_count_as_ok",
+        "test_a_minor_objection_is_reported_but_does_not_gate",
+        "test_a_one_character_evidence_span_does_not_count_as_ok",
+        "test_a_rewrapped_quote_still_counts_as_evidence",
+        "test_all_criteria_ok_is_a_pass",
+        "test_an_empirical_objection_does_not_gate",
+        "test_evidence_absent_from_the_text_still_fails",
+        "test_evidence_must_actually_appear_in_the_skill_text",
+        "test_evidence_shorter_than_the_floor_still_fails",
+        "test_grading_cannot_rescue_an_unquotable_pass",
+        "test_one_failed_criterion_is_a_fail",
+        "test_only_a_literal_true_passes_a_criterion",
+        "test_reordered_words_are_not_accepted_as_a_quote"
+      ],
+      "prompt": "scripts/validate.py has a function `verdict_from(findings, text)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_validate.py` and make sure you have not broken any test that was passing before your change.",
+      "skill": null,
+      "skill_source_commit": null,
+      "selection_rule": "E13 trap C (docs/superpowers/specs/2026-09-13-e13-author-traps-design.md). No skill yet: control screen only until distilled. Graded tests decided by bench/e13_preflight.py."
+    },
+    {
+      "id": "sf-author-transcript-slice",
+      "mode": "author",
+      "repo": "{root}",
+      "fix_commit": "521f609",
+      "test_path": "tests/test_draft.py",
+      "test_cmd": "python3 {root}/bench/run_named_tests.py tests/test_draft.py test_transcript_slice_falls_back_to_the_tail_when_undated test_transcript_slice_is_empty_when_dated_but_window_matches_nothing test_transcript_slice_is_oldest_first test_transcript_slice_keeps_only_the_window test_transcript_slice_keeps_the_newest_when_it_must_truncate test_transcript_slice_of_a_missing_file_is_empty test_transcript_slice_respects_the_byte_cap",
+      "setup_cmd": "true",
+      "stub_cmd": "python3 {root}/bench/stubs/stub_transcript_slice.py",
+      "fail_to_pass": [
+        "test_transcript_slice_falls_back_to_the_tail_when_undated",
+        "test_transcript_slice_is_empty_when_dated_but_window_matches_nothing",
+        "test_transcript_slice_is_oldest_first",
+        "test_transcript_slice_keeps_only_the_window",
+        "test_transcript_slice_keeps_the_newest_when_it_must_truncate",
+        "test_transcript_slice_of_a_missing_file_is_empty",
+        "test_transcript_slice_respects_the_byte_cap"
+      ],
+      "prompt": "scripts/draft.py has a function `transcript_slice(transcript_path, since, until)` whose body raises NotImplementedError. Read its docstring for the contract and implement it. Do not change its signature, and do not modify anything under tests/. When you are done, run `python3 tests/test_draft.py` and make sure you have not broken any test that was passing before your change.",
+      "skill": null,
+      "skill_source_commit": null,
+      "selection_rule": "E13 trap D (docs/superpowers/specs/2026-09-13-e13-author-traps-design.md). No skill yet: control screen only until distilled. Graded tests decided by bench/e13_preflight.py."
+    },
+    {
+      "id": "sf-author-store-dir",
+      "mode": "author",
+      "repo": "{root}",
+      "fix_commit": "06173b0",
+      "test_path": "tests/test_save_skill.py",
+      "test_cmd": "python3 tests/test_save_skill.py",
+      "setup_cmd": "true",
+      "stub_cmd": "python3 {root}/bench/stubs/stub_store_dir.py",
+      "fail_to_pass": [
+        "test_antiskill_goes_to_antiskills_dir",
+        "test_antiskill_without_verification_command_ok",
+        "test_cross_kind_name_collision_rejected_and_native_copy_preserved",
+        "test_few_fingerprints_warns_but_saves",
+        "test_global_save_keeps_project_entries_indexed",
+        "test_project_antiskill_collides_with_global_skill_of_same_name_rejected",
+        "test_project_scope_writes_under_project_root",
+        "test_project_skill_collides_with_global_skill_of_same_name_rejected",
+        "test_resave_same_skill_in_place_from_home_cwd_not_rejected",
+        "test_save_auto_trusts_and_logs",
+        "test_save_with_zero_hot_budget_reports_warm",
+        "test_valid_global_skill_saves_and_materializes"
+      ],
+      "prompt": "scripts/save_skill.py has functions `store_dir(scope, kind, name, project_root)` and `native_dir(scope, name, project_root)` whose bodies raise NotImplementedError. Read their docstrings for the contract and implement them. Do not change their signatures, and do not modify anything under tests/. When you are done, run `python3 tests/test_save_skill.py` and make sure you have not broken any test that was passing before your change.",
+      "skill": null,
+      "skill_source_commit": null,
+      "selection_rule": "E13 trap E (docs/superpowers/specs/2026-09-13-e13-author-traps-design.md). No skill yet: control screen only until distilled. Graded tests decided by bench/e13_preflight.py."
     }
   ]
 }
