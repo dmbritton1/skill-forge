@@ -162,6 +162,16 @@ def test_tainted_for_matches_only_the_traps_fixed_file():
     with_env(body)
 
 
+def test_missing_results_do_not_share_lists():
+    def body(e):
+        res1 = e.run(None)
+        res2 = e.run(None)
+        res1["hits"].append({"tool": "Test", "path": "test", "label": "test"})
+        assert res1["hits"] != []
+        assert res2["hits"] == []
+    with_env(body)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

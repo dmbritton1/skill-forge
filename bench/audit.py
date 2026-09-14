@@ -21,7 +21,6 @@ from pathlib import Path
 
 MAX_HITS = 10
 DENIED = "Operation not permitted"
-MISSING = {"verdict": "missing", "hits": [], "leaked": []}
 
 
 def display(path):
@@ -97,7 +96,7 @@ def audit_transcript(path, dest, plugin_dir, work, repo_parent, projects=None):
     `missing`."""
     try:
         if path is None or not Path(path).is_file():
-            return dict(MISSING)
+            return {"verdict": "missing", "hits": [], "leaked": []}
         real = lambda p: os.path.realpath(str(p))
         dest, plugin, work, repo_parent = real(dest), real(plugin_dir), real(work), real(repo_parent)
         projects = real(projects or Path.home() / ".claude" / "projects")
@@ -139,4 +138,4 @@ def audit_transcript(path, dest, plugin_dir, work, repo_parent, projects=None):
         return {"verdict": "leak" if leaked else "clean", "hits": hits[:MAX_HITS],
                 "leaked": sorted(set(leaked))}
     except Exception:
-        return dict(MISSING)
+        return {"verdict": "missing", "hits": [], "leaked": []}
