@@ -716,6 +716,10 @@ def main(argv=None):
         return 1
     global ENV, PLUGIN_SEGMENT
     ENV = environment(plugin_dir)
+    if args.plugin_dir and not ENV["plugin_commit"]:
+        print("plugin dir is neither a git checkout nor a marked snapshot,"
+              " so no row could record its commit: %s" % plugin_dir, file=sys.stderr)
+        return 1
     PLUGIN_SEGMENT = ("-p" + ENV["plugin_commit"].split(":")[-1][:7]
                       if args.plugin_dir else "")
     tasks = [t for t in cfg["tasks"] if args.all or t["id"] == args.task]

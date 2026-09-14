@@ -725,6 +725,18 @@ def test_main_refuses_a_plugin_dir_with_no_scripts():
         assert bench_run.main(["--task", "sf-author-verdict-from", "--plugin-dir", tmp]) == 1
 
 
+def test_main_refuses_a_plugin_dir_it_cannot_attribute_to_a_commit():
+    """scripts/ exists but the dir is neither a git checkout nor a
+    snapshot_plugin() snapshot -- plugin_commit() returns "" and, without this
+    guard, PLUGIN_SEGMENT would collapse to the constant "-p" for every such
+    dir. Two batches pointed at two such dirs would then share a clone path
+    and a per-run ledger -- the E5 collision this task exists to prevent."""
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = os.path.realpath(tmp)
+        (pathlib.Path(tmp) / "scripts").mkdir()
+        assert bench_run.main(["--task", "sf-author-verdict-from", "--plugin-dir", tmp]) == 1
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
