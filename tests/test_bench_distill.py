@@ -612,6 +612,10 @@ def test_one_archives_and_contains_a_global_scope_draw():
             # bytes. This repo has already shipped one fix for a suite that
             # destroyed real state; that is not a mistake to make twice.
             distill.bench_run.WORK = tmpp / "work"
+            # session_cmd's sandbox profile is written under WORK; prepare()
+            # normally creates it (dest.parent.mkdir) but is stubbed to a
+            # no-op below.
+            distill.bench_run.WORK.mkdir(parents=True, exist_ok=True)
             calls = []
 
             class _R:
@@ -689,6 +693,10 @@ def test_one_scrubs_a_secret_from_the_archived_meta():
                 distill.bench_run.score)
             distill.ARCHIVE = tmpp / "archive"
             distill.bench_run.WORK = tmpp / "work"
+            # session_cmd's sandbox profile is written under WORK; prepare()
+            # normally creates it (dest.parent.mkdir) but is stubbed to a
+            # no-op below.
+            distill.bench_run.WORK.mkdir(parents=True, exist_ok=True)
             secret = _fake_stripe_key()
 
             class _R:
@@ -860,6 +868,32 @@ def test_the_bypassed_clone_segment_is_its_own():
     assert gated != bypassed, gated
     assert bypassed.name == "sf-x-distill-learn-nogate-1", bypassed
     assert gated.name == "sf-x-distill-learn-1", gated
+
+
+def test_trap_files_hold_each_traps_fixed_function():
+    import distill
+    repo = pathlib.Path(__file__).resolve().parent.parent
+    for trap, fn in (("C", "def verdict_from"), ("D", "def transcript_slice"),
+                     ("E", "def store_dir")):
+        assert fn in (repo / distill.TRAP_FILES[trap]).read_text(encoding="utf-8"), trap
+
+
+def test_main_refuses_to_distil_when_the_plugin_cannot_be_sandboxed():
+    import distill
+    old = (distill.bench_run.sandbox_plugin, distill.bench_run.SANDBOX, distill.one)
+    calls = []
+
+    def refuse(plugin_dir, explicit):
+        raise ValueError("the plugin checkout has uncommitted changes")
+    # distill.one is stubbed so this test can never launch a real session.
+    distill.bench_run.sandbox_plugin = refuse
+    distill.one = lambda *a, **kw: calls.append(a)
+    try:
+        assert distill.main(["--trap", "C", "--distiller", "learn", "--draws", "1"]) == 1
+        assert calls == []
+    finally:
+        distill.bench_run.sandbox_plugin, distill.bench_run.SANDBOX, distill.one = old
+
 
 if __name__ == "__main__":
     failures = 0

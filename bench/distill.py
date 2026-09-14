@@ -23,11 +23,13 @@ import os
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import libguard
+import audit
 import run as bench_run
 import save_skill
 
@@ -44,6 +46,12 @@ DISTILLERS = {"learn-failure": "antiskills", "learn": "skills"}
 TRAPS = {"A": "sf-escaping-breaks-symptom-match",
          "B": "sf-truncation-reports-absent",
          "C": "sf-repair-verdict-from"}
+
+# Sandbox spec section 3.4: the file holding each trap's fixed function. A
+# distill session that reads the PLUGIN's copy as text marks its draft tainted,
+# and e13_qualify skips it.
+TRAP_FILES = {"C": "scripts/validate.py", "D": "scripts/draft.py",
+              "E": "scripts/save_skill.py"}
 
 # Measured, not guessed: the Task 8 pilot draw took 183s for a full repair
 # plus distillation (trap A, learn-failure, 2026-09-09). 900 is ~5x that --
@@ -246,6 +254,7 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
                 "is seen is what pre-registration forbids. Delete it "
                 "deliberately to redo it." % d)
 
+    session_id = str(uuid.uuid4())
     before = libguard.snapshot()
     st = {"outcome": "errored", "error": None, "repair_resolved": False,
           "per_test": {}, "timed_out": False, "secs": 0.0, "drafts_found": 0,
@@ -256,9 +265,7 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
     try:
         bench_run.prepare(task, dest)
         prompt = prompt_for(distiller, task["prompt"], novelty_gate)
-        cmd = ('claude -p %s --plugin-dir %s --permission-mode bypassPermissions'
-               ' --model %s' % (json.dumps(prompt), json.dumps(str(plugin_dir)),
-                                json.dumps(bench_run.MODEL)))
+        cmd = bench_run.session_cmd(prompt, dest, plugin_dir, session_id)
         t0 = time.time()
         try:
             sess = bench_run.sh(cmd, cwd=dest, timeout=PHASE1_TIMEOUT_S)
@@ -314,6 +321,7 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
         if pruned_trust:
             libguard.prune_trust(pruned_trust)
 
+        sb = bench_run.session_audit(session_id, dest, plugin_dir)
         d.mkdir(parents=True, exist_ok=True)
         if st["draft_text"] is not None:
             # NOT scrubbed: the draft is the experiment's own artifact, and
@@ -335,6 +343,9 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
             "repair_resolved": st["repair_resolved"], "per_test": st["per_test"],
             "timed_out": st["timed_out"], "secs": st["secs"],
             "session_ok": st["session_ok"],
+            "sandbox": sb["sandbox"], "sandbox_profile": sb["sandbox_profile"],
+            "session_id": sb["session_id"], "audit": sb["audit"],
+            "tainted": audit.tainted_for(sb["audit"], plugin_dir, TRAP_FILES.get(trap)),
             "skill_name": st["skill_name"],
             "chose_global_scope": leaked,
             "containment_rc": containment_rc,
@@ -391,6 +402,8 @@ def main(argv=None):
                     help="E7: suspend step 2 of the distilling contract. "
                          "Archives under <distiller>-nogate so it cannot "
                          "overwrite a gated draw.")
+    ap.add_argument("--no-sandbox", action="store_true",
+                    help="debugging only: distil unsandboxed (sandbox spec 2.4)")
     args = ap.parse_args(argv)
 
     cfg = bench_run.expand(json.loads(
@@ -403,6 +416,14 @@ def main(argv=None):
     if not all(traps) or not all(dists):
         print("need --all, or both --trap and --distiller")
         return 1
+
+    bench_run.SANDBOX = not args.no_sandbox
+    if bench_run.SANDBOX:
+        try:
+            plugin_dir = bench_run.sandbox_plugin(plugin_dir, explicit=False)
+        except ValueError as err:
+            print("sandbox: %s" % err)
+            return 1
 
     bench_run.WORK.mkdir(parents=True, exist_ok=True)
     print("model %s | archive %s | timeout %ds | novelty gate %s"
