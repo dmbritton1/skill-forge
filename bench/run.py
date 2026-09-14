@@ -23,11 +23,13 @@ no signal, because a failed clone or stub command reads as a failed task.
 --check exists so that is visible in a second rather than after a run.
 """
 import argparse
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 from pathlib import Path
 
@@ -77,6 +79,11 @@ INJECT_BUDGET = None
 #: reports what it resolved to. Same-batch controls remain the only defence
 #: against a model-side change.
 ENV = {}
+
+#: E13 section 8: "-p<sha7>" when --plugin-dir is given. Two arms that differ
+#: only in the plugin would otherwise share a clone path and a per-run ledger,
+#: and the second would overwrite the first's evidence (how E5 lost a batch).
+PLUGIN_SEGMENT = ""
 
 
 def expand(value):
@@ -290,6 +297,32 @@ def plugin_shas(data):
 # bench/results.jsonl, which every batch appends to -- is not a change to it.
 PLUGIN_PATHS = ("scripts", "hooks", "skills", ".claude-plugin")
 
+# A plugin snapshot is not a git checkout, so it carries the commit it was
+# archived from in this file instead.
+SNAPSHOT_MARK = ".bench-plugin-ref"
+
+
+def snapshot_plugin(ref, dest):
+    """Extract the plugin as it was at `ref` into `dest`, marked with its commit.
+
+    Only the plugin's own paths (PLUGIN_PATHS that exist at `ref`), so the
+    snapshot is exactly what a session loads and nothing from bench/ or docs/.
+    Returns the full sha.
+    """
+    git = lambda *a: subprocess.run(["git", "-C", str(REPO_ROOT), *a],
+                                    capture_output=True, check=True)
+    sha = git("rev-parse", "%s^{commit}" % ref).stdout.decode().strip()
+    present = set(git("ls-tree", "--name-only", sha).stdout.decode().split())
+    paths = [p for p in PLUGIN_PATHS if p in present]
+    dest = Path(dest)
+    if dest.exists():
+        shutil.rmtree(str(dest))
+    dest.mkdir(parents=True)
+    with tarfile.open(fileobj=io.BytesIO(git("archive", "--format=tar", sha, *paths).stdout)) as t:
+        t.extractall(str(dest))
+    (dest / SNAPSHOT_MARK).write_text(sha + "\n", encoding="utf-8")
+    return sha
+
 
 def plugin_commit(plugin_dir):
     """The plugin under test as `<sha>`, `<sha>+dirty`, or "" if not a checkout.
@@ -300,6 +333,9 @@ def plugin_commit(plugin_dir):
     Never raises.
     """
     try:
+        mark = Path(plugin_dir) / SNAPSHOT_MARK
+        if mark.is_file():
+            return "archive:" + mark.read_text(encoding="utf-8").strip()
         head = subprocess.run(["git", "-C", str(plugin_dir), "rev-parse", "HEAD"],
                               capture_output=True, text=True, timeout=30)
         if head.returncode:
@@ -360,6 +396,7 @@ def arm_segment(arm):
         seg += "-plus" + (str(n) if n > 1 else "")
     if INJECT_BUDGET:
         seg += "-b%d" % INJECT_BUDGET
+    seg += PLUGIN_SEGMENT
     return seg
 
 
@@ -645,6 +682,10 @@ def main(argv=None):
     ap.add_argument("--inject-budget", type=int, default=None,
                     help="E10: run the prompt hook at this injection budget"
                          " in tokens instead of the shipped 1200 (test-only)")
+    ap.add_argument("--plugin-dir", default=None,
+                    help="E13 section 8: run against this plugin directory, e.g."
+                         " a run.snapshot_plugin() snapshot, instead of tasks.json's"
+                         " (test-only)")
     args = ap.parse_args(argv)
     global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL, INJECT_BUDGET
     MODEL = args.model
@@ -669,9 +710,14 @@ def main(argv=None):
     if args.check:
         print("config ok: %d task(s), all paths resolve" % len(cfg["tasks"]))
         return 0
-    plugin_dir = Path(cfg["plugin_dir"])
-    global ENV
+    plugin_dir = Path(args.plugin_dir).resolve() if args.plugin_dir else Path(cfg["plugin_dir"])
+    if not (plugin_dir / "scripts").is_dir():
+        print("plugin dir has no scripts/: %s" % plugin_dir, file=sys.stderr)
+        return 1
+    global ENV, PLUGIN_SEGMENT
     ENV = environment(plugin_dir)
+    PLUGIN_SEGMENT = ("-p" + ENV["plugin_commit"].split(":")[-1][:7]
+                      if args.plugin_dir else "")
     tasks = [t for t in cfg["tasks"] if args.all or t["id"] == args.task]
     if not tasks:
         print("no matching task; use --all or --task <id>")

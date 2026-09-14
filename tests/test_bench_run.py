@@ -689,6 +689,42 @@ def test_repair_baseline_carries_the_fix_tests_and_the_parent_source():
     assert _git_out(dest, "status", "--porcelain").stdout == ""
 
 
+def test_snapshot_plugin_extracts_the_plugin_and_marks_its_commit():
+    import subprocess
+    with tempfile.TemporaryDirectory() as tmp:
+        snap = pathlib.Path(os.path.realpath(tmp)) / "snap"
+        sha = bench_run.snapshot_plugin("HEAD", snap)
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(bench_run.REPO_ROOT),
+                              capture_output=True, text=True).stdout.strip()
+        assert sha == head
+        assert (snap / "scripts" / "retrieve.py").is_file()
+        assert (snap / "hooks" / "hooks.json").is_file()
+        assert not (snap / "bench").exists() and not (snap / "tests").exists()
+        assert bench_run.plugin_commit(snap) == "archive:" + sha
+
+
+def test_arm_segment_separates_arms_that_differ_only_in_plugin():
+    saved = (bench_run.SKILL_FROM, bench_run.PLUS_SKILL, bench_run.FORCE_HOT,
+             bench_run.INJECT_BUDGET, bench_run.PLUGIN_SEGMENT)
+    try:
+        bench_run.SKILL_FROM = bench_run.PLUS_SKILL = bench_run.INJECT_BUDGET = None
+        bench_run.FORCE_HOT = False
+        bench_run.PLUGIN_SEGMENT = "-p06885c0"
+        assert bench_run.arm_segment("treatment") == "-p06885c0"
+        bench_run.PLUGIN_SEGMENT = "-p9cbb472"
+        assert bench_run.arm_segment("treatment") == "-p9cbb472"
+        bench_run.PLUGIN_SEGMENT = ""
+        assert bench_run.arm_segment("treatment") == ""
+    finally:
+        (bench_run.SKILL_FROM, bench_run.PLUS_SKILL, bench_run.FORCE_HOT,
+         bench_run.INJECT_BUDGET, bench_run.PLUGIN_SEGMENT) = saved
+
+
+def test_main_refuses_a_plugin_dir_with_no_scripts():
+    with tempfile.TemporaryDirectory() as tmp:
+        assert bench_run.main(["--task", "sf-author-verdict-from", "--plugin-dir", tmp]) == 1
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
