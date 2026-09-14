@@ -57,8 +57,9 @@ def read_probe(rows, task, drafts):
                and _draft_path(r.get("skill_path")) == d["path"]]
         ran = [r for r in trt if r.get("session_ok")]
         hit = [r for r in ran if d["name"] in {i.get("skill") for i in r.get("injections") or []}]
-        cell = {"valid": len(hit), "needed": N_RUNS,
-                "resolved": sum(1 for r in hit if r.get("resolved")),
+        counted = hit[:N_RUNS]
+        cell = {"valid": len(counted), "needed": N_RUNS,
+                "resolved": sum(1 for r in counted if r.get("resolved")),
                 "undelivered": len(ran) - len(hit),
                 "rerun": (len(trt) - len(ran)) + (len(ran) - len(hit))}
         cell["status"] = ("void" if cell["undelivered"] >= 2 else

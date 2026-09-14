@@ -69,6 +69,14 @@ def test_every_cell_void_is_not_working():
     assert res["batch"] == "complete" and res["verdict"] == "not working"
 
 
+def test_a_fourth_delivered_run_does_not_count_toward_the_cell():
+    rows = [ctl()] * 3 + [trt(D1, resolved=False)] * 3 + [trt(D1, resolved=True)]
+    res = pr.read_probe(rows, TASK, [D1])
+    cell = res["cells"][D1["path"]]
+    assert cell["valid"] == 3 and cell["resolved"] == 0
+    assert res["pooled"] == [0, 3] and res["verdict"] == "not working"
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
