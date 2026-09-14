@@ -1,0 +1,118 @@
+{
+  "trap": "C",
+  "task": "sf-author-verdict-from",
+  "old_ref": "06885c0",
+  "new_ref": "9cbb472",
+  "drafts": [
+    {
+      "segment": "learn-nogate",
+      "draw": 1,
+      "name": "whitespace-insensitive-evidence-gate",
+      "path": "bench/distilled/C/learn-nogate/1/SKILL.md",
+      "old": [
+        "whitespace-insensitive-evidence-gate"
+      ],
+      "new": [
+        "whitespace-insensitive-evidence-gate"
+      ],
+      "qualifies": false,
+      "alone": [
+        "whitespace-insensitive-evidence-gate"
+      ],
+      "deliverable": true
+    },
+    {
+      "segment": "learn-nogate",
+      "draw": 2,
+      "name": "whitespace-insensitive-evidence-quotes",
+      "path": "bench/distilled/C/learn-nogate/2/SKILL.md",
+      "old": [
+        "whitespace-insensitive-evidence-quotes"
+      ],
+      "new": [
+        "whitespace-insensitive-evidence-quotes"
+      ],
+      "qualifies": false,
+      "alone": [
+        "whitespace-insensitive-evidence-quotes"
+      ],
+      "deliverable": true
+    },
+    {
+      "segment": "learn-nogate",
+      "draw": 3,
+      "name": "whitespace-tolerant-quote-evidence",
+      "path": "bench/distilled/C/learn-nogate/3/SKILL.md",
+      "old": [
+        "whitespace-tolerant-quote-evidence"
+      ],
+      "new": [
+        "whitespace-tolerant-quote-evidence"
+      ],
+      "qualifies": false,
+      "alone": [
+        "whitespace-tolerant-quote-evidence"
+      ],
+      "deliverable": true
+    },
+    {
+      "segment": "learn-failure-nogate",
+      "draw": 1,
+      "name": "verbatim-quote-gate-breaks-on-rewrapped-text",
+      "path": "bench/distilled/C/learn-failure-nogate/1/SKILL.md",
+      "old": [
+        "capped-scan-reports-unknown-not-absent"
+      ],
+      "new": [
+        "verbatim-quote-gate-breaks-on-rewrapped-text"
+      ],
+      "qualifies": true,
+      "alone": [
+        "verbatim-quote-gate-breaks-on-rewrapped-text"
+      ],
+      "deliverable": true
+    },
+    {
+      "segment": "learn-failure-nogate",
+      "draw": 2,
+      "name": "verbatim-quote-check-breaks-on-rewrapped-whitespace",
+      "path": "bench/distilled/C/learn-failure-nogate/2/SKILL.md",
+      "old": [
+        "capped-scan-reports-unknown-not-absent"
+      ],
+      "new": [
+        "json-dumps-breaks-token-matching"
+      ],
+      "qualifies": false,
+      "alone": [],
+      "deliverable": false
+    },
+    {
+      "segment": "learn-failure-nogate",
+      "draw": 3,
+      "name": "verbatim-quote-gate-breaks-on-rewrapped-llm-quotes",
+      "path": "bench/distilled/C/learn-failure-nogate/3/SKILL.md",
+      "old": [
+        "capped-scan-reports-unknown-not-absent"
+      ],
+      "new": [
+        "verbatim-quote-gate-breaks-on-rewrapped-llm-quotes"
+      ],
+      "qualifies": true,
+      "alone": [
+        "verbatim-quote-gate-breaks-on-rewrapped-llm-quotes"
+      ],
+      "deliverable": true
+    }
+  ],
+  "first_qualifying": "bench/distilled/C/learn-failure-nogate/1/SKILL.md",
+  "deliverable": [
+    "bench/distilled/C/learn-nogate/1/SKILL.md",
+    "bench/distilled/C/learn-nogate/2/SKILL.md",
+    "bench/distilled/C/learn-nogate/3/SKILL.md",
+    "bench/distilled/C/learn-failure-nogate/1/SKILL.md",
+    "bench/distilled/C/learn-failure-nogate/3/SKILL.md"
+  ],
+  "problems": [],
+  "library_untouched": true
+}
