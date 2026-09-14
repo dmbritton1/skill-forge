@@ -31,10 +31,13 @@ import subprocess
 import sys
 import tarfile
 import time
+import uuid
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import libguard
+import audit
+import sandbox
 
 ROOT = Path(__file__).resolve().parent
 # The repository this harness lives in. tasks.json writes `{root}` rather than
@@ -63,6 +66,9 @@ MODEL = DEFAULT_MODEL
 # E5 arm H: deliver the treatment skill hot instead of warm. Off = the env var
 # is exported empty, which sync._force_hot() reads as "no override".
 FORCE_HOT = False
+# Sandbox spec: every session runs under sandbox-exec and is audited. Off only
+# via --no-sandbox, whose rows every reader voids.
+SANDBOX = True
 # Q1: absolute path to a distilled draft, replacing the task's hand-authored
 # skill. Off = None. The clone path segment is DERIVED from this (arm_segment)
 # rather than passed, because a forgotten segment is the exact bug that let
@@ -379,6 +385,50 @@ def plugin_commit(plugin_dir):
         return ""
 
 
+def sandbox_plugin(plugin_dir, explicit):
+    """The plugin directory a sandboxed session loads (sandbox spec section 2.1).
+
+    tasks.json's plugin_dir is the checkout, and the sandbox cannot allow the
+    checkout without allowing bench/ -- hidden tests, results, drafts. A
+    checkout is replaced by a snapshot of its HEAD under WORK, reused while the
+    commit matches. Raises ValueError for a dirty checkout (the snapshot would
+    not be the code on disk) or an explicit --plugin-dir that is not a snapshot.
+    """
+    plugin_dir = Path(plugin_dir)
+    if (plugin_dir / SNAPSHOT_MARK).is_file():
+        return plugin_dir
+    if explicit:
+        raise ValueError("--plugin-dir must be a run.snapshot_plugin() snapshot: %s" % plugin_dir)
+    commit = plugin_commit(plugin_dir)
+    if not commit or commit.endswith("+dirty"):
+        raise ValueError("the plugin checkout has uncommitted changes, or is not a"
+                         " checkout: %s" % plugin_dir)
+    dest = WORK / ("plugin-" + commit[:7])
+    mark = dest / SNAPSHOT_MARK
+    if not (mark.is_file() and mark.read_text(encoding="utf-8").strip() == commit):
+        snapshot_plugin(commit, dest)
+    return dest
+
+
+def session_cmd(prompt, dest, plugin_dir, session_id):
+    """The `claude -p` command for one bench session, sandboxed unless
+    --no-sandbox. distill.py launches through this too: one sandbox, not two."""
+    cmd = ("claude -p %s --plugin-dir %s --permission-mode bypassPermissions"
+           " --model %s --session-id %s"
+           % (json.dumps(prompt), json.dumps(str(plugin_dir)), json.dumps(MODEL), session_id))
+    if not SANDBOX:
+        return cmd
+    return sandbox.wrap(cmd, sandbox.write_profile(dest, plugin_dir, WORK, REPO_ROOT))
+
+
+def session_audit(session_id, dest, plugin_dir):
+    """Row keys for sandbox spec sections 2.4 and 3."""
+    return {"sandbox": SANDBOX, "sandbox_profile": sandbox.TEMPLATE_SHA,
+            "session_id": session_id,
+            "audit": audit.audit_transcript(audit.find_transcript(session_id), dest,
+                                            plugin_dir, WORK, sandbox.repo_parent(REPO_ROOT))}
+
+
 def environment(plugin_dir=None):
     """CLI build, installed plugin revisions, and the commit of the plugin under
     test, for the row. Never raises: a missing file or a slow CLI must not cost
@@ -596,11 +646,8 @@ def score(task, dest):
     return ({n: (n in passed) for n in task["fail_to_pass"]}, out[-600:])
 
 
-def run_session(task, dest, plugin_dir):
-    cmd = ('claude -p %s --plugin-dir %s --permission-mode bypassPermissions'
-           ' --model %s'
-           % (json.dumps(task["prompt"]), json.dumps(str(plugin_dir)),
-              json.dumps(MODEL)))
+def run_session(task, dest, plugin_dir, session_id):
+    cmd = session_cmd(task["prompt"], dest, plugin_dir, session_id)
     t0 = time.time()
     try:
         r = sh(cmd, cwd=dest, timeout=SESSION_TIMEOUT_S)
@@ -661,7 +708,8 @@ def one(task, arm, run_idx, plugin_dir):
         print("  WARNING: %s installed at tier %r, not warm -- retrieve.eligible()"
               " will skip it and no injection row will be logged"
               % (installed, tier_at_install))
-    sess = run_session(task, dest, plugin_dir)
+    session_id = str(uuid.uuid4())
+    sess = run_session(task, dest, plugin_dir, session_id)
     if authoring:
         apply_hidden_tests(task, dest)
     post, tail = score(task, dest)
@@ -676,6 +724,7 @@ def one(task, arm, run_idx, plugin_dir):
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
     rec.update(session_keys(sess))
     rec.update(source_keys(arm, task, tier_at_install))
+    rec.update(session_audit(session_id, dest, plugin_dir))
     rec["extra_skills"] = extra_skill_names() if arm == "treatment" else []
     # results.jsonl is published; scrub before writing, not the print below --
     # GitHub push protection blocked a push on 2026-09-14 over a fixture
@@ -720,13 +769,20 @@ def main(argv=None):
                     help="E13 section 8: run against this plugin directory, e.g."
                          " a run.snapshot_plugin() snapshot, instead of tasks.json's"
                          " (test-only)")
+    ap.add_argument("--no-sandbox", action="store_true",
+                    help="debugging only: run sessions unsandboxed. Every reader"
+                         " voids the rows this writes (sandbox spec 2.4)")
+    ap.add_argument("--sandbox-check", action="store_true",
+                    help="zero sessions: verify the sandbox denies the checkout and"
+                         " other clones and allows the clone and plugin, then exit")
     args = ap.parse_args(argv)
-    global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL, INJECT_BUDGET
+    global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL, INJECT_BUDGET, SANDBOX
     MODEL = args.model
     FORCE_HOT = args.force_hot
     SKILL_FROM = args.skill_from
     PLUS_SKILL = args.plus_skill
     INJECT_BUDGET = args.inject_budget
+    SANDBOX = not args.no_sandbox
     if INJECT_BUDGET is not None and INJECT_BUDGET <= 0:
         # retrieve.main swallows the ValueError a bad value would raise and
         # then delivers nothing, silently. Fail here instead.
@@ -748,6 +804,19 @@ def main(argv=None):
     if not (plugin_dir / "scripts").is_dir():
         print("plugin dir has no scripts/: %s" % plugin_dir, file=sys.stderr)
         return 1
+    if SANDBOX or args.sandbox_check:
+        try:
+            plugin_dir = sandbox_plugin(plugin_dir, explicit=bool(args.plugin_dir))
+        except ValueError as err:
+            print("sandbox: %s" % err, file=sys.stderr)
+            return 1
+    if args.sandbox_check:
+        WORK.mkdir(parents=True, exist_ok=True)
+        problems = sandbox.self_check(WORK, REPO_ROOT, plugin_dir)
+        for problem in problems:
+            print("sandbox-check: %s" % problem, file=sys.stderr)
+        print("sandbox check %s" % ("FAILED" if problems else "ok"))
+        return 1 if problems else 0
     global ENV, PLUGIN_SEGMENT
     ENV = environment(plugin_dir)
     if args.plugin_dir and not ENV["plugin_commit"]:

@@ -2,6 +2,7 @@
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -782,6 +783,93 @@ def test_scrub_secrets_round_trips_a_clean_row():
         "extra_skills": [], "ts": "2026-09-14T00:00:00",
     }
     assert json.dumps(bench_run.scrub_secrets(row)) == json.dumps(row)
+
+
+def _with_work(fn):
+    """Run fn(work) with bench_run.WORK and SANDBOX swapped, then restore both."""
+    old_work, old_sandbox = bench_run.WORK, bench_run.SANDBOX
+    with tempfile.TemporaryDirectory() as tmp:
+        bench_run.WORK = pathlib.Path(os.path.realpath(tmp))
+        try:
+            fn(bench_run.WORK)
+        finally:
+            bench_run.WORK, bench_run.SANDBOX = old_work, old_sandbox
+
+
+def test_session_cmd_is_sandboxed_by_default_and_carries_the_session_id():
+    def body(work):
+        bench_run.SANDBOX = True
+        cmd = bench_run.session_cmd("fix it", work / "clone-1", work / "plugin-x", "sid-123")
+        assert cmd.startswith("sandbox-exec -f ")
+        assert "--session-id sid-123" in cmd and "--plugin-dir" in cmd
+        assert (work / "clone-1.sb").is_file()
+    _with_work(body)
+
+
+def test_session_cmd_without_the_sandbox_is_the_plain_command():
+    def body(work):
+        bench_run.SANDBOX = False
+        cmd = bench_run.session_cmd("fix it", work / "clone-1", work / "plugin-x", "sid-123")
+        assert cmd.startswith("claude -p ") and "--session-id sid-123" in cmd
+        assert not (work / "clone-1.sb").exists()
+    _with_work(body)
+
+
+def test_sandbox_plugin_passes_a_snapshot_through():
+    with tempfile.TemporaryDirectory() as tmp:
+        snap = pathlib.Path(tmp)
+        (snap / bench_run.SNAPSHOT_MARK).write_text("a" * 40 + "\n", encoding="utf-8")
+        assert bench_run.sandbox_plugin(snap, explicit=True) == snap
+
+
+def test_sandbox_plugin_refuses_an_explicit_non_snapshot():
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            bench_run.sandbox_plugin(pathlib.Path(tmp), explicit=True)
+        except ValueError:
+            return
+        raise AssertionError("an explicit non-snapshot plugin dir was accepted")
+
+
+def test_sandbox_plugin_refuses_a_dirty_checkout():
+    old = bench_run.plugin_commit
+    bench_run.plugin_commit = lambda p: "b" * 40 + "+dirty"
+    try:
+        bench_run.sandbox_plugin(bench_run.REPO_ROOT, explicit=False)
+    except ValueError:
+        return
+    finally:
+        bench_run.plugin_commit = old
+    raise AssertionError("a dirty checkout was accepted")
+
+
+def test_sandbox_plugin_snapshots_a_clean_checkout_under_work():
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(bench_run.REPO_ROOT),
+                          capture_output=True, text=True, check=True).stdout.strip()
+    old = bench_run.plugin_commit
+
+    def body(work):
+        bench_run.plugin_commit = lambda p: head
+        got = bench_run.sandbox_plugin(bench_run.REPO_ROOT, explicit=False)
+        assert got == work / ("plugin-" + head[:7])
+        assert (got / "scripts" / "validate.py").is_file()
+        assert (got / bench_run.SNAPSHOT_MARK).read_text(encoding="utf-8").strip() == head
+        assert not (got / "bench").exists()
+        assert bench_run.sandbox_plugin(bench_run.REPO_ROOT, explicit=False) == got
+    try:
+        _with_work(body)
+    finally:
+        bench_run.plugin_commit = old
+
+
+def test_session_audit_records_the_keys_and_a_missing_transcript():
+    def body(work):
+        bench_run.SANDBOX = True
+        keys = bench_run.session_audit("no-such-session-id", work / "clone-1", work / "plugin-x")
+        assert keys["sandbox"] is True and keys["session_id"] == "no-such-session-id"
+        assert keys["sandbox_profile"] == bench_run.sandbox.TEMPLATE_SHA
+        assert keys["audit"]["verdict"] == "missing"
+    _with_work(body)
 
 
 if __name__ == "__main__":
