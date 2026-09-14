@@ -5,9 +5,17 @@ Hook mode (default): reads UserPromptSubmit JSON on stdin and emits
 additionalContext with matching warm skills. Search mode (--search):
 ungated top-N over hot and warm alike, for /skillforge:find.
 
-Word-noise control is two-layer: BM25's IDF weighting makes common-word
-overlap nearly worthless, and the >=2-distinct-matched-terms gate refuses
-to inject on the strength of any single matched term.
+Word-noise control is three-layer: function words (STOPWORDS) are dropped
+at tokenization, BM25's IDF weighting makes the remaining common-word overlap
+nearly worthless, and the >=2-distinct-matched-terms gate refuses to inject on
+the strength of any single matched term.
+
+The first layer is what makes the other two compose. Without it the gate
+counted words IDF had already made worthless -- `the`, `not`, `when`, carried
+by every house-style description -- so two of them opened it against any
+prompt, including one about a cat. And IDF rewarded rare function words
+(`you`, `are`, `did`) for being scarce in descriptions, so they decided rank
+1. See bench/gate_analysis.py.
 """
 import argparse
 import json
@@ -42,6 +50,30 @@ MARKER_NOTE = ('--- SkillForge: when you apply a skill above, append one line'
                ' (create it if absent): {"skill": "<skill-name>"} ---')
 
 TOKEN_RX = re.compile(r"[a-z0-9]+")
+# Function words are grammar, not topic. NLTK's "english" stopword list,
+# copied rather than imported so there is no dependency, plus `use`, which
+# save_skill.validate() puts in every description through its "do not use"
+# rule. The list was chosen before measuring anything, not fitted to the bench.
+#
+# Deliberately NOT frequency-based ("ignore terms present in every document").
+# IDF runs over the session's eligible skills, which can number one, and with
+# one skill every term is in every document, so such a filter would never
+# inject. A fixed list behaves the same at one skill and at a thousand.
+# patterns.tokenize is separate and unaffected: code and error text need these.
+STOPWORDS = frozenset("""
+i me my myself we our ours ourselves you you're you've you'll you'd your yours
+yourself yourselves he him his himself she she's her hers herself it it's its
+itself they them their theirs themselves what which who whom this that that'll
+these those am is are was were be been being have has had having do does did
+doing a an the and but if or because as until while of at by for with about
+against between into through during before after above below to from up down
+in out on off over under again further then once here there when where why how
+all any both each few more most other some such no nor not only own same so
+than too very s t can will just don don't should should've now d ll m o re ve y
+ain aren aren't couldn couldn't didn didn't doesn doesn't hadn hadn't hasn
+hasn't haven haven't isn isn't ma mightn mightn't mustn mustn't needn needn't
+shan shan't shouldn shouldn't wasn wasn't weren weren't won won't wouldn wouldn't
+""".split()) | {"use"}
 
 
 def index_path():
@@ -64,7 +96,7 @@ def injection_cost(body):
 
 def tokenize(text):
     return [t for t in TOKEN_RX.findall(text.lower())
-            if len(t) >= 3 and not t.isdigit()]
+            if len(t) >= 3 and not t.isdigit() and t not in STOPWORDS]
 
 
 def bm25(query_tokens, corpus):

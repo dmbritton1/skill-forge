@@ -186,6 +186,59 @@ def test_single_matched_term_rejected():
     in_sandbox(check)
 
 
+def test_tokenize_drops_function_words_but_keeps_content():
+    """Function words are grammar, not topic. Scoring them let a prompt about a
+    cat admit every skill (bench/gate_analysis.py). `use` goes too: the
+    validator guarantees "do not use" in every description at any corpus size."""
+    toks = retrieve.tokenize("You are not using the Stripe webhook when it fails, use retries")
+    for content in ("stripe", "webhook", "fails", "using", "retries"):
+        assert content in toks, (content, toks)
+    for function_word in ("you", "are", "not", "the", "when", "use"):
+        assert function_word not in toks, (function_word, toks)
+
+
+def test_function_words_alone_do_not_open_the_gate():
+    """The gate means ">= 2 distinct MEANINGFUL terms". It counted `the`, `not`
+    and `when`, which a house-style description always carries, so two of
+    them opened it against any prompt at all."""
+    def check(home):
+        write_index(home, [entry(home, "stripe-webhook-verify",
+            "Verify stripe webhook signatures. Use when: a webhook endpoint "
+            "receives events. Do NOT use when: the payload is not signed.")])
+        rc, out = run_hook_capture(hook_data(
+            home, "the cat sat on the mat and did not move when i called"))
+        assert rc == 0 and out.strip() == "", out
+    in_sandbox(check)
+
+
+def test_a_skill_sharing_only_grammar_cannot_take_rank_one():
+    """IDF rewards rarity, and function words are rare in short descriptions
+    while common in prompts, so bench/gate_analysis.py found rank 1 decided by
+    `you` and `are`. Here a skill sharing only those words beats every skill
+    sharing the prompt's topic -- unless function words stop scoring."""
+    entries = [{"name": "aaa-grammar", "description": "you are here"},
+               {"name": "zzz-topic", "description": "ingress routing controller"}]
+    entries += [{"name": "filler-%s" % w, "description": "ingress routing %s" % w}
+                for w in ("alpha", "beta", "gamma", "delta")]
+    ranked = retrieve.rank("you are fixing ingress routing", entries)
+    assert ranked[0][0]["name"] != "aaa-grammar", [(e["name"], round(s, 3)) for e, s, m in ranked]
+    grammar = next(r for r in ranked if r[0]["name"] == "aaa-grammar")
+    assert grammar[1] == 0, grammar
+
+
+def test_a_one_skill_library_still_injects_on_a_matching_prompt():
+    """Guard, not RED. A frequency-based fix -- ignore terms present in every
+    document -- would admit NOTHING here, because with one skill every term is
+    in every document. IDF runs over the session's eligible skills, which can
+    be one. The noise filter must not depend on corpus size."""
+    def check(home):
+        write_index(home, [entry(home, "stripe-webhook-verify",
+            "Verify stripe webhook signatures. Use when: a webhook endpoint receives events.")])
+        rc, out = run_hook_capture(hook_data(home, "verify the stripe webhook signature"))
+        assert injected_names(out) == ["stripe-webhook-verify"], out
+    in_sandbox(check)
+
+
 def test_max_three_skills_antiskill_exempt():
     def check(home):
         ents = [entry(home, "k8s-%s" % c, "kubernetes ingress routing rules")
