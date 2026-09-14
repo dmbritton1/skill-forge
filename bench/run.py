@@ -133,11 +133,14 @@ def prepare(task, dest):
                     authors against a spec and never sees what will grade it.
                     This is the only mode that measures knowledge rather than
                     the ability to read a failing assertion.
+
+    Either way the clone then keeps NO history: one commit holding exactly the
+    starting tree (strip_history).
     """
     if dest.exists():
         shutil.rmtree(str(dest))
     dest.parent.mkdir(parents=True, exist_ok=True)
-    cache = WORK / ("cache-" + task["id"])
+    cache = cache_dir(task)
     if not cache.exists():
         r = sh("git clone -q %s %s" % (task["repo"], cache), timeout=900)
         if r.returncode:
@@ -150,20 +153,62 @@ def prepare(task, dest):
         r = sh(task["stub_cmd"], cwd=dest, timeout=300)
         if r.returncode:
             raise RuntimeError("stub failed: " + (r.stderr or r.stdout)[-400:])
+    strip_history(dest)
     r = sh(task["setup_cmd"], cwd=dest, timeout=1800)
     if r.returncode:
         raise RuntimeError("setup failed: " + (r.stderr or r.stdout)[-400:])
 
 
+def cache_dir(task):
+    return WORK / ("cache-" + task["id"])
+
+
+def strip_history(dest):
+    """Replace the clone's history with one commit of its current tree.
+
+    A clone at the fix's parent still reaches the fix commit and everything
+    after it: `git show <fix>:<test_path>` prints the hidden graded tests, and
+    `git log --all` walks to the tip, which for E13 holds the spec and stub
+    scripts describing each trap. 149 past sessions browsed history heavily
+    and never went forward, but that was restraint, not isolation.
+
+    The baseline is taken AFTER the stub or test overlay, so the model starts
+    with a clean `git status`, `git diff`/`git stash` still work, and the
+    author-mode stub no longer shows the parent's own implementation as a
+    deleted hunk. Not closed: the operator's real checkout and past bench
+    transcripts are still readable on disk to a bypassPermissions session.
+    """
+    shutil.rmtree(str(dest / ".git"))
+    for cmd in ("git init -q", "git add -A",
+                "git -c user.name=bench -c user.email=bench@localhost"
+                " -c commit.gpgsign=false commit -q --no-verify -m baseline"):
+        r = sh(cmd, cwd=dest)
+        if r.returncode:
+            raise RuntimeError("history strip failed at %r: %s"
+                               % (cmd, (r.stderr or r.stdout)[-400:]))
+
+
 def apply_hidden_tests(task, dest):
     """Author mode: bring in the grading tests only after the session ends.
+
+    Read from the cache, because the clone no longer has the fix commit
+    (strip_history). A failure raises: silently keeping the pre-session test
+    file would grade every run against tests that were never hidden.
 
     `hidden_patch_cmd` optionally rewrites one of those tests. It exists
     because a grading test that encodes the reference implementation's
     strategy rather than the contract will fail a BETTER implementation --
     which is what the first file-cap test did.
     """
-    sh("git checkout -q %s -- %s" % (task["fix_commit"], task["test_path"]), cwd=dest)
+    r = subprocess.run(["git", "-C", str(cache_dir(task)), "show",
+                        "%s:%s" % (task["fix_commit"], task["test_path"])],
+                       capture_output=True, timeout=60)
+    if r.returncode:
+        raise RuntimeError("hidden tests unavailable: "
+                           + r.stderr.decode("utf-8", "replace")[-400:])
+    target = dest / task["test_path"]
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(r.stdout)
     if task.get("hidden_patch_cmd"):
         r = sh(task["hidden_patch_cmd"], cwd=dest, timeout=300)
         if r.returncode:

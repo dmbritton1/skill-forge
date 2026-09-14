@@ -594,6 +594,101 @@ def test_check_config_refuses_a_task_that_grades_nothing():
         assert not any("grades-something" in b for b in bad), bad
 
 
+def _repo_with_a_fix_and_a_later_commit(root):
+    """parent -> fix (changes src.py and adds a test) -> later (writes the answer down)."""
+    import subprocess
+    run = lambda *a: subprocess.run(["git", *a], cwd=str(root), check=True,
+                                    capture_output=True)
+    sha = lambda: subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(root),
+                                 capture_output=True, text=True).stdout.strip()
+    run("init", "-q")
+    run("config", "user.email", "t@t")
+    run("config", "user.name", "t")
+    (root / "tests").mkdir()
+    (root / "src.py").write_text("def f():\n    return 'parent'\n", encoding="utf-8")
+    (root / "tests" / "test_x.py").write_text("def test_old():\n    pass\n", encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-q", "-m", "parent")
+    (root / "src.py").write_text("def f():\n    return 'fixed'\n", encoding="utf-8")
+    (root / "tests" / "test_x.py").write_text(
+        "def test_old():\n    pass\n\ndef test_trap():\n    pass\n", encoding="utf-8")
+    run("commit", "-qam", "fix")
+    fix = sha()
+    (root / "ANSWERS.md").write_text("the fix is in %s\n" % fix, encoding="utf-8")
+    run("add", "-A")
+    run("commit", "-q", "-m", "later")
+    return fix
+
+
+def _prepared(mode):
+    """(dest, fix sha, root) after prepare(), with WORK pointed at a temp dir."""
+    import atexit
+    import shutil
+    import subprocess
+    tmp = pathlib.Path(os.path.realpath(tempfile.mkdtemp()))
+    atexit.register(shutil.rmtree, str(tmp), True)
+    root = tmp / "repo"
+    root.mkdir()
+    fix = _repo_with_a_fix_and_a_later_commit(root)
+    stub = tmp / "stub.py"
+    stub.write_text("open('src.py', 'w').write('def f():\\n    raise NotImplementedError\\n')\n",
+                    encoding="utf-8")
+    task = {"id": "strip-" + mode, "repo": str(root), "fix_commit": fix,
+            "test_path": "tests/test_x.py", "setup_cmd": "true", "mode": mode,
+            "stub_cmd": "python3 %s" % stub}
+    saved, bench_run.WORK = bench_run.WORK, tmp / "work"
+    try:
+        dest = tmp / "work" / task["id"]
+        bench_run.prepare(task, dest)
+        if mode == "author":
+            before = subprocess.run(["git", "status", "--porcelain"], cwd=str(dest),
+                                    capture_output=True, text=True).stdout
+            bench_run.apply_hidden_tests(task, dest)
+            return dest, fix, before
+        return dest, fix, None
+    finally:
+        bench_run.WORK = saved
+
+
+def _git_out(dest, *args):
+    import subprocess
+    return subprocess.run(["git", *args], cwd=str(dest), capture_output=True, text=True)
+
+
+def test_prepare_leaves_no_history_to_read_the_answer_from():
+    """A session sitting at the fix's parent could `git show <fix>:<test_path>`
+    and read the hidden graded tests, and `git log --all` reaches every later
+    commit -- for E13, the spec and stubs that describe each trap. The clone
+    must hold exactly one commit: the starting tree."""
+    for mode in ("author", "repair"):
+        dest, fix, _ = _prepared(mode)
+        assert _git_out(dest, "rev-list", "--all", "--count").stdout.strip() == "1", mode
+        assert _git_out(dest, "cat-file", "-e", fix).returncode != 0, "%s: fix commit reachable" % mode
+        assert not (dest / "ANSWERS.md").exists()
+        assert "ANSWERS" not in _git_out(dest, "log", "--all", "--stat").stdout, mode
+
+
+def test_author_baseline_is_the_stubbed_tree_so_git_diff_hides_the_original():
+    """The stub was an uncommitted edit, so `git diff` showed the parent's own
+    implementation being deleted -- the historical code, one command away."""
+    dest, _, status_before_tests = _prepared("author")
+    assert status_before_tests == "", status_before_tests
+    assert "NotImplementedError" in (dest / "src.py").read_text(encoding="utf-8")
+    assert "parent" not in _git_out(dest, "log", "-p", "--all").stdout
+
+
+def test_hidden_tests_still_arrive_from_the_fix_after_the_strip():
+    dest, _, _ = _prepared("author")
+    assert "def test_trap" in (dest / "tests" / "test_x.py").read_text(encoding="utf-8")
+
+
+def test_repair_baseline_carries_the_fix_tests_and_the_parent_source():
+    dest, _, _ = _prepared("repair")
+    assert "def test_trap" in (dest / "tests" / "test_x.py").read_text(encoding="utf-8")
+    assert "'parent'" in (dest / "src.py").read_text(encoding="utf-8")
+    assert _git_out(dest, "status", "--porcelain").stdout == ""
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
