@@ -43,6 +43,11 @@ ROOT = Path(__file__).resolve().parent
 # the whole harness dead without saying so -- `git clone` of a missing path is
 # just a failed task.
 REPO_ROOT = ROOT.parent
+# scrub_secrets() below reuses the plugin's own scanner rather than a second
+# copy of its rules. Appended, not inserted at 0, so it never shadows the
+# bench-local sys.path.insert() above it.
+sys.path.append(str(REPO_ROOT / "scripts"))
+from secscan import RULES as SECRET_RULES
 # Outside the repo on purpose: a clone under bench/work/ sits inside a
 # project whose skill store retrieve.in_scope() accepts (cwd.startswith
 # (root)), so the real library is retrievable in every bench session --
@@ -84,6 +89,30 @@ ENV = {}
 #: only in the plugin would otherwise share a clone path and a per-run ledger,
 #: and the second would overwrite the first's evidence (how E5 lost a batch).
 PLUGIN_SEGMENT = ""
+
+
+def scrub_secrets(value):
+    """`value` with every secret-scanner hit replaced by "[redacted:<rule>]".
+
+    Recurses through dicts and lists; a string has each RULES pattern applied
+    in order; anything else (int, bool, None) is returned unchanged. A clean
+    value comes back equal, so json.dumps of a clean row/meta is unchanged.
+
+    Committed records only: bench/results.jsonl and bench/distilled/*/meta.json
+    are published. GitHub push protection blocked a push on 2026-09-14 because
+    save_skill's secret-block message quoted the FAKE Stripe key from
+    tests/test_save_skill.py's fixture into a row's test_tail -- any batch
+    that runs the save_skill tests reproduces that fixture.
+    """
+    if isinstance(value, str):
+        for name, rx in SECRET_RULES:
+            value = rx.sub("[redacted:%s]" % name, value)
+        return value
+    if isinstance(value, list):
+        return [scrub_secrets(v) for v in value]
+    if isinstance(value, dict):
+        return {k: scrub_secrets(v) for k, v in value.items()}
+    return value
 
 
 def expand(value):
@@ -648,8 +677,11 @@ def one(task, arm, run_idx, plugin_dir):
     rec.update(session_keys(sess))
     rec.update(source_keys(arm, task, tier_at_install))
     rec["extra_skills"] = extra_skill_names() if arm == "treatment" else []
+    # results.jsonl is published; scrub before writing, not the print below --
+    # GitHub push protection blocked a push on 2026-09-14 over a fixture
+    # secret quoted in test_tail.
     with RESULTS.open("a", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec) + "\n")
+        fh.write(json.dumps(scrub_secrets(rec)) + "\n")
     # Every treatment install writes a key into the operator's real
     # trust.json -- trust.py resolves it to Path.home() regardless of scope.
     # 42 unpruned keys make the batch's closing drift assertion fire on a

@@ -665,6 +665,60 @@ def test_one_archives_and_contains_a_global_scope_draw():
     in_home(check)
 
 
+def _fake_stripe_key():
+    """Built at runtime so no committed file holds a literal secret-shaped
+    string -- GitHub scans test files too."""
+    return "sk_" + "live_" + "c3d4" * 6
+
+
+def test_one_scrubs_a_secret_from_the_archived_meta():
+    """meta.json is committed and pushed. On 2026-09-14 GitHub push protection
+    blocked a push because save_skill's own secret-block message quoted the
+    FAKE Stripe key from tests/test_save_skill.py's fixture straight into
+    test_tail. Zero real session here -- sh/prepare/score are all stubbed --
+    but the session tail and test tail are exactly the fields that carried it,
+    so distill.one() must scrub before writing meta.json."""
+    def check(home):
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as tmp:
+            tmpp = pathlib.Path(tmp)
+            real_archive = distill.ARCHIVE
+            real_work = distill.bench_run.WORK
+            real_sh, real_prepare, real_score = (
+                distill.bench_run.sh, distill.bench_run.prepare,
+                distill.bench_run.score)
+            distill.ARCHIVE = tmpp / "archive"
+            distill.bench_run.WORK = tmpp / "work"
+            secret = _fake_stripe_key()
+
+            class _R:
+                returncode = 0
+                stdout = "session tail with " + secret + " embedded"
+                stderr = ""
+
+            distill.bench_run.sh = lambda cmd, **kw: _R()
+            distill.bench_run.prepare = lambda task, dest: None
+            distill.bench_run.score = lambda task, dest: (
+                {"t": True}, "test tail with " + secret)
+            try:
+                _seed(home)
+                distill.one("A", "learn-failure", 1, pathlib.Path("."),
+                            {"id": "sf-escaping-breaks-symptom-match",
+                             "prompt": "fix it"})
+                d = distill.ARCHIVE / "A" / "learn-failure" / "1"
+                raw = (d / "meta.json").read_text(encoding="utf-8")
+                meta = json.loads(raw)
+                assert secret not in raw, raw
+                assert "[redacted:stripe-key]" in meta["session_tail"], meta["session_tail"]
+                assert "[redacted:stripe-key]" in meta["test_tail"], meta["test_tail"]
+            finally:
+                distill.ARCHIVE = real_archive
+                distill.bench_run.WORK = real_work
+                (distill.bench_run.sh, distill.bench_run.prepare,
+                 distill.bench_run.score) = real_sh, real_prepare, real_score
+    in_home(check)
+
+
 def test_snapshot_narrows_project_entries_to_one_root():
     def check(home):
         _seed(home, entries=[

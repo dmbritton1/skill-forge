@@ -316,8 +316,14 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
 
         d.mkdir(parents=True, exist_ok=True)
         if st["draft_text"] is not None:
+            # NOT scrubbed: the draft is the experiment's own artifact, and
+            # save_skill's own secret scan already blocks a draft that
+            # contains one.
             (d / "SKILL.md").write_text(st["draft_text"], encoding="utf-8")
-        (d / "meta.json").write_text(json.dumps({
+        # meta.json is published; scrub before writing. GitHub push protection
+        # blocked a push on 2026-09-14 over a fixture secret quoted into
+        # session_tail/test_tail by save_skill's own secret-block message.
+        (d / "meta.json").write_text(json.dumps(bench_run.scrub_secrets({
             "trap": trap, "distiller": distiller, "draw": draw,
             # E7's arm label. Recorded rather than inferred from the batch
             # date, for the same reason every other arm here carries a flag on
@@ -339,7 +345,7 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
             "rejections": st["rejects"],
             "session_tail": st["tail"], "test_tail": st["test_tail"],
             "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        }, indent=2), encoding="utf-8")
+        }), indent=2), encoding="utf-8")
     print("  %-13s trap %s draw %d -> %s (%.0fs)"
           % (distiller, trap, draw, st["outcome"], st["secs"]))
     return st["outcome"]

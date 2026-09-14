@@ -738,6 +738,52 @@ def test_main_refuses_a_plugin_dir_it_cannot_attribute_to_a_commit():
         assert bench_run.main(["--task", "sf-author-verdict-from", "--plugin-dir", tmp]) == 1
 
 
+# --- secret scrub: results.jsonl is published; GitHub push protection blocked
+# a push on 2026-09-14 over a test fixture quoted in test_tail -----------------
+
+
+def _fake_stripe_key():
+    """Built at runtime so no committed file holds a literal secret-shaped
+    string -- GitHub scans test files too."""
+    return "sk_" + "live_" + "a1b2" * 6
+
+
+def _fake_assigned_secret():
+    return "api_key" + "=" + '"' + "s3cr3t" + "value1" + '"'
+
+
+def test_scrub_secrets_redacts_known_patterns_in_nested_structures():
+    stripe = _fake_stripe_key()
+    assigned = _fake_assigned_secret()
+    value = {
+        "tail": "before " + stripe + " after",
+        "nested": ["prefix " + assigned + " suffix", 42, None, True],
+    }
+    got = bench_run.scrub_secrets(value)
+    assert stripe not in got["tail"], got["tail"]
+    assert "[redacted:stripe-key]" in got["tail"], got["tail"]
+    assert got["tail"] == "before [redacted:stripe-key] after", got["tail"]
+    assert assigned not in got["nested"][0], got["nested"][0]
+    assert "[redacted:assigned-secret]" in got["nested"][0], got["nested"][0]
+    assert got["nested"][0] == "prefix [redacted:assigned-secret] suffix", got["nested"][0]
+    assert got["nested"][1] == 42
+    assert got["nested"][2] is None
+    assert got["nested"][3] is True
+
+
+def test_scrub_secrets_round_trips_a_clean_row():
+    """A row with nothing secret-shaped must come back byte-identical, so
+    json.dumps of a clean row is unchanged."""
+    row = {
+        "task": "sf-author-store-dir", "arm": "treatment", "run": 1,
+        "resolved": True, "per_test": {"test_a": True, "test_b": False},
+        "injections": [{"skill": "x", "trigger": "y", "tier": "warm"}],
+        "secs": 12.5, "session_ok": True, "session_tail": None,
+        "extra_skills": [], "ts": "2026-09-14T00:00:00",
+    }
+    assert json.dumps(bench_run.scrub_secrets(row)) == json.dumps(row)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
