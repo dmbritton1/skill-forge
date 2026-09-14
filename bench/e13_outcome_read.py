@@ -71,7 +71,8 @@ def read_outcome(rows, task, draft_name, draft_path, old_commit, new_commit):
                  if (draft_name in {i.get("skill") for i in r.get("injections") or []}) == want]
         counted = match[:N_ARM]
         void_arm = sum(1 for r in void if (r.get("env") or {}).get("plugin_commit") == commit
-                       and _draft_path(r.get("skill_path")) == draft_path)
+                       and _draft_path(r.get("skill_path")) == draft_path
+                       and len(r.get("extra_skills") or []) == 7)
         a = {"valid": len(counted), "needed": N_ARM,
              "resolved": sum(1 for r in counted if r.get("resolved")),
              "mismatched": len(ran) - len(match), "void": void_arm,

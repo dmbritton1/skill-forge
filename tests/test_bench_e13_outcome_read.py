@@ -97,6 +97,14 @@ def test_a_void_row_does_not_fill_out_the_arm():
     assert res["batch"] == "incomplete"
 
 
+def test_a_void_probe_row_on_an_arm_commit_is_not_counted_in_that_arm():
+    """A void row sharing an arm's commit and draft path but NOT the outcome
+    batch's 7 extra_skills is a probe row, not this arm's population."""
+    leak = dict(row(NEW, extra_skills=[]), sandbox=True, audit={"verdict": "leak"})
+    res = outcome(arm(OLD, 0) + arm(NEW, 6) + [leak])
+    assert res["arms"]["new"]["void"] == 0 and res["batch"] == "complete"
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
