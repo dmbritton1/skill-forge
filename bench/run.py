@@ -295,7 +295,9 @@ def plugin_shas(data):
 
 # The paths that make up the plugin under test. Dirt anywhere else -- above all
 # bench/results.jsonl, which every batch appends to -- is not a change to it.
-PLUGIN_PATHS = ("scripts", "hooks", "skills", ".claude-plugin")
+# Both archived snapshots (06885c0 and HEAD) ship commands/, and spec section 8
+# calls both "complete plugins" -- a snapshot missing it would not be one.
+PLUGIN_PATHS = ("scripts", "hooks", "skills", "commands", ".claude-plugin")
 
 # A plugin snapshot is not a git checkout, so it carries the commit it was
 # archived from in this file instead.

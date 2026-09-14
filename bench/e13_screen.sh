@@ -42,8 +42,8 @@ if bad:
 
 # Every row records plugin_commit. Uncommitted plugin code would make that
 # commit a lie about what ran.
-if [ -n "$(git status --porcelain -- scripts hooks skills .claude-plugin)" ]; then
-  echo "FATAL: uncommitted changes in the plugin under test (scripts/ hooks/ skills/ .claude-plugin/)"
+if [ -n "$(git status --porcelain -- scripts hooks skills commands .claude-plugin)" ]; then
+  echo "FATAL: uncommitted changes in the plugin under test (scripts/ hooks/ skills/ commands/ .claude-plugin/)"
   exit 1
 fi
 

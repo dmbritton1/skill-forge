@@ -25,6 +25,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 from e12_read import select  # noqa: E402
+from e13_probe_read import _draft_path  # noqa: E402
 
 N_ARM = 6
 LIMIT_MARK = "session limit"
@@ -46,12 +47,12 @@ def _verdict(diff):
         return "improves"
     if abs(diff) <= 1:
         return "no large effect"
-    if diff == 2:
+    if abs(diff) == 2:
         return "ambiguous"
     return "worse (not pre-registered)"
 
 
-def read_outcome(rows, task, draft_name, old_commit, new_commit):
+def read_outcome(rows, task, draft_name, draft_path, old_commit, new_commit):
     mine = [r for r in rows if r.get("task") == task and r.get("arm") == "treatment"]
     if any(not r.get("session_ok") and LIMIT_MARK in (r.get("session_tail") or "")
            for r in mine):
@@ -59,7 +60,9 @@ def read_outcome(rows, task, draft_name, old_commit, new_commit):
                 "reason": "a session hit the session limit: re-run the whole batch"}
     arms = {}
     for label, commit, want in (("old", old_commit, False), ("new", new_commit, True)):
-        trt = [r for r in mine if (r.get("env") or {}).get("plugin_commit") == commit]
+        trt = [r for r in mine if (r.get("env") or {}).get("plugin_commit") == commit
+               and _draft_path(r.get("skill_path")) == draft_path
+               and len(r.get("extra_skills") or []) == 7]
         ran = [r for r in trt if r.get("session_ok")]
         match = [r for r in ran
                  if (draft_name in {i.get("skill") for i in r.get("injections") or []}) == want]
@@ -94,7 +97,8 @@ def main(argv=None):
         capture_output=True, text=True, check=True).stdout.strip()
     rows = [json.loads(l) for l in (ROOT / "results.jsonl").read_text(encoding="utf-8").splitlines()
             if l.strip()]
-    res = read_outcome(select(rows, args.window), q["task"], name, full(OLD_REF), full(NEW_REF))
+    res = read_outcome(select(rows, args.window), q["task"], name, q["first_qualifying"],
+                        full(OLD_REF), full(NEW_REF))
     print("batch: %s%s" % (res["batch"], " -- " + res["reason"] if res["reason"] else ""))
     for label, a in res["arms"].items():
         print("  %-3s valid %d/%d  resolved %d  mismatched %d  re-run %d  %s"

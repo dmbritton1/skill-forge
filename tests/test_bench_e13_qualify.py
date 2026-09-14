@@ -45,6 +45,13 @@ def test_first_qualifying_takes_the_earliest_in_order():
     assert q.first_qualifying(rows[:1]) is None
 
 
+def test_plugin_drift_flags_a_ref_that_differs_under_scripts_or_hooks():
+    """06885c0 differs from HEAD in scripts/retrieve.py (the tokenizer fix);
+    9cbb472 (NEW_REF) does not, as of 2026-09-14 -- the guard this protects."""
+    assert q.plugin_drift("06885c0") is True
+    assert q.plugin_drift(q.NEW_REF) is False
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -34,8 +34,21 @@ def _draft_path(skill_path):
     return skill_path[i:] if i >= 0 else None
 
 
+def _is_outcome_row(r):
+    """True for a Stage 4 outcome row (spec section 8), which shares task, arm
+    and skill_path with a probe treatment row (section 7). An outcome row
+    installs the consolidated seven beside the draft (extra_skills non-empty)
+    and often runs against an archived plugin snapshot -- a probe row installs
+    the draft ALONE (section 7) and never carries either."""
+    if r.get("extra_skills"):
+        return True
+    if (r.get("env") or {}).get("plugin_commit", "").startswith("archive:"):
+        return True
+    return False
+
+
 def read_probe(rows, task, drafts):
-    mine = [r for r in rows if r.get("task") == task]
+    mine = [r for r in rows if r.get("task") == task and not _is_outcome_row(r)]
     if any(not r.get("session_ok") and LIMIT_MARK in (r.get("session_tail") or "")
            for r in mine):
         return {"batch": "postponed", "control": None, "cells": {}, "verdict": None,

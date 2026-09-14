@@ -25,6 +25,17 @@ def full(d, resolved):
     return [trt(d, resolved=i < resolved) for i in range(3)]
 
 
+def outcome_row(d, resolved=False, ok=True, tail=None):
+    """A Stage 4 outcome row (spec section 8): same task/arm/skill_path as a
+    probe treatment row, but installed with the consolidated seven (7
+    extra_skills) and often archived plugin snapshot commits."""
+    return {"task": TASK, "arm": "treatment", "resolved": resolved, "session_ok": ok,
+            "session_tail": tail, "skill_path": "~/x/wt/" + d["path"],
+            "injections": [{"skill": d["name"]}],
+            "extra_skills": ["s%d" % i for i in range(7)],
+            "env": {"plugin_commit": "archive:" + "a" * 40}}
+
+
 def test_pooled_half_resolved_is_working():
     rows = [ctl()] * 3 + full(D1, 2) + full(D2, 1)
     res = pr.read_probe(rows, TASK, [D1, D2])
@@ -67,6 +78,19 @@ def test_every_cell_void_is_not_working():
     rows = [ctl()] * 3 + [trt(D1, delivered=False)] * 2
     res = pr.read_probe(rows, TASK, [D1])
     assert res["batch"] == "complete" and res["verdict"] == "not working"
+
+
+def test_outcome_rows_do_not_count_toward_the_probe():
+    """A window read after Stage 4 sees outcome rows sharing task+arm+skill_path
+    with the probe's treatment rows. They must not be counted as treatment runs,
+    and an outcome-batch session-limit row must not postpone the probe."""
+    clean = [ctl()] * 3 + full(D1, 2) + full(D2, 1)
+    baseline = pr.read_probe(clean, TASK, [D1, D2])
+    noisy = clean + [
+        outcome_row(D1, resolved=True), outcome_row(D2, resolved=True),
+        outcome_row(D1, ok=False, tail="You've hit your session limit"),
+    ]
+    assert pr.read_probe(noisy, TASK, [D1, D2]) == baseline
 
 
 def test_a_fourth_delivered_run_does_not_count_toward_the_cell():

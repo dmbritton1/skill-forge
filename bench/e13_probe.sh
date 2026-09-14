@@ -33,8 +33,12 @@ bad = snap['stores'] or snap['global_index']
 if bad:
     print('global store/index not empty: %r' % (bad,)); sys.exit(1)
 " || { echo "FATAL: operator's global library is non-empty"; exit 1; }
-if [ -n "$(git status --porcelain -- scripts hooks skills .claude-plugin)" ]; then
+if [ -n "$(git status --porcelain -- scripts hooks skills .claude-plugin commands)" ]; then
   echo "FATAL: uncommitted changes in the plugin under test"; exit 1
+fi
+if ! git diff --quiet 9cbb472 -- scripts hooks; then
+  echo "FATAL: scripts/ or hooks/ have drifted from 9cbb472 -- the qualification's NEW_REF no longer matches the plugin under test"
+  exit 1
 fi
 python3 bench/run.py --check || { echo "FATAL: bench config check failed"; exit 1; }
 

@@ -1436,7 +1436,7 @@ python3 bench/distill.py --trap C --distiller learn-failure --draws 3 --no-novel
 
 ### Task 8: Stage 2 — qualify and check delivery (zero sessions)
 
-- [ ] **Step 1:** `python3 bench/e13_qualify.py --trap C --write`. Expected: exit 0, `library untouched: True`, no PROBLEM lines.
+- [ ] **Step 1:** `python3 bench/e13_qualify.py --trap C --write`. Expected: exit 0, `library untouched: True`, no PROBLEM lines. `e13_qualify.py` now refuses before any work if `scripts/` or `hooks/` have drifted from `9cbb472` (a parallel branch could edit `scripts/retrieve.py` underneath this run) — a drift stops the stage: report it to the user rather than proceeding.
 - [ ] **Step 2: Gate.** If `deliverable` is empty, C is not a working trap (§7). Stop, then write up and report.
 - [ ] **Step 3: Commit** `bench/distilled/C/qualification.json` with the table in the message.
 
@@ -1452,9 +1452,9 @@ python3 bench/distill.py --trap C --distiller learn-failure --draws 3 --no-novel
 
 ### Task 10: Stage 4 — outcome test (12 sessions, only if C qualifies and is working), then write-up
 
-- [ ] **Step 1: Gate.**
-  - If `qualification.json["first_qualifying"]` is null, C is **trap 1**. Trap 2 has no candidate (§6.2), so skip to Step 4.
-  - Otherwise C is **trap 2**, so run `bash bench/e13_outcome.sh --trap C --dry-run`, then the real run in the background.
+- [ ] **Step 1: Gate.** The outcome test runs only if BOTH hold: Task 9's probe verdict is `working`, AND `qualification.json["first_qualifying"]` is non-null.
+  - If `first_qualifying` is null, C is **trap 1**. Trap 2 has no candidate (§6.2), so skip to Step 4.
+  - Otherwise, if Task 9's probe also read `working`, C is **trap 2**, so run `bash bench/e13_outcome.sh --trap C --dry-run`, then the real run in the background.
 - [ ] **Step 2:** Read `python3 bench/e13_outcome_read.py --trap C --window <OUTCOME_START> -`. Handle postponed, void and incomplete as in Task 9.
 - [ ] **Step 3: Commit** the rows with the verdict and Fisher p in the message.
-- [ ] **Step 4: Write up.** Add an E13-C register row and a section to `bench/RESULTS.md` covering distillation outcomes, the qualification table, the probe reading, and the outcome verdict (or why none ran). Commit, fast-forward `main` under the guards, push, and report to the user in plain terms with a positive/negative verdict.
+- [ ] **Step 4: Write up.** Add an E13-C register row and a section to `bench/RESULTS.md` covering distillation outcomes, the qualification table, the probe reading (using the window read in Task 9 — `e13_probe_read.py` now also ignores Stage 4 outcome rows when re-read after this stage), and the outcome verdict (or why none ran). Commit, fast-forward `main` under the guards, push, and report to the user in plain terms with a positive/negative verdict.

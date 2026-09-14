@@ -699,6 +699,7 @@ def test_snapshot_plugin_extracts_the_plugin_and_marks_its_commit():
         assert sha == head
         assert (snap / "scripts" / "retrieve.py").is_file()
         assert (snap / "hooks" / "hooks.json").is_file()
+        assert (snap / "commands").is_dir(), "commands/ missing -- not a complete plugin"
         assert not (snap / "bench").exists() and not (snap / "tests").exists()
         assert bench_run.plugin_commit(snap) == "archive:" + sha
 

@@ -27,7 +27,7 @@ because nothing indexed the data — see "What the register caught".
 | Delivery gate (2026-09-13, **fixed same day**) | Does the retrieval gate discriminate at all? | **It didn't. Fixed in `9cbb472`.** Before the fix, all 16 skills cleared `score > 0 and matched >= 2` on all four task prompts and on a control prompt about a cat, because function words scored as topic: common ones opened the gate and rare ones decided rank 1. `tokenize` now drops a fixed stopword list (NLTK english plus `use`). A frequency-based filter was rejected because it would admit nothing in a one-skill library. After the fix: the cat 0/16, real prompts 5–10/16, the correct trap at rank 1 on 3/4 prompts (was 2/4), dedupe unchanged | `bench/gate_analysis.py` — deterministic, 0 sessions |
 | Real-path delivery (2026-09-13) | Does the real install-and-inject path deliver what the deterministic tools predict? | **Yes, 4 of 4.** Both pools went in through the real `save_skill.py` under a sandboxed HOME, and the real hook ran before and after `9cbb472`. On the consolidated library, `response_text` went from the wrong trap to the right one. The unconsolidated ten stayed wrong, and `fingerprint` was right both times. No session batch followed, because no current task can show an outcome change | `bench/real_path_check.py` — deterministic, 0 sessions |
 | E12 (2026-09-13) | Does an irrelevant injected skill actively hurt? | **No large harm.** C 12/12, relevant R 12/12, irrelevant I 12/12 — 6/6 in every cell, zero exclusions, one environment. The pre-registered §4.4 caveat governs: repair-mode tasks show the model its failing tests, so this cannot tell "no harm" from "the tests rescued it". Answers E4 for repair mode at ceiling only. Third consecutive harm null, after E6 and E10 | `results.jsonl`, the 36 rows from 2026-09-13T17:36:28; `bench/e12_read.py`; spec `docs/superpowers/specs/2026-09-13-e12-irrelevant-injection-harm-design.md` |
-| E13 screen (2026-09-14) | Do any of three new author-mode traps (C `verdict_from`, D `transcript_slice`, E `store_dir`) have a zero control floor? | **Answered: C only.** C 0/6, **admitted**: every session passed 14 of 15 graded tests and failed exactly `test_a_rewrapped_quote_still_counts_as_evidence`, the historical byte-exact-match bug. D 6/6 and E 6/6 were **rejected** at ceiling, so their docstrings suffice. Same-batch reference 0/3 (**0/24** lifetime), so the screen is valid. No injections on any row; every row records `plugin_commit` `4df0d02`, the clone history strip. C's second trap (floor measured on the raw span) never sprang | `results.jsonl`, the 21 rows dated 2026-09-14 after 09:36:06; spec `docs/superpowers/specs/2026-09-13-e13-author-traps-design.md` §3 |
+| E13 screen (2026-09-14) | Do any of three new author-mode traps (C `verdict_from`, D `transcript_slice`, E `store_dir`) have a zero control floor? | **Answered: C only.** C 0/6, **admitted**: every session passed 14 of 15 graded tests and failed exactly `test_a_rewrapped_quote_still_counts_as_evidence`, the historical byte-exact-match bug. D 6/6 and E 6/6 were **rejected** at ceiling, so their docstrings suffice. Same-batch reference 0/3 (**0/24** lifetime), so the screen is valid. No injections on any row; every clone's history was stripped to a single fresh baseline commit, with the plugin under test at `4df0d02`. C's second trap (floor measured on the raw span) never sprang | `results.jsonl`, the 21 rows dated 2026-09-14 after 09:36:06; spec `docs/superpowers/specs/2026-09-13-e13-author-traps-design.md` §3 |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -2499,9 +2499,10 @@ break no longer matches byte for byte. The evidence-floor test passed 6/6, so C'
 second trap did not spring. D's and E's docstrings were enough for a fresh model,
 which §11 threat 3 anticipated for D.
 
-Environment: clone history stripped to one baseline commit (`4df0d02`) before
-this batch, so no session could read the fix. No skill was injected on any row.
-22 sessions including the allowance probe, no session failures.
+Environment: each clone's history was stripped to a single fresh baseline
+commit before this batch, so no session could read the fix; the plugin under
+test was at `4df0d02`. No skill was injected on any row. 22 sessions including
+the allowance probe, no session failures.
 
 ## Limits
 

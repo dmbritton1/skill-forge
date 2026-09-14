@@ -60,6 +60,19 @@ def counted_drafts(archive, letter):
     return out
 
 
+def plugin_drift(ref):
+    """True if the working tree differs from `ref` under scripts/ or hooks/.
+
+    Qualification only equals "the real hook as qualified" while the plugin
+    under test is unchanged since NEW_REF -- e13_qualify runs NEW_REF's hook
+    for the delivery-alone check but installs with the CURRENT save_skill.py,
+    and a parallel branch can edit scripts/retrieve.py underneath this run.
+    """
+    r = subprocess.run(["git", "diff", "--quiet", ref, "--", "scripts", "hooks"],
+                       cwd=str(ROOT))
+    return r.returncode != 0
+
+
 def qualifies(name, old, new):
     return name not in old and name in new
 
@@ -98,6 +111,10 @@ def main(argv=None):
     ap.add_argument("--write", action="store_true",
                     help="write bench/distilled/<trap>/qualification.json")
     args = ap.parse_args(argv)
+    if plugin_drift(NEW_REF):
+        print("FATAL: scripts/ or hooks/ have drifted from %s -- qualification no"
+              " longer matches the plugin under test" % NEW_REF)
+        return 1
     task = PROBES[args.trap]
     prompt = bs.P[task]
     drafts = counted_drafts(ARCHIVE, args.trap)
