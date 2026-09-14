@@ -50,6 +50,8 @@ fi
 # Includes the guard against a task with an empty fail_to_pass, which would
 # read every control run as resolved.
 python3 bench/run.py --check || { echo "FATAL: bench config check failed"; exit 1; }
+# Sandbox spec section 4.4: zero sessions, before the first one.
+python3 bench/run.py --sandbox-check || { echo "FATAL: sandbox self-check failed"; exit 1; }
 
 # The candidates present, in the spec's order, collected into an array.
 CELLS=()

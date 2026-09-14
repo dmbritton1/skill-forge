@@ -33,6 +33,8 @@ if bad:
     print('global store/index not empty: %r' % (bad,)); sys.exit(1)
 " || { echo "FATAL: operator's global library is non-empty"; exit 1; }
 python3 bench/run.py --check || { echo "FATAL: bench config check failed"; exit 1; }
+# Sandbox spec section 4.4: zero sessions, before the first one.
+python3 bench/run.py --sandbox-check || { echo "FATAL: sandbox self-check failed"; exit 1; }
 
 TASK="$(python3 -c "import json; print(json.load(open('$Q'))['task'])")"
 DRAFT="$(python3 -c "import json; print(json.load(open('$Q'))['first_qualifying'] or '')")"

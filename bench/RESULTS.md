@@ -52,6 +52,23 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 | `results-round1.jsonl` | 18 | **Mixed.** Trap 1's pilot rows are LIVE — the headline table's 0/3, 3/3, 0/3 for response_text come from here. Only trap 2's six rows are superseded by the file-cap repair |
 | `results-leaky-stub.jsonl` | 12 | Superseded *as an authoring design* — but it holds the only control data for the two repair-mode tasks, and that data is live |
 
+## Sandbox and audit (from 2026-09-14)
+
+Rows written from 2026-09-14 on carry `sandbox`, `sandbox_profile`,
+`session_id` and `audit`. Each session ran under `sandbox-exec`, which denied
+it the operator's Developer tree, the other clones and hidden-test caches, and
+other sessions' transcripts. It loaded a snapshot of the plugin, never the
+checkout. Its transcript was then audited for reads of the plugin's `scripts/`,
+which the sandbox has to leave readable because the hooks import them. A row
+whose audit is not `clean` counts toward no reader (`bench/audit.py`,
+`counts`). Design: `docs/superpowers/specs/2026-09-14-bench-sandbox-audit-design.md`.
+
+Earlier rows ran unsandboxed and unaudited. Earlier distill sessions were seen
+reading `scripts/save_skill.py` and `scripts/validate.py`, but whether they read
+the plugin's copies or the clone's own was not recorded. From now on, a draft
+whose session read the plugin's copy of its trap's fixed file is marked
+`tainted`, and qualification skips it.
+
 ## Numbering, honestly
 
 The E-labels grew by accretion and do not form a series. E1 came from the

@@ -41,6 +41,8 @@ if ! git diff --quiet 9cbb472 -- scripts hooks; then
   exit 1
 fi
 python3 bench/run.py --check || { echo "FATAL: bench config check failed"; exit 1; }
+# Sandbox spec section 4.4: zero sessions, before the first one.
+python3 bench/run.py --sandbox-check || { echo "FATAL: sandbox self-check failed"; exit 1; }
 
 TASK="$(python3 -c "import json; print(json.load(open('$Q'))['task'])")"
 DRAFTS=()
