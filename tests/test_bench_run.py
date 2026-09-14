@@ -872,6 +872,25 @@ def test_session_audit_records_the_keys_and_a_missing_transcript():
     _with_work(body)
 
 
+def test_session_audit_never_raises_when_repo_parent_fails():
+    """git can fail (missing binary, detached worktree oddity); a raise here
+    costs run.py a results row and leaves distill.py's meta.json unwritten
+    (session_audit runs inside a finally there)."""
+    def body(work):
+        bench_run.SANDBOX = True
+        old = bench_run.sandbox.repo_parent
+
+        def boom(_):
+            raise RuntimeError("boom")
+        bench_run.sandbox.repo_parent = boom
+        try:
+            keys = bench_run.session_audit("no-such-session-id", work / "clone-1", work / "plugin-x")
+            assert keys["audit"] == {"verdict": "missing", "hits": [], "leaked": []}
+        finally:
+            bench_run.sandbox.repo_parent = old
+    _with_work(body)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

@@ -101,11 +101,17 @@ def self_check(work, repo_root, plugin_dir):
     for d in (dest, other):
         d.mkdir(parents=True, exist_ok=True)
         (d / "probe.txt").write_text("probe\n", encoding="utf-8")
+    # Real home, consistent with write_profile's own profile: the projects
+    # deny (ruling 8) is otherwise never exercised by this check.
+    other_project = Path.home() / ".claude" / "projects" / "-sandbox-check-other"
+    other_project.mkdir(parents=True, exist_ok=True)
+    (other_project / "probe.txt").write_text("probe\n", encoding="utf-8")
     profile = write_profile(dest, plugin_dir, work, repo_root)
     cases = [(Path(repo_root) / "bench" / "tasks.json", False),
              (other / "probe.txt", False),
              (dest / "probe.txt", True),
-             (Path(plugin_dir) / "scripts" / "validate.py", True)]
+             (Path(plugin_dir) / "scripts" / "validate.py", True),
+             (other_project / "probe.txt", False)]
     problems = []
     for path, readable in cases:
         if not path.is_file():

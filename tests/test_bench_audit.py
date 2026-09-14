@@ -76,6 +76,54 @@ def test_grep_on_the_plugin_scripts_dir_is_a_leak():
     with_env(body)
 
 
+def test_claude_plugin_root_var_read_as_text_is_a_leak():
+    def body(e):
+        cmd = 'cat "${CLAUDE_PLUGIN_ROOT}/scripts/validate.py"'
+        res = e.run(e.transcript(("Bash", {"command": cmd}, "def verdict_from")))
+        assert res["verdict"] == "leak"
+    with_env(body)
+
+
+def test_claude_plugin_root_var_run_as_a_program_is_clean():
+    def body(e):
+        cmd = 'python3 "${CLAUDE_PLUGIN_ROOT}/scripts/save_skill.py" x'
+        res = e.run(e.transcript(("Bash", {"command": cmd}, "saved")))
+        assert res["verdict"] == "clean"
+    with_env(body)
+
+
+def test_redirection_glued_to_a_plugin_script_path_is_a_leak():
+    def body(e):
+        target = e.plugin / "scripts" / "validate.py"
+        cmd = "head -50 <%s" % target
+        res = e.run(e.transcript(("Bash", {"command": cmd}, "def verdict_from")))
+        assert res["verdict"] == "leak"
+    with_env(body)
+
+
+def test_grep_rooted_above_scripts_is_a_leak():
+    def body(e):
+        res = e.run(e.transcript(("Grep", {"pattern": "verdict_from", "path": str(e.plugin)}, "x")))
+        assert res["verdict"] == "leak"
+    with_env(body)
+
+
+def test_bash_grep_rooted_above_scripts_is_a_leak():
+    def body(e):
+        cmd = "grep -rn verdict_from %s" % e.plugin
+        res = e.run(e.transcript(("Bash", {"command": cmd}, "x")))
+        assert res["verdict"] == "leak"
+    with_env(body)
+
+
+def test_read_of_a_non_scripts_plugin_file_is_clean():
+    def body(e):
+        target = e.plugin / "skills" / "x" / "SKILL.md"
+        res = e.run(e.transcript(("Read", {"file_path": str(target)}, "x")))
+        assert res["verdict"] == "clean"
+    with_env(body)
+
+
 def test_reading_the_checkout_or_another_clone_or_a_transcript_is_a_leak():
     def body(e):
         for p in (e.dev / "skill-forge" / "bench" / "tasks.json",
@@ -159,6 +207,41 @@ def test_tainted_for_matches_only_the_traps_fixed_file():
         assert audit.tainted_for(res, e.plugin, "scripts/validate.py") is True
         assert audit.tainted_for(res, e.plugin, "scripts/save_skill.py") is False
         assert audit.tainted_for(res, e.plugin, None) is False
+    with_env(body)
+
+
+def test_tainted_for_matches_a_leaked_ancestor_of_the_fixed_file():
+    def body(e):
+        res = e.run(e.transcript(("Grep", {"pattern": "verdict_from",
+                                            "path": str(e.plugin / "scripts")}, "x")))
+        assert audit.tainted_for(res, e.plugin, "scripts/validate.py") is True
+    with_env(body)
+
+
+def test_tainted_for_does_not_match_a_leaked_sibling_file():
+    def body(e):
+        res = e.run(e.transcript(("Read", {"file_path": str(e.plugin / "scripts" / "save_skill.py")}, "x")))
+        assert audit.tainted_for(res, e.plugin, "scripts/validate.py") is False
+    with_env(body)
+
+
+def test_read_of_the_sessions_own_project_folder_is_clean():
+    def body(e):
+        own = e.projects / "-own-clone"
+        res = audit.audit_transcript(
+            e.transcript(("Read", {"file_path": str(own / "tool-results" / "x.txt")}, "x")),
+            e.dest, e.plugin, e.work, e.dev, projects=e.projects, own_project=own)
+        assert res["verdict"] == "clean"
+    with_env(body)
+
+
+def test_read_of_another_project_folder_is_still_a_leak():
+    def body(e):
+        own = e.projects / "-own-clone"
+        res = audit.audit_transcript(
+            e.transcript(("Read", {"file_path": str(e.projects / "-other" / "a.jsonl")}, "x")),
+            e.dest, e.plugin, e.work, e.dev, projects=e.projects, own_project=own)
+        assert res["verdict"] == "leak"
     with_env(body)
 
 

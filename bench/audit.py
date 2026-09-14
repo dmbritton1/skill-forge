@@ -45,11 +45,12 @@ def counts(row):
 
 
 def tainted_for(audit, plugin_dir, fixed_file):
-    """Spec section 3.4: did a distill session read its trap's fixed file as text?"""
+    """Spec section 3.4: did a distill session read its trap's fixed file as
+    text, or read a plugin scripts/ directory that contains it?"""
     if not fixed_file:
         return False
     target = display(os.path.join(os.path.realpath(str(plugin_dir)), fixed_file))
-    return target in (audit or {}).get("leaked", [])
+    return any(_under(target, p) for p in (audit or {}).get("leaked", []))
 
 
 def _norm(path, dest):
@@ -64,17 +65,22 @@ def _under(path, root):
     return path == root or path.startswith(root.rstrip("/") + "/")
 
 
-def _tool_paths(name, inp):
+def _tool_paths(name, inp, plugin_dir):
     """[(raw path, ran as a program)] for one tool call.
 
-    ponytail: shlex tokens only -- a path reached through `cd`, $VARS, a glob or
-    `python3 -c` code is not seen, and `python3 -u <script>` reads as text (a
-    false leak, which costs a re-run). A real parser if a leak ever slips by.
+    ponytail: only `${CLAUDE_PLUGIN_ROOT}`/`$CLAUDE_PLUGIN_ROOT` are expanded --
+    a path reached through `cd`, another env var, a glob, or `python3 -c` code
+    is not seen, and `python3 -u <script>` reads as text (a false leak, which
+    costs a re-run) because `-u` sits between `python3` and the script. A real
+    parser if a leak ever slips by.
     """
     if name == "Bash":
         cmd = inp.get("command") or ""
+        cmd = cmd.replace("${CLAUDE_PLUGIN_ROOT}", plugin_dir).replace("$CLAUDE_PLUGIN_ROOT", plugin_dir)
         try:
-            toks = shlex.split(cmd)
+            lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+            lex.whitespace_split = True
+            toks = list(lex)
         except ValueError:
             toks = cmd.split()
         return [(t, i > 0 and os.path.basename(toks[i - 1]).startswith("python"))
@@ -90,16 +96,23 @@ def _result_text(block):
     return str(c or "")
 
 
-def audit_transcript(path, dest, plugin_dir, work, repo_parent, projects=None):
+def audit_transcript(path, dest, plugin_dir, work, repo_parent, projects=None, own_project=None):
     """{"verdict": clean|leak|missing, "hits": the first MAX_HITS non-ok paths,
     "leaked": every leaked path}. Never raises: an unreadable transcript is
-    `missing`."""
+    `missing`.
+
+    `own_project`: this session's own folder under `projects` (spec ruling 8,
+    e.g. `sandbox.project_folder(dest)`) -- Claude Code stores large tool
+    results and auto-memory there and has the model read them, so it is ok
+    unlike every other folder under `projects`. None disables the exception.
+    """
     try:
         if path is None or not Path(path).is_file():
             return {"verdict": "missing", "hits": [], "leaked": []}
         real = lambda p: os.path.realpath(str(p))
         dest, plugin, work, repo_parent = real(dest), real(plugin_dir), real(work), real(repo_parent)
         projects = real(projects or Path.home() / ".claude" / "projects")
+        own_project = real(own_project) if own_project else None
         scripts = os.path.join(plugin, "scripts")
         uses, results = [], {}
         for line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -117,12 +130,19 @@ def audit_transcript(path, dest, plugin_dir, work, repo_parent, projects=None):
                     results[b.get("tool_use_id")] = _result_text(b)
         hits, leaked = [], []
         for u in uses:
+            name = u.get("name")
             denied = DENIED in results.get(u.get("id"), "")
-            for raw, ran in _tool_paths(u.get("name"), u.get("input") or {}):
+            for raw, ran in _tool_paths(name, u.get("input") or {}, plugin):
                 p = _norm(raw, dest)
                 if _under(p, scripts):
                     label = "ok" if ran else "leak"
+                elif _under(scripts, p) and not ran and name in ("Grep", "Bash"):
+                    # p is an ancestor of scripts/ (e.g. the plugin root) --
+                    # a search rooted there reads scripts/ too.
+                    label = "leak"
                 elif _under(p, dest) or p.startswith(dest + ".ledger.db") or _under(p, plugin):
+                    label = "ok"
+                elif own_project and _under(p, own_project):
                     label = "ok"
                 elif _under(p, repo_parent) or _under(p, work) or _under(p, projects):
                     # The sandbox never blocks plugin scripts/, so a denial in

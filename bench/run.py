@@ -422,11 +422,20 @@ def session_cmd(prompt, dest, plugin_dir, session_id):
 
 
 def session_audit(session_id, dest, plugin_dir):
-    """Row keys for sandbox spec sections 2.4 and 3."""
+    """Row keys for sandbox spec sections 2.4 and 3.
+
+    Never raises: repo_parent() shells out to git (check=True), and a raise
+    here loses a paid session's results row in run.py, or -- distill.py calls
+    this inside a `finally` -- leaves meta.json unwritten.
+    """
+    try:
+        own_project = sandbox.project_folder(dest)
+        aud = audit.audit_transcript(audit.find_transcript(session_id), dest, plugin_dir,
+                                     WORK, sandbox.repo_parent(REPO_ROOT), own_project=own_project)
+    except Exception:
+        aud = {"verdict": "missing", "hits": [], "leaked": []}
     return {"sandbox": SANDBOX, "sandbox_profile": sandbox.TEMPLATE_SHA,
-            "session_id": session_id,
-            "audit": audit.audit_transcript(audit.find_transcript(session_id), dest,
-                                            plugin_dir, WORK, sandbox.repo_parent(REPO_ROOT))}
+            "session_id": session_id, "audit": aud}
 
 
 def environment(plugin_dir=None):
