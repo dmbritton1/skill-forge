@@ -43,8 +43,12 @@ def entry(path, trap):
             'fingerprints':fm.get('fingerprints') or [],'symptoms':fm.get('symptoms') or [],
             '_trap':trap,'_cost':max(1,len(txt)//4),'_path':path}
 
+# Traps A and B only. §6.1 and §8 of the E13 spec are defined over "the
+# consolidated seven", and this glob used to take every archived draft, so the
+# first archived C draft would have silently changed that library.
 ten = [entry(f, f.split('distilled/')[1][0])
-       for f in sorted(glob.glob('bench/distilled/*/*/*/SKILL.md')) if '/consolidated/' not in f]
+       for f in sorted(glob.glob('bench/distilled/*/*/*/SKILL.md'))
+       if '/consolidated/' not in f and f.split('distilled/')[1][0] in ('A', 'B')]
 merges = {t: entry('bench/distilled/%s/consolidated/1/SKILL.md'%t, t) for t in 'AB'}
 cls,_ = consolidate.clusters(ten)
 repl = {m['_path'] for c in cls if c['scope']=='project' for m in c['members']}

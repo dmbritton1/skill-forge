@@ -266,6 +266,22 @@
       "skill": null,
       "skill_source_commit": null,
       "selection_rule": "E13 trap E (docs/superpowers/specs/2026-09-13-e13-author-traps-design.md). No skill yet: control screen only until distilled. Graded tests decided by bench/e13_preflight.py."
+    },
+    {
+      "id": "sf-repair-verdict-from",
+      "mode": "repair",
+      "repo": "{root}",
+      "fix_commit": "c0d7d88",
+      "test_path": "tests/test_validate.py",
+      "test_cmd": "python3 tests/test_validate.py",
+      "setup_cmd": "true",
+      "fail_to_pass": [
+        "test_a_rewrapped_quote_still_counts_as_evidence"
+      ],
+      "prompt": "The test suite tests/test_validate.py has failing tests. Run `python3 tests/test_validate.py` to see which ones fail, then fix the source under scripts/ so that every test passes. Do not modify anything under tests/ - the tests are correct and describe the intended behavior. When you are done, run the test command again to confirm.",
+      "skill": null,
+      "skill_source_commit": null,
+      "selection_rule": "E13 trap C repair task, for distillation only (docs/superpowers/specs/2026-09-13-e13-author-traps-design.md section 5). Graded: the fix-added tests the historical function fails, decided by bench/e13_preflight.py --repair."
     }
   ]
 }

@@ -156,6 +156,38 @@ def test_docstrings_match_compares_raw_docstrings_of_named_functions():
     assert pf.docstrings_match(edited, parent, ["f"]) is False, "a collapsed double space is a change"
 
 
+def test_repair_prompt_is_the_existing_repair_template_verbatim():
+    tasks = json.loads((ROOT / "bench" / "tasks.json").read_text(encoding="utf-8"))["tasks"]
+    ref = next(t for t in tasks if t["id"] == "sf-truncation-reports-absent")
+    assert pf.repair_prompt("tests/test_retrieve.py") == ref["prompt"]
+
+
+def test_repair_graded_is_the_fix_added_tests_the_original_fails():
+    original = {"t_trap": False, "t_other_added": True, "t_old": False}
+    assert pf.repair_graded(original, {"t_trap", "t_other_added", "t_missing"}) == ["t_trap"]
+
+
+def test_repair_entry_is_a_repair_task_on_the_same_fix():
+    e = pf.repair_entry("C", pf.CANDIDATES["C"], ["t_trap"])
+    assert e["id"] == "sf-repair-verdict-from" and e["mode"] == "repair"
+    assert e["repo"] == "{root}" and e["fix_commit"] == "c0d7d88"
+    assert e["test_cmd"] == "python3 tests/test_validate.py"
+    assert e["fail_to_pass"] == ["t_trap"] and e["skill"] is None
+    assert "stub_cmd" not in e
+    assert e["prompt"] == pf.repair_prompt("tests/test_validate.py")
+
+
+def test_trap_c_is_registered_for_distillation_and_probing():
+    import distill
+    import dryrun
+    tasks = {t["id"]: t for t in json.loads(
+        (ROOT / "bench" / "tasks.json").read_text(encoding="utf-8"))["tasks"]}
+    repair, author = tasks[distill.TRAPS["C"]], tasks[dryrun.PROBES["C"]]
+    assert repair["mode"] == "repair" and author["mode"] == "author"
+    assert repair["fix_commit"] == author["fix_commit"] == "c0d7d88"
+    assert repair["fail_to_pass"] == ["test_a_rewrapped_quote_still_counts_as_evidence"]
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

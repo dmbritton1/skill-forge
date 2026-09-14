@@ -28,7 +28,8 @@ import save_skill
 # The author task each trap is probed with -- the SAME bug as the repair task
 # phase 1 distilled from.
 PROBES = {"A": "sf-author-response-text",
-          "B": "sf-author-fingerprint-preexisting"}
+          "B": "sf-author-fingerprint-preexisting",
+          "C": "sf-author-verdict-from"}
 
 
 def predict(description, name, prompt):

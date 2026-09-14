@@ -42,7 +42,8 @@ DISTILLERS = {"learn-failure": "antiskills", "learn": "skills"}
 # asked to produce from it. The probe task for the same trap is the author
 # task on the SAME bug -- see the spec's cell table.
 TRAPS = {"A": "sf-escaping-breaks-symptom-match",
-         "B": "sf-truncation-reports-absent"}
+         "B": "sf-truncation-reports-absent",
+         "C": "sf-repair-verdict-from"}
 
 # Measured, not guessed: the Task 8 pilot draw took 183s for a full repair
 # plus distillation (trap A, learn-failure, 2026-09-09). 900 is ~5x that --

@@ -40,6 +40,9 @@ CANDIDATES = {
           "verbatim_docstring": False},
 }
 
+# E13 §5: the repair task each survivor is distilled from.
+REPAIR_IDS = {"C": "sf-repair-verdict-from"}
+
 RESULT_RX = re.compile(r"^(PASS|FAIL) (test_\w+)")
 
 
@@ -186,6 +189,40 @@ def upsert(cfg, entry):
     return cfg
 
 
+def repair_prompt(test_path):
+    """The existing repair-task template, verbatim, with the test file substituted."""
+    return ("The test suite %s has failing tests. Run `python3 %s` to see which ones "
+            "fail, then fix the source under scripts/ so that every test passes. Do not "
+            "modify anything under tests/ - the tests are correct and describe the "
+            "intended behavior. When you are done, run the test command again to confirm."
+            % (test_path, test_path))
+
+
+def repair_graded(original, fix_added):
+    """Spec section 5: the fix-added tests the historical function fails."""
+    return sorted(t for t in fix_added if original.get(t) is False)
+
+
+def repair_entry(letter, cand, graded):
+    assert cand["own_runner"], "a repair task grades with the file's own runner"
+    return {
+        "id": REPAIR_IDS[letter],
+        "mode": "repair",
+        "repo": "{root}",
+        "fix_commit": cand["fix"],
+        "test_path": cand["test_path"],
+        "test_cmd": "python3 %s" % cand["test_path"],
+        "setup_cmd": "true",
+        "fail_to_pass": list(graded),
+        "prompt": repair_prompt(cand["test_path"]),
+        "skill": None,
+        "skill_source_commit": None,
+        "selection_rule": ("E13 trap %s repair task, for distillation only (%s section 5). "
+                           "Graded: the fix-added tests the historical function fails, "
+                           "decided by bench/e13_preflight.py --repair." % (letter, SPEC)),
+    }
+
+
 def docstrings_match(stubbed_src, parent_src, names):
     """True if every named function carries the same raw docstring in both."""
     def docs(src):
@@ -231,14 +268,54 @@ def _summary(results):
     return "%d pass / %d fail" % (sum(results.values()), sum(not v for v in results.values()))
 
 
+def write_tasks(entries):
+    path = ROOT / "tasks.json"
+    cfg = json.loads(path.read_text(encoding="utf-8"))
+    for entry in entries:
+        upsert(cfg, entry)
+    path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
+    print("wrote %s into bench/tasks.json" % sorted(e["id"] for e in entries))
+
+
+def repair_main(letters, write):
+    import run as bench_run
+    work = Path(os.path.realpath(tempfile.mkdtemp(prefix="e13-repair-")))
+    bench_run.WORK = work
+    entries = []
+    try:
+        for letter in letters:
+            cand = CANDIDATES[letter]
+            fix_added = (test_names(_git("show", "%s:%s" % (cand["fix"], cand["test_path"])))
+                         - test_names(_git("show", "%s~1:%s" % (cand["fix"], cand["test_path"]))))
+            original, _ = run_variant(cand, "original", work)
+            graded = repair_graded(original, fix_added)
+            print("=== %s repair  %s  graded (%d): %s"
+                  % (letter, REPAIR_IDS[letter], len(graded), graded))
+            if graded:
+                entries.append(repair_entry(letter, cand, graded))
+            else:
+                print("  INVALID: the historical function fails no fix-added test")
+    finally:
+        shutil.rmtree(str(work), ignore_errors=True)
+    if write and entries:
+        write_tasks(entries)
+    return 0 if len(entries) == len(letters) else 1
+
+
 def main(argv=None):
     import run as bench_run
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--only", action="append", choices=sorted(CANDIDATES))
     ap.add_argument("--write", action="store_true",
                     help="write valid candidates into bench/tasks.json")
+    ap.add_argument("--repair", action="store_true", help="build the section 5 repair task instead")
     args = ap.parse_args(argv)
     letters = args.only or sorted(CANDIDATES)
+    if args.repair:
+        unknown = [l for l in letters if l not in REPAIR_IDS]
+        if unknown:
+            ap.error("no repair task defined for %s" % unknown)
+        return repair_main(letters, args.write)
     work = Path(os.path.realpath(tempfile.mkdtemp(prefix="e13-preflight-")))
     bench_run.WORK = work
     valid = {}
@@ -270,12 +347,7 @@ def main(argv=None):
     finally:
         shutil.rmtree(str(work), ignore_errors=True)
     if args.write and valid:
-        path = ROOT / "tasks.json"
-        cfg = json.loads(path.read_text(encoding="utf-8"))
-        for entry in valid.values():
-            upsert(cfg, entry)
-        path.write_text(json.dumps(cfg, indent=2) + "\n", encoding="utf-8")
-        print("wrote %s into bench/tasks.json" % sorted(e["id"] for e in valid.values()))
+        write_tasks(valid.values())
     return 0 if len(valid) == len(letters) else 1
 
 
