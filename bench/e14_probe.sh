@@ -54,17 +54,19 @@ echo "E14_START $START"
 
 run_one() {  # $1: control | sf | sw | af | aw
   if [ "$1" = "control" ]; then
-    python3 bench/run.py --task "$TASK" --runs 1 --arm control \
+    python3 bench/run.py --task "$TASK" --runs 1 --arm control --model claude-opus-5 \
       || echo "run.py exited non-zero for control"
   else
-    python3 bench/run.py --task "$TASK" --runs 1 --arm treatment \
+    python3 bench/run.py --task "$TASK" --runs 1 --arm treatment --model claude-opus-5 \
       --skill-from "$D/e14-quote-gate-rewrap-$1.md" || echo "run.py exited non-zero for $1"
   fi
   local out
   out="$(python3 bench/e14_read.py --window "$START" - 2>&1)"
   case "$out" in
+    "batch: incomplete"*|"batch: complete"*) ;;
     "batch: postponed"*) echo "$out"; echo "STOP: session limit -- re-run this whole batch later as one fresh batch"; exit 1 ;;
     "batch: void"*) echo "$out"; echo "STOP: the control resolved -- the batch is void (spec section 4)"; exit 1 ;;
+    *) echo "$out"; echo "STOP: could not read the batch -- fix bench/e14_read.py and re-run this whole batch later"; exit 1 ;;
   esac
 }
 
@@ -75,7 +77,9 @@ done
 
 EXTRA=0
 while [ "$EXTRA" -lt 8 ]; do
-  NEXT="$(python3 bench/e14_read.py --window "$START" - --todo | head -n 1)"
+  TODO_OUT="$(python3 bench/e14_read.py --window "$START" - --todo 2>&1)" \
+    || { echo "$TODO_OUT"; echo "STOP: could not read the batch's remaining runs"; exit 1; }
+  NEXT="$(printf '%s\n' "$TODO_OUT" | head -n 1)"
   [ -n "$NEXT" ] || break
   echo "### repeat $NEXT"
   run_one "$NEXT"
