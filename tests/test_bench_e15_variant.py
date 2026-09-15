@@ -12,15 +12,15 @@ RULE_GENERALIZE = """   **Name nothing a future session may not have.** Do not n
    files, fixtures or line numbers from this session. The session that uses
    the skill may be writing the code before any test exists, or may never see
    the test that caught the bug. Describe what the check verifies instead
-   ("a value with a trailing newline must still parse")."""
+   ("a request with no body must still get a 400 response")."""
 
 RULE_ONE_SHOT = """   **Write the procedure for someone writing the code, not only fixing it.**
    The session that uses this skill may be implementing the function for the
    first time, with no broken version in front of it. Phrase each step as
-   what the code must do ("compare the two values after normalising
-   whitespace"), not as a search for the old mistake ("find the existing
-   check and change it"). Do not start a step with "Find" unless the
-   procedure is only ever about code that already exists."""
+   what the code must do ("return an empty list when there are no rows"),
+   not as a search for the old mistake ("find the existing check and change
+   it"). Do not start a step with "Find" unless the procedure is only ever
+   about code that already exists."""
 
 RULE_TRIGGERS = """   **Name the code, and the moment of writing it.** Put the function, class
    or API the skill is about in the description's first sentence, and make
@@ -50,7 +50,8 @@ def test_variant_is_shipped_plus_exactly_three_paragraphs():
 
 def test_the_rules_carry_no_trap_c_vocabulary():
     for _, rule in ANCHORS:
-        for word in ("verdict", "evidence", "quote", "rewrap", "wrap"):
+        for word in ("verdict", "evidence", "quote", "wrap", "whitespace", "verbatim", "gate",
+                     "normalis", "normaliz", "newline", "line break", "substring", "match"):
             assert word not in rule.lower(), (word, rule[:40])
 
 

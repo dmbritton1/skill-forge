@@ -43,7 +43,7 @@ one line and stop.
    files, fixtures or line numbers from this session. The session that uses
    the skill may be writing the code before any test exists, or may never see
    the test that caught the bug. Describe what the check verifies instead
-   ("a value with a trailing newline must still parse").
+   ("a request with no body must still get a 400 response").
 
 5. **Assign scope.** Mentions repo-specific paths/conventions → `project`;
    otherwise `global`. Tell the user which you chose; they can override.
@@ -57,10 +57,10 @@ one line and stop.
    **Write the procedure for someone writing the code, not only fixing it.**
    The session that uses this skill may be implementing the function for the
    first time, with no broken version in front of it. Phrase each step as
-   what the code must do ("compare the two values after normalising
-   whitespace"), not as a search for the old mistake ("find the existing
-   check and change it"). Do not start a step with "Find" unless the
-   procedure is only ever about code that already exists.
+   what the code must do ("return an empty list when there are no rows"),
+   not as a search for the old mistake ("find the existing check and change
+   it"). Do not start a step with "Find" unless the procedure is only ever
+   about code that already exists.
 
 7. **Write both trigger directions.** The `description` frontmatter MUST
    contain "Use when:" cases AND "Do NOT use when:" cases. Negative
