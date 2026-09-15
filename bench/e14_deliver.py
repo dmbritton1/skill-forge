@@ -42,7 +42,8 @@ def sha256(path):
 
 
 def gate(rows):
-    return len(rows) == len(CELLS) and all(r["delivered"] for r in rows)
+    return (len(rows) == len(CELLS) and {r["cell"] for r in rows} == set(CELLS)
+            and all(r["delivered"] for r in rows))
 
 
 def stale(record, root):
@@ -53,6 +54,16 @@ def stale(record, root):
         if not p.is_file() or sha256(p) != r["sha256"]:
             out.append(r["cell"])
     return out
+
+
+def drifted(commit, root):
+    """True unless scripts/ and hooks/ at `commit` match HEAD. Any git error counts as drifted."""
+    try:
+        r = subprocess.run(["git", "diff", "--quiet", commit, "HEAD", "--", "scripts", "hooks"],
+                           cwd=str(root), capture_output=True)
+    except OSError:
+        return True
+    return r.returncode != 0
 
 
 def check_frozen():
@@ -66,6 +77,10 @@ def check_frozen():
     changed = stale(record, ROOT)
     if changed:
         print("FATAL: draft(s) changed since delivery.json: %s" % ", ".join(changed))
+        return 1
+    if drifted(record["commit"], ROOT):
+        print("FATAL: scripts/ or hooks/ changed since the delivery check ran at %s"
+              % record["commit"][:7])
         return 1
     print("drafts frozen: all %d delivered, none changed" % len(record["drafts"]))
     return 0

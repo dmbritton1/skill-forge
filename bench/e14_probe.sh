@@ -68,6 +68,11 @@ run_one() {  # $1: control | sf | sw | af | aw
     "batch: void"*) echo "$out"; echo "STOP: the control resolved -- the batch is void (spec section 4)"; exit 1 ;;
     *) echo "$out"; echo "STOP: could not read the batch -- fix bench/e14_read.py and re-run this whole batch later"; exit 1 ;;
   esac
+  if printf '%s\n' "$out" | grep -qE '^  (sf|sw|af|aw) .* void$'; then
+    echo "$out"
+    echo "STOP: a cell voided -- neither effect can be computed (spec section 4)"
+    exit 1
+  fi
 }
 
 for arm in "${ORDER[@]}"; do
@@ -81,10 +86,20 @@ while [ "$EXTRA" -lt 8 ]; do
     || { echo "$TODO_OUT"; echo "STOP: could not read the batch's remaining runs"; exit 1; }
   NEXT="$(printf '%s\n' "$TODO_OUT" | head -n 1)"
   [ -n "$NEXT" ] || break
+  case "$NEXT" in
+    control|sf|sw|af|aw) ;;
+    *) echo "$TODO_OUT"; echo "STOP: unexpected --todo output -- fix bench/e14_read.py and re-run this whole batch later"; exit 1 ;;
+  esac
   echo "### repeat $NEXT"
   run_one "$NEXT"
   EXTRA=$((EXTRA + 1))
 done
 
-python3 bench/e14_read.py --window "$START" -
+FINAL_OUT="$(python3 bench/e14_read.py --window "$START" - 2>&1)"
+if printf '%s\n' "$FINAL_OUT" | head -n 1 | grep -q '^batch: incomplete'; then
+  echo "$FINAL_OUT"
+  echo "INCOMPLETE: runs still missing after 8 repeats -- record this batch as incomplete and re-run it whole later"
+  exit 1
+fi
+echo "$FINAL_OUT"
 echo "### E14 DONE"
