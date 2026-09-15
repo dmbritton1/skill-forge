@@ -78,8 +78,10 @@ def read_batch(rows):
     control = [r for r in mine if r.get("arm") == "control"]
     ok = [r for r in control if _valid(r)]
     out = {"control": {"valid": min(len(ok), N_CONTROL), "needed": N_CONTROL,
-                       # Every valid control run, not just the first 3: one
-                       # resolution anywhere voids the batch (spec section 4).
+                       # Every VALID control run, not just the first 3: one valid
+                       # resolution voids the batch (spec section 4). An invalid row
+                       # (audit-rejected, or a failed session) never counts, so its
+                       # resolution does not.
                        "resolved": sum(1 for r in ok if r.get("resolved")),
                        "invalid": len(control) - len(ok)},
            "cells": {}, "effects": None, "baseline": None}

@@ -1,4 +1,6 @@
 """Tests for bench/e14_read.py. Run: python3 tests/test_bench_e14_read.py"""
+import contextlib
+import io
 import pathlib
 import sys
 
@@ -110,6 +112,31 @@ def test_todo_is_empty_for_complete_void_and_postponed_batches():
 def test_rows_for_other_tasks_are_ignored():
     rows = [ctl()] * 3 + cells() + [dict(trt("sf", resolved=True), task="other")] * 3
     assert er.read_batch(rows)["cells"]["sf"]["resolved"] == 0
+
+
+def test_an_invalid_control_row_that_resolved_does_not_void_the_batch():
+    rows = [ctl(resolved=True, audit="leak"), ctl(resolved=True, ok=False)] + [ctl()] * 3 + cells()
+    res = er.read_batch(rows)
+    assert res["batch"] == "complete"
+    assert res["control"]["resolved"] == 0
+    assert res["control"]["invalid"] == 2
+
+
+def test_cli_output_format_incomplete_batch():
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        er.main(["--window", "2999-01-01T00:00:00", "-"])
+    lines = out.getvalue().strip().split("\n")
+    assert lines[0].startswith("batch: incomplete")
+
+
+def test_cli_output_format_todo():
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        er.main(["--window", "2999-01-01T00:00:00", "-", "--todo"])
+    lines = out.getvalue().strip().split("\n")
+    expected = ["control"] * 3 + [c for c in er.CELLS for _ in range(6)]
+    assert lines == expected
 
 
 if __name__ == "__main__":
