@@ -23,6 +23,7 @@ no signal, because a failed clone or stub command reads as a failed task.
 --check exists so that is visible in a second rather than after a run.
 """
 import argparse
+import hashlib
 import io
 import json
 import os
@@ -407,6 +408,32 @@ def sandbox_plugin(plugin_dir, explicit):
     mark = dest / SNAPSHOT_MARK
     if not (mark.is_file() and mark.read_text(encoding="utf-8").strip() == commit):
         snapshot_plugin(commit, dest)
+    return dest
+
+
+def variant_plugin(base, variant_file, dest, tag="e15"):
+    """A copy of snapshot `base` whose skills/distilling-skills/SKILL.md is
+    `variant_file` (E15 spec section 2).
+
+    Marked `<sha>+<tag>-<first 12 hex of the variant's sha256>`, so
+    plugin_commit() -- and through it every distill meta.json -- records which
+    rules ran. The base snapshot is never modified.
+    """
+    base, dest = Path(base), Path(dest)
+    mark = base / SNAPSHOT_MARK
+    if not mark.is_file():
+        raise ValueError("variant base is not a run.snapshot_plugin() snapshot: %s" % base)
+    variant = Path(variant_file).read_bytes()
+    if dest.exists():
+        shutil.rmtree(str(dest))
+    shutil.copytree(str(base), str(dest))
+    target = dest / "skills" / "distilling-skills" / "SKILL.md"
+    if not target.is_file():
+        raise ValueError("snapshot has no skills/distilling-skills/SKILL.md: %s" % base)
+    target.write_bytes(variant)
+    sha = mark.read_text(encoding="utf-8").strip().split("+")[0]
+    (dest / SNAPSHOT_MARK).write_text(
+        "%s+%s-%s\n" % (sha, tag, hashlib.sha256(variant).hexdigest()[:12]), encoding="utf-8")
     return dest
 
 

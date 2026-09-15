@@ -891,6 +891,55 @@ def test_session_audit_never_raises_when_repo_parent_fails():
     _with_work(body)
 
 
+def _fake_snapshot(root, sha="a" * 40):
+    (root / "skills" / "distilling-skills").mkdir(parents=True)
+    (root / "skills" / "distilling-skills" / "SKILL.md").write_text("shipped\n", encoding="utf-8")
+    (root / "scripts").mkdir()
+    (root / "scripts" / "validate.py").write_text("# code\n", encoding="utf-8")
+    (root / bench_run.SNAPSHOT_MARK).write_text(sha + "\n", encoding="utf-8")
+    return root
+
+
+def test_variant_plugin_swaps_only_the_distilling_skill_and_marks_the_variant():
+    import hashlib
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        base = _fake_snapshot(t / "base")
+        variant = t / "variant.md"
+        variant.write_text("with rules\n", encoding="utf-8")
+        got = bench_run.variant_plugin(base, variant, t / "out")
+        assert got == t / "out"
+        assert (got / "skills" / "distilling-skills" / "SKILL.md").read_text(encoding="utf-8") == "with rules\n"
+        assert (got / "scripts" / "validate.py").read_text(encoding="utf-8") == "# code\n"
+        h = hashlib.sha256(b"with rules\n").hexdigest()[:12]
+        assert (got / bench_run.SNAPSHOT_MARK).read_text(encoding="utf-8") == "a" * 40 + "+e15-" + h + "\n"
+        assert bench_run.plugin_commit(got) == "archive:" + "a" * 40 + "+e15-" + h
+        assert (base / "skills" / "distilling-skills" / "SKILL.md").read_text(encoding="utf-8") == "shipped\n"
+
+
+def test_variant_plugin_refuses_a_base_that_is_not_a_snapshot():
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        (t / "base").mkdir()
+        (t / "v.md").write_text("x\n", encoding="utf-8")
+        try:
+            bench_run.variant_plugin(t / "base", t / "v.md", t / "out")
+        except ValueError:
+            return
+        raise AssertionError("a non-snapshot base was accepted")
+
+
+def test_variant_plugin_replaces_an_existing_destination():
+    with tempfile.TemporaryDirectory() as tmp:
+        t = pathlib.Path(tmp)
+        base = _fake_snapshot(t / "base")
+        (t / "v.md").write_text("x\n", encoding="utf-8")
+        (t / "out").mkdir()
+        (t / "out" / "stale.txt").write_text("old\n", encoding="utf-8")
+        got = bench_run.variant_plugin(base, t / "v.md", t / "out")
+        assert not (got / "stale.txt").exists()
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

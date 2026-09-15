@@ -177,25 +177,28 @@ def extract(clone, distiller):
     return found[0] if found else None
 
 
-def _segment(distiller, novelty_gate):
-    """`learn` or `learn-nogate`, never both under one path.
+def _segment(distiller, novelty_gate, variant=None):
+    """`learn`, `learn-nogate`, or with a variant `learn-e15-nogate` -- never two
+    arms under one path.
 
     Q1's 12 draws are archived and committed under the plain segment, and E7
     re-runs two of its cells. Sharing a path would either overwrite that
     record or trip the archive guard and lose the draw. E5 lost a whole batch
     to two arms sharing a clone path; the suffix is derived here, once, rather
-    than passed in by each caller.
+    than passed in by each caller. E15's variant draws get their own segment
+    for the same reason.
     """
-    return distiller if novelty_gate else distiller + "-nogate"
+    seg = distiller + ("-" + variant if variant else "")
+    return seg if novelty_gate else seg + "-nogate"
 
 
-def archive_dir(trap, distiller, draw, novelty_gate=True):
-    return ARCHIVE / trap / _segment(distiller, novelty_gate) / str(draw)
+def archive_dir(trap, distiller, draw, novelty_gate=True, variant=None):
+    return ARCHIVE / trap / _segment(distiller, novelty_gate, variant) / str(draw)
 
 
-def clone_dest(task, distiller, draw, novelty_gate=True):
+def clone_dest(task, distiller, draw, novelty_gate=True, variant=None):
     return bench_run.WORK / ("%s-distill-%s-%d"
-                             % (task["id"], _segment(distiller, novelty_gate),
+                             % (task["id"], _segment(distiller, novelty_gate, variant),
                                 draw))
 
 
@@ -213,8 +216,8 @@ def preflight():
     return []
 
 
-def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
-    dest = clone_dest(task, distiller, draw, novelty_gate)
+def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True, variant=None):
+    dest = clone_dest(task, distiller, draw, novelty_gate, variant)
     ledger_db = dest.parent / (dest.name + ".ledger.db")
     for suffix in ("", "-shm", "-wal"):
         Path(str(ledger_db) + suffix).unlink(missing_ok=True)
@@ -228,7 +231,7 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
     if blockers:
         raise RuntimeError("preflight: " + "; ".join(blockers))
 
-    d = archive_dir(trap, distiller, draw, novelty_gate)
+    d = archive_dir(trap, distiller, draw, novelty_gate, variant)
     # Pre-registration (spec section 8) fixes the batch's composition and
     # forbids re-rolling a draw after its content is seen. results.jsonl
     # appends; this archive would REPLACE, so a re-run of `--all --draws 3`
@@ -337,6 +340,10 @@ def one(trap, distiller, draw, plugin_dir, task, novelty_gate=True):
             # date, for the same reason every other arm here carries a flag on
             # its row: a reader a month from now has the dates and nothing else.
             "novelty_gate": novelty_gate,
+            # E15: which plugin -- and so which distilling rules -- this draw ran
+            # under. A variant snapshot's mark carries `+e15-<hash>`.
+            "variant": variant,
+            "plugin_commit": bench_run.plugin_commit(plugin_dir),
             "task": task["id"], "model": bench_run.MODEL,
             "outcome": st["outcome"], "probeable": probeable(st["outcome"]),
             "error": st["error"],
@@ -404,6 +411,12 @@ def main(argv=None):
                          "overwrite a gated draw.")
     ap.add_argument("--no-sandbox", action="store_true",
                     help="debugging only: distil unsandboxed (sandbox spec 2.4)")
+    ap.add_argument("--plugin-dir", default=None,
+                    help="E15: distil against this run.snapshot_plugin() snapshot (for"
+                         " example a run.variant_plugin() copy) instead of HEAD")
+    ap.add_argument("--variant", default=None,
+                    help="E15: archive and clone under <distiller>-<variant>[-nogate];"
+                         " requires --plugin-dir")
     args = ap.parse_args(argv)
 
     cfg = bench_run.expand(json.loads(
@@ -417,10 +430,16 @@ def main(argv=None):
         print("need --all, or both --trap and --distiller")
         return 1
 
+    if args.variant and not args.plugin_dir:
+        # A variant name without its rules would label HEAD's draws as the variant's.
+        print("--variant requires --plugin-dir")
+        return 1
+    if args.plugin_dir:
+        plugin_dir = Path(args.plugin_dir).resolve()
     bench_run.SANDBOX = not args.no_sandbox
-    if bench_run.SANDBOX:
+    if bench_run.SANDBOX or args.plugin_dir:
         try:
-            plugin_dir = bench_run.sandbox_plugin(plugin_dir, explicit=False)
+            plugin_dir = bench_run.sandbox_plugin(plugin_dir, explicit=bool(args.plugin_dir))
         except ValueError as err:
             print("sandbox: %s" % err)
             return 1
@@ -434,7 +453,7 @@ def main(argv=None):
             for draw in range(1, args.draws + 1):
                 try:
                     one(trap, distiller, draw, plugin_dir, by_id[TRAPS[trap]],
-                        novelty_gate=not args.no_novelty_gate)
+                        novelty_gate=not args.no_novelty_gate, variant=args.variant)
                 except Exception as e:
                     print("  %-13s trap %s draw %d -> ERROR %s"
                           % (distiller, trap, draw, e))

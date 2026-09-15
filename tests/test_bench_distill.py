@@ -654,6 +654,7 @@ def test_one_archives_and_contains_a_global_scope_draw():
                                    "prompt": "fix it"})
                 d = distill.ARCHIVE / "A" / "learn-failure" / "1"
                 meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+                assert "plugin_commit" in meta
                 assert out == "saved", out
                 assert (d / "SKILL.md").is_file(), "the draft must be archived"
                 assert meta["chose_global_scope"] == ["gtrap"], meta["chose_global_scope"]
@@ -893,6 +894,52 @@ def test_main_refuses_to_distil_when_the_plugin_cannot_be_sandboxed():
         assert calls == []
     finally:
         distill.bench_run.sandbox_plugin, distill.bench_run.SANDBOX, distill.one = old
+
+
+def test_a_variant_gets_its_own_archive_and_clone_segment():
+    import distill
+    assert distill.archive_dir("C", "learn", 2, novelty_gate=False, variant="e15").parts[-3:] == (
+        "C", "learn-e15-nogate", "2")
+    assert distill.clone_dest({"id": "sf-x"}, "learn", 2, novelty_gate=False,
+                              variant="e15").name == "sf-x-distill-learn-e15-nogate-2"
+    assert distill.archive_dir("C", "learn", 2, novelty_gate=False).parts[-2] == "learn-nogate"
+
+
+def test_main_passes_the_plugin_dir_and_variant_to_one():
+    import distill
+    old = (distill.bench_run.sandbox_plugin, distill.bench_run.SANDBOX, distill.one)
+    calls, checked = [], []
+    with tempfile.TemporaryDirectory() as tmp:
+        snap = pathlib.Path(tmp).resolve()
+
+        def fake_sandbox_plugin(plugin_dir, explicit):
+            checked.append((pathlib.Path(plugin_dir), explicit))
+            return pathlib.Path(plugin_dir)
+        distill.bench_run.sandbox_plugin = fake_sandbox_plugin
+        # distill.one is stubbed so this test can never launch a real session.
+        distill.one = lambda *a, **kw: calls.append((a, kw))
+        try:
+            rc = distill.main(["--trap", "C", "--distiller", "learn", "--draws", "1",
+                               "--no-novelty-gate", "--plugin-dir", str(snap), "--variant", "e15"])
+        finally:
+            distill.bench_run.sandbox_plugin, distill.bench_run.SANDBOX, distill.one = old
+    assert rc == 0
+    assert checked == [(snap, True)]
+    (args, kw), = calls
+    assert args[3] == snap and kw["variant"] == "e15" and kw["novelty_gate"] is False
+
+
+def test_main_refuses_a_variant_without_a_plugin_dir():
+    import distill
+    old = (distill.bench_run.SANDBOX, distill.one)
+    calls = []
+    distill.one = lambda *a, **kw: calls.append(a)
+    try:
+        assert distill.main(["--trap", "C", "--distiller", "learn", "--draws", "1",
+                             "--variant", "e15"]) == 1
+    finally:
+        distill.bench_run.SANDBOX, distill.one = old
+    assert calls == []
 
 
 if __name__ == "__main__":
