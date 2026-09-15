@@ -201,3 +201,21 @@ caveat.
 - `skills/distilling-skills/SKILL.md` changes only under section 5's first row.
 - No absolute home path in committed files.
 - Guard committing steps with an explicit `|| exit 1`.
+
+## Amendments
+
+Both were made on 2026-09-15, after a pre-run review and before any E15
+session, at the user's ruling. The sections above are left as written.
+
+1. **Stage B, stage C: a draw that says nothing about the rules is a harness
+   failure, not a non-emission.** A draw that is `session_failed`, `errored`,
+   missing or `repair_unresolved` (the source session never fixed the bug), or
+   that is not sandboxed, has an audit other than `clean`, or is `tainted`,
+   blocks the probe. Stage B is re-run whole, and no emission result is
+   recorded. Previously a tainted or unresolved draw only failed to count, so
+   it could shrink the counted draws below 3 and read as "the rules reduce
+   usable output". A counted draw must now also be sandboxed with a clean audit.
+2. **Section 5: V needs at least 3 live variant drafts.** If voids in stage D
+   leave fewer than 3, d is not computed and the batch is recorded as not
+   readable, as for a void baseline draft. Previously V could rest on a single
+   draft's 3 runs.

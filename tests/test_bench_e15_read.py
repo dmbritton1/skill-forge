@@ -112,6 +112,15 @@ def test_a_void_variant_draft_drops_out_of_v():
     assert res["batch"] == "complete" and res["measures"]["V"] == [0, 9]
 
 
+def test_fewer_than_three_live_variant_drafts_means_d_is_not_computed():
+    """Spec amendment 2: V may not rest on one or two drafts."""
+    rows = ([ctl()] * 3 + full({"v1": 3, "v2": 3})
+            + [trt(V[2], delivered=False)] * 2 + [trt(V[3], delivered=False)] * 2)
+    res = er.read_batch(rows, DRAFTS)
+    assert res["batch"] == "complete" and res["measures"] is None
+    assert "fewer than 3 variant drafts" in res["reason"]
+
+
 def test_a_void_baseline_draft_means_d_is_not_computed():
     rows = [ctl()] * 3 + full({}) + [trt(B[1], delivered=False)] * 2
     res = er.read_batch(rows, DRAFTS)

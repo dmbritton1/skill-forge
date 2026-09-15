@@ -10,8 +10,9 @@ plus a same-batch control of 3, in three interleaved rounds.
 A row refused at the session limit postpones the batch. A valid control that
 resolves voids it. A row audit.counts() rejects, a failed session, or a draft
 row that did not inject its draft does not count; a second undelivered row
-voids that draft. A void variant draft drops out of V; a void baseline draft
-means d is not computed. Each draft counts its first 3 valid runs.
+voids that draft. A void variant draft drops out of V; fewer than 3 live
+variant drafts (spec amendment 2) or a void baseline draft means d is not
+computed. Each draft counts its first 3 valid runs.
 
 V and B are pooled resolved/valid; d = V - B. d >= +0.40 with V >= 0.50: the
 rules help. |d| <= 0.15: no large effect. d <= -0.40: the rules hurt.
@@ -37,6 +38,7 @@ TASK = "sf-author-verdict-from"
 N_DRAFT = 3
 N_CONTROL = 3
 ROUNDS = 3
+MIN_VARIANT = 3  # spec section 3 emission gate and amendment 2
 LIMIT_MARK = "session limit"
 RECORD = ROOT / "distilled" / "C" / "e15-probe.json"
 
@@ -121,8 +123,9 @@ def read_batch(rows, drafts):
         out.update(batch="complete", reason="a baseline draft is void: d is not computed")
         return out
     live = [c for c in cells if c["group"] == "variant" and c["status"] != "void"]
-    if not live:
-        out.update(batch="complete", reason="every variant draft is void: d is not computed")
+    if len(live) < MIN_VARIANT:
+        out.update(batch="complete", reason="fewer than %d variant drafts are live: d is not computed"
+                   % MIN_VARIANT)
         return out
     vr, vv = sum(c["resolved"] for c in live), sum(c["valid"] for c in live)
     base = [c for c in cells if c["group"] == "baseline"]

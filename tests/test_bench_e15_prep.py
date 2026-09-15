@@ -62,12 +62,14 @@ def test_counted_variant_drafts_keep_saved_untainted_drafts_in_draw_order():
         variant_file.write_text("variant rules\n", encoding="utf-8")
         mark = "+e15-" + ep.sha256(variant_file)[:12]
 
-        def draw(n, outcome="saved", draft=True, tainted=False, plugin_commit=None):
+        def draw(n, outcome="saved", draft=True, tainted=False, plugin_commit=None,
+                 sandbox=True, verdict="clean"):
             d = seg / str(n)
             d.mkdir()
             if plugin_commit is None:
                 plugin_commit = "archive:deadbeef" + mark
             (d / "meta.json").write_text(json.dumps({"outcome": outcome, "tainted": tainted,
+                                                      "sandbox": sandbox, "audit": {"verdict": verdict},
                                                       "plugin_commit": plugin_commit}),
                                          encoding="utf-8")
             if draft:
@@ -79,6 +81,8 @@ def test_counted_variant_drafts_keep_saved_untainted_drafts_in_draw_order():
         draw(5, draft=False)
         draw(6, plugin_commit="archive:deadbeef+e15-000000000000")
         draw(7, plugin_commit="")
+        draw(8, sandbox=None)
+        draw(9, verdict="leak")
         assert ([p.parent.name for p in ep.counted_variant_drafts(seg, variant_file=variant_file)]
                 == ["2", "10"])
 
@@ -129,18 +133,30 @@ def test_draw_outcomes_reports_saved_session_failed_missing_and_errored():
         assert outcomes[0]["counted"] is True
         assert outcomes[1]["counted"] is False
         assert outcomes[2] == {"draw": 3, "outcome": "missing", "sandbox": None,
-                               "audit": None, "counted": False}
+                               "audit": None, "tainted": None, "counted": False}
         assert outcomes[4]["counted"] is False  # tainted
         assert outcomes[5]["counted"] is True
 
 
 def test_harness_failed_true_for_session_failed_errored_or_missing():
-    base = {"draw": 1, "sandbox": True, "audit": "clean", "counted": True}
+    base = {"draw": 1, "sandbox": True, "audit": "clean", "tainted": False, "counted": True}
     assert ep.harness_failed([dict(base, outcome="saved")]) is False
     assert ep.harness_failed([dict(base, outcome="saved"), dict(base, outcome="session_failed")]) is True
     assert ep.harness_failed([dict(base, outcome="errored")]) is True
     assert ep.harness_failed([dict(base, outcome="missing")]) is True
     assert ep.harness_failed([dict(base, outcome="aborted")]) is False
+
+
+def test_harness_failed_true_for_an_unresolved_repair_or_untrusted_isolation():
+    """Spec amendment 1: none of these may shrink the counted draws into an emission result."""
+    base = {"draw": 1, "outcome": "aborted", "sandbox": True, "audit": "clean", "tainted": False,
+            "counted": False}
+    assert ep.harness_failed([dict(base, outcome="repair_unresolved")]) is True
+    assert ep.harness_failed([dict(base, sandbox=None)]) is True
+    assert ep.harness_failed([dict(base, audit="leak")]) is True
+    assert ep.harness_failed([dict(base, audit="missing")]) is True
+    assert ep.harness_failed([dict(base, outcome="saved", tainted=True)]) is True
+    assert ep.harness_failed([dict(base, outcome="rejected")]) is False
 
 
 def test_stale_names_changed_or_missing_drafts_by_path():

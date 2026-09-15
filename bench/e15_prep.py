@@ -30,13 +30,15 @@ import libguard                                                   # noqa: E402
 import save_skill                                                 # noqa: E402
 from e13_qualify import _install, _sandbox                         # noqa: E402
 from e14_deliver import drifted, sha256                            # noqa: E402
-from e15_read import RECORD, TASK                                  # noqa: E402
+from e15_read import MIN_VARIANT, RECORD, TASK                     # noqa: E402
 from real_path_check import delivered, export_scripts              # noqa: E402
 
 VARIANT_SEG = ROOT / "bench" / "distilled" / "C" / "learn-e15-nogate"
 VARIANT_FILE = ROOT / "bench" / "variants" / "E15" / "distilling-skills.md"
 BASELINE = tuple("bench/distilled/C/learn-nogate/%d/SKILL.md" % d for d in (1, 2, 3))
-MIN_VARIANT = 3
+# Spec amendment 1: repair_unresolved means the source session never fixed the
+# bug, before the distiller's rules were read -- not an emission outcome.
+HARNESS_OUTCOMES = ("session_failed", "errored", "missing", "repair_unresolved")
 
 
 def _ran_under_variant(m, variant_file):
@@ -44,16 +46,24 @@ def _ran_under_variant(m, variant_file):
     return str(m.get("plugin_commit") or "").endswith("+e15-" + sha256(variant_file)[:12])
 
 
+def _isolated(m):
+    """Spec amendment 1: sandboxed, audit clean, not tainted. A missing key fails closed."""
+    return (m.get("sandbox") is True and (m.get("audit") or {}).get("verdict") == "clean"
+            and not m.get("tainted"))
+
+
+def _counted(m, draft, variant_file):
+    """Spec section 3 stage B and amendment 1: the one counting predicate."""
+    return (m.get("outcome") == "saved" and draft.is_file() and _isolated(m)
+            and _ran_under_variant(m, variant_file))
+
+
 def counted_variant_drafts(seg, variant_file=VARIANT_FILE):
-    """Spec section 3 stage B: saved, draft present, not tainted, ran under the
-    pinned variant rules -- in draw order."""
+    """Counted drafts (`_counted`), in draw order."""
     out = []
     for meta in sorted(pathlib.Path(seg).glob("*/meta.json"), key=lambda p: int(p.parent.name)):
-        m = json.loads(meta.read_text(encoding="utf-8"))
-        draft = meta.parent / "SKILL.md"
-        if (m.get("outcome") == "saved" and draft.is_file() and not m.get("tainted")
-                and _ran_under_variant(m, variant_file)):
-            out.append(draft)
+        if _counted(json.loads(meta.read_text(encoding="utf-8")), meta.parent / "SKILL.md", variant_file):
+            out.append(meta.parent / "SKILL.md")
     return out
 
 
@@ -66,20 +76,23 @@ def draw_outcomes(seg, expected=6, variant_file=VARIANT_FILE):
         draft = pathlib.Path(seg) / str(n) / "SKILL.md"
         if not meta.is_file():
             out.append({"draw": n, "outcome": "missing", "sandbox": None, "audit": None,
-                        "counted": False})
+                        "tainted": None, "counted": False})
             continue
         m = json.loads(meta.read_text(encoding="utf-8"))
-        counted = (m.get("outcome") == "saved" and draft.is_file() and not m.get("tainted")
-                  and _ran_under_variant(m, variant_file))
         out.append({"draw": n, "outcome": m.get("outcome") or "missing",
                     "sandbox": m.get("sandbox"), "audit": (m.get("audit") or {}).get("verdict"),
-                    "counted": counted})
+                    "tainted": m.get("tainted"), "counted": _counted(m, draft, variant_file)})
     return out
 
 
 def harness_failed(outcomes):
-    """Finding 1: any draw the harness itself failed on, not a model outcome."""
-    return any(o["outcome"] in ("session_failed", "errored", "missing") for o in outcomes)
+    """Finding 1 and spec amendment 1: a draw the harness failed on, whose source
+    repair did not resolve, or whose isolation cannot be trusted. None of these is
+    an emission outcome: it blocks the probe and stage B is re-run."""
+    return any(o["outcome"] in HARNESS_OUTCOMES
+               or not _isolated({"sandbox": o["sandbox"], "audit": {"verdict": o["audit"]},
+                                 "tainted": o["tainted"]})
+               for o in outcomes)
 
 
 def _procedure_section(body):
@@ -124,7 +137,8 @@ def check_frozen():
         return 1
     record = json.loads(RECORD.read_text(encoding="utf-8"))
     if record.get("harness_failure"):
-        print("FATAL: a variant draw failed in the harness (session_failed, errored or missing) "
+        print("FATAL: a variant draw is a harness failure (session_failed, errored, missing, "
+              "repair_unresolved, unsandboxed, audit not clean or tainted) "
               "-- re-run stage B, do not record emission")
         return 1
     if not record.get("probe_allowed"):
@@ -192,8 +206,8 @@ def main(argv=None):
 
     outcomes = draw_outcomes(VARIANT_SEG)
     for o in outcomes:
-        print("draw %-3d outcome %-16s sandbox %-5s audit %-8s counted %s"
-              % (o["draw"], o["outcome"], o["sandbox"], o["audit"], o["counted"]))
+        print("draw %-3d outcome %-17s sandbox %-5s audit %-8s tainted %-5s counted %s"
+              % (o["draw"], o["outcome"], o["sandbox"], o["audit"], o["tainted"], o["counted"]))
     failed = harness_failed(outcomes)
     print("harness failure: %s" % failed)
 
