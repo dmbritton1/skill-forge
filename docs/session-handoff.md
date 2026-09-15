@@ -1,5 +1,8 @@
 # SkillForge — session handoff
 
+> **Newer:** `docs/handoff-2026-09-15-e15.md` covers the bench sandbox, E14 and
+> E15 (built, not yet run), with step-by-step instructions for E15's real run.
+
 Written 2026-09-11, at the end of the session that answered E7, E8 and E9,
 built `/consolidate`, and ended by diagnosing a defect in the injection
 selector. Supersedes the 2026-09-11 morning revision (git history has it).
