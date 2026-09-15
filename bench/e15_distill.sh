@@ -42,6 +42,20 @@ if [ -e "bench/distilled/C/$SEG" ]; then
   echo "FATAL: bench/distilled/C/$SEG already exists -- a stage is never re-rolled over its archive (plan ruling 5)"; exit 1
 fi
 
+if [ "$STAGE" = "draws" ]; then
+  python3 - <<'PY' || { echo "FATAL: stage smoke has not passed -- run bash bench/e15_distill.sh --stage smoke first"; exit 1; }
+import json, sys
+try:
+    m = json.load(open("bench/distilled/C/learn-e15-smoke-nogate/1/meta.json"))
+except (OSError, ValueError):
+    sys.exit(1)
+ok = (m.get("outcome") == "saved" and m.get("sandbox") is True
+      and (m.get("audit") or {}).get("verdict") == "clean"
+      and "+e15-" in (m.get("plugin_commit") or ""))
+sys.exit(0 if ok else 1)
+PY
+fi
+
 SNAP="$(python3 -c "
 import sys; sys.path.insert(0, 'bench'); import run
 base = run.sandbox_plugin(run.REPO_ROOT, explicit=False)

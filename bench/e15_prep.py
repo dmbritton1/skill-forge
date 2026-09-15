@@ -34,19 +34,58 @@ from e15_read import RECORD, TASK                                  # noqa: E402
 from real_path_check import delivered, export_scripts              # noqa: E402
 
 VARIANT_SEG = ROOT / "bench" / "distilled" / "C" / "learn-e15-nogate"
+VARIANT_FILE = ROOT / "bench" / "variants" / "E15" / "distilling-skills.md"
 BASELINE = tuple("bench/distilled/C/learn-nogate/%d/SKILL.md" % d for d in (1, 2, 3))
 MIN_VARIANT = 3
 
 
-def counted_variant_drafts(seg):
-    """Spec section 3 stage B: saved, draft present, not tainted -- in draw order."""
+def _ran_under_variant(m, variant_file):
+    """True if meta's plugin_commit marks the pinned variant file (finding 2)."""
+    return str(m.get("plugin_commit") or "").endswith("+e15-" + sha256(variant_file)[:12])
+
+
+def counted_variant_drafts(seg, variant_file=VARIANT_FILE):
+    """Spec section 3 stage B: saved, draft present, not tainted, ran under the
+    pinned variant rules -- in draw order."""
     out = []
     for meta in sorted(pathlib.Path(seg).glob("*/meta.json"), key=lambda p: int(p.parent.name)):
         m = json.loads(meta.read_text(encoding="utf-8"))
         draft = meta.parent / "SKILL.md"
-        if m.get("outcome") == "saved" and draft.is_file() and not m.get("tainted"):
+        if (m.get("outcome") == "saved" and draft.is_file() and not m.get("tainted")
+                and _ran_under_variant(m, variant_file)):
             out.append(draft)
     return out
+
+
+def draw_outcomes(seg, expected=6, variant_file=VARIANT_FILE):
+    """Finding 1: one row per draw number 1..expected, so a harness failure
+    (session_failed/errored/missing) cannot read as a silent non-emission."""
+    out = []
+    for n in range(1, expected + 1):
+        meta = pathlib.Path(seg) / str(n) / "meta.json"
+        draft = pathlib.Path(seg) / str(n) / "SKILL.md"
+        if not meta.is_file():
+            out.append({"draw": n, "outcome": "missing", "sandbox": None, "audit": None,
+                        "counted": False})
+            continue
+        m = json.loads(meta.read_text(encoding="utf-8"))
+        counted = (m.get("outcome") == "saved" and draft.is_file() and not m.get("tainted")
+                  and _ran_under_variant(m, variant_file))
+        out.append({"draw": n, "outcome": m.get("outcome") or "missing",
+                    "sandbox": m.get("sandbox"), "audit": (m.get("audit") or {}).get("verdict"),
+                    "counted": counted})
+    return out
+
+
+def harness_failed(outcomes):
+    """Finding 1: any draw the harness itself failed on, not a model outcome."""
+    return any(o["outcome"] in ("session_failed", "errored", "missing") for o in outcomes)
+
+
+def _procedure_section(body):
+    """The `## Procedure` section body: from its heading to the next `## ` or end."""
+    m = re.search(r"^## Procedure\s*$(.*?)(?=^## |\Z)", body or "", re.M | re.S)
+    return m.group(1) if m else ""
 
 
 def compliance(text):
@@ -55,7 +94,8 @@ def compliance(text):
     desc = " ".join(str((fm or {}).get("description") or "").split())
     first = desc.split(". ", 1)[0]
     return {"names_test": bool(re.search(r"\btest_\w+|\btests/", text)),
-            "find_step": bool(re.search(r"^\s*\d+\.\s+(\*\*)?Find\b", body or "", re.M)),
+            "find_step": bool(re.search(r"^\s*\d+\.\s+(\*\*)?Find\b",
+                                        _procedure_section(body), re.M)),
             "fn_first": "verdict_from" in first}
 
 
@@ -77,7 +117,16 @@ def check_frozen():
     if not RECORD.is_file():
         print("FATAL: %s missing -- run bench/e15_prep.py --write" % RECORD.relative_to(ROOT))
         return 1
+    committed = subprocess.run(["git", "status", "--porcelain", "--", str(RECORD.relative_to(ROOT))],
+                               cwd=str(ROOT), capture_output=True, text=True).stdout.strip()
+    if committed:
+        print("FATAL: e15-probe.json is not committed")
+        return 1
     record = json.loads(RECORD.read_text(encoding="utf-8"))
+    if record.get("harness_failure"):
+        print("FATAL: a variant draw failed in the harness (session_failed, errored or missing) "
+              "-- re-run stage B, do not record emission")
+        return 1
     if not record.get("probe_allowed"):
         print("FATAL: e15-probe.json does not allow the probe (emission, or a baseline draft undelivered)")
         return 1
@@ -140,11 +189,20 @@ def main(argv=None):
     print("operator's library untouched: %s" % untouched)
     for p in problems:
         print("PROBLEM: " + p)
-    probe_ok = allowed(rows)
+
+    outcomes = draw_outcomes(VARIANT_SEG)
+    for o in outcomes:
+        print("draw %-3d outcome %-16s sandbox %-5s audit %-8s counted %s"
+              % (o["draw"], o["outcome"], o["sandbox"], o["audit"], o["counted"]))
+    failed = harness_failed(outcomes)
+    print("harness failure: %s" % failed)
+
+    probe_ok = allowed(rows) and not failed
     print("probe allowed: %s" % probe_ok)
     if untouched and not problems:
         if args.write:
             RECORD.write_text(json.dumps({"task": TASK, "commit": commit, "drafts": rows,
+                                          "draws": outcomes, "harness_failure": failed,
                                           "probe_allowed": probe_ok, "library_untouched": untouched},
                                          indent=2) + "\n", encoding="utf-8")
             print("wrote %s" % RECORD.relative_to(ROOT))
