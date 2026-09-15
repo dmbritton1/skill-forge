@@ -29,6 +29,7 @@ because nothing indexed the data — see "What the register caught".
 | E12 (2026-09-13) | Does an irrelevant injected skill actively hurt? | **No large harm.** C 12/12, relevant R 12/12, irrelevant I 12/12 — 6/6 in every cell, zero exclusions, one environment. The pre-registered §4.4 caveat governs: repair-mode tasks show the model its failing tests, so this cannot tell "no harm" from "the tests rescued it". Answers E4 for repair mode at ceiling only. Third consecutive harm null, after E6 and E10 | `results.jsonl`, the 36 rows from 2026-09-13T17:36:28; `bench/e12_read.py`; spec `docs/superpowers/specs/2026-09-13-e12-irrelevant-injection-harm-design.md` |
 | E13 screen (2026-09-14) | Do any of three new author-mode traps (C `verdict_from`, D `transcript_slice`, E `store_dir`) have a zero control floor? | **Answered: C only.** C 0/6, **admitted**: every session passed 14 of 15 graded tests and failed exactly `test_a_rewrapped_quote_still_counts_as_evidence`, the historical byte-exact-match bug. D 6/6 and E 6/6 were **rejected** at ceiling, so their docstrings suffice. Same-batch reference 0/3 (**0/24** lifetime), so the screen is valid. No injections on any row; every clone's history was stripped to a single fresh baseline commit, with the plugin under test at `4df0d02`. C's second trap (floor measured on the raw span) never sprang | `results.jsonl`, the 21 rows dated 2026-09-14 after 09:36:06; spec `docs/superpowers/specs/2026-09-13-e13-author-traps-design.md` §3 |
 | E13 trap C (2026-09-14) | Does a skill distilled from trap C make its author task pass, and can C carry the tokenizer outcome test? | **Answered: no — C is not a working trap, so the outcome test did not run.** Distillation saved 6/6 draws, every repair resolved. Qualification: `learn-failure` 1 and 3 qualify (the old tokenizer misses them, the new one delivers them); 5 of 6 are deliverable alone. Probe, one fresh batch after a postponed attempt: control 0/3, the three `learn` skills **1/9**, the two `learn-failure` anti-skills **6/6**; pooled **7/15**, one short of the pre-registered half. The skill/anti-skill split is exploratory, not pre-registered. Under §6, C serves neither trap 1 nor trap 2, and both go back to the candidate list | `bench/distilled/C/` (6 draws + `qualification.json`); `results.jsonl`, the 18 rows after 2026-09-14T14:31:15. The 15 rows from 14:09:15 to 14:24:53 are the attempt postponed at the session limit and are **excluded** |
+| E14 stage 1 (2026-09-14) | On trap C, does a draft's trigger wording (failure-time vs write-time) or its kind (skill vs anti-skill) decide whether the author session applies the fix? | **Answered: neither reaches the pre-registered bar.** Four hand-written drafts carrying the same fix: skill-failure 4/6, skill-write 5/6, anti-failure 6/6, anti-write 6/6, control 0/3, zero repeats or exclusions. Trigger **+1** (no large effect, p = 1.000); kind **+3** (ambiguous, p = 0.217). The baseline **moved**: skill-failure resolved 4/6 where E13 predicted at most 1, so rewriting the E13 skill draft recovered most of its failure on its own. Stage 2 is not triggered | `results.jsonl`, the 27 rows after 2026-09-14T21:03:29; `bench/drafts/E14/` (+ `delivery.json`); `bench/e14_read.py`; spec `docs/superpowers/specs/2026-09-14-e14-trigger-kind-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -2627,3 +2628,99 @@ is n = 3, and the anti-skill cells come from two draws of one distiller.
 - The distillers ran with the novelty gate off (§11 threat 5).
 - The operator's global library was containment-checked, but sessions run with
   bypassed permissions and could read files on disk (history strip, 2026-09-14).
+
+# E14 stage 1 — does a draft's trigger or its kind decide whether it is used? (2026-09-14)
+
+Spec: `docs/superpowers/specs/2026-09-14-e14-trigger-kind-design.md`, written
+before any E14 session. Plan: `docs/superpowers/plans/2026-09-14-e14-trigger-kind.md`.
+
+## Headline
+
+**Neither factor reaches the pre-registered bar, and the baseline moved.**
+
+| cell | trigger | kind | resolved |
+| --- | --- | --- | --- |
+| control | — | — | 0/3 |
+| sf | failure | skill | 4/6 |
+| sw | write | skill | 5/6 |
+| af | failure | anti-skill | 6/6 |
+| aw | write | anti-skill | 6/6 |
+
+- **Trigger effect** = (SW + AW) − (SF + AF) = **+1**: no large effect (Fisher p = 1.000).
+- **Kind effect** = (AF + AW) − (SF + SW) = **+3**: ambiguous (Fisher p = 0.217).
+- **Baseline check:** E13 predicted SF ≤ 1 and AF ≥ 5. AF held (6/6); **SF moved (4/6)**.
+- **Stage 2 is not triggered** (no effect reached +4).
+
+Reader output, verbatim (`python3 bench/e14_read.py --window 2026-09-14T21:03:29 -`):
+
+```
+batch: complete
+  control  valid 3/3  resolved 0  invalid 0
+  sf       valid 6/6  resolved 4  undelivered 0  invalid 0  complete
+  sw       valid 6/6  resolved 5  undelivered 0  invalid 0  complete
+  af       valid 6/6  resolved 6  undelivered 0  invalid 0  complete
+  aw       valid 6/6  resolved 6  undelivered 0  invalid 0  complete
+trigger effect: +1 -- no large effect (Fisher p = 1.000)
+kind effect: +3 -- ambiguous (Fisher p = 0.217)
+baseline: SF 4/6 (MOVED), AF 6/6 (as predicted)
+```
+
+## What the batch was
+
+- 27 sessions in the pre-registered interleaved order, 21:03–21:32, on
+  `claude-opus-5`. No repeats were needed: every row was sandboxed, audited
+  `clean`, delivered its draft, and ended its session normally.
+- Every row ran against one plugin snapshot, `archive:e2ca580`. The delivery
+  check ran at `36977b5`, and the batch guard confirmed `scripts/` and `hooks/`
+  are unchanged between them.
+- Repeats would have run in reader order (control, then sf, sw, af, aw) rather
+  than strictly "in the order they arise" (spec §4). This was recorded as a ruling
+  before the batch; no repeat ran, so it did not apply.
+
+## Reading
+
+**What this rules out.** The E13 split (anti-skills 6/6, skills 1/9) does not
+replicate as a large trigger effect: a write-time `Use when:` line gained one
+run over a failure-time one.
+
+**What it cannot settle.** Anti-skills beat skills again (12/12 against 9/12),
+but +3 is inside the pre-registered ambiguous band.
+
+**The baseline moved, and that is the main finding.** The skill-failure draft
+kept E13's failure-time trigger, yet resolved 4/6 where the E13 skill drafts
+resolved 1/9. Whatever made those drafts fail was mostly in the rewrite, not in
+the trigger or the kind. Differences between E13's `C/learn-nogate/1` and this
+cell, all identical across E14's four cells and so not tested here:
+
+- the description now names `validate.verdict_from` as an example of the gate
+  in its first sentence, rather than only inside the `Use when:` line;
+- the hidden test's name (`test_a_rewrapped_quote_still_counts_as_evidence`) is
+  gone from the trigger and the Verification section;
+- Procedure step 1 describes the naive check as "the naive version", instead of
+  telling the session to find an existing substring check in a function whose
+  body is a stub.
+
+This list is exploratory. Which of these matters is a new, unregistered question.
+
+## Limits and caveats
+
+- 6 runs per cell, one trap, hand-written drafts. Session reasoning is not
+  visible: thinking blocks are stored empty.
+- **Kind is a bundle, as the spec allows.** Only the skills carry the
+  Verification lines. Only the anti-skills say "anti-sycophancy" and "no
+  exception is raised". The skills give the fix before the explanation, the
+  anti-skills after it.
+- **All four drafts quote strings from the hidden test's fixtures**
+  (`flush() before\n   close().` and `close() before Call flush().`, both in
+  `tests/test_validate.py` at `c0d7d88`). This is inherited from the E13 drafts
+  and identical in every cell, so it does not confound the comparison, but
+  absolute resolve rates may be higher because of it.
+- The batch script's final summary read does not fail closed on a reader crash
+  (parked at the final review). The verdict above comes from an independent
+  read, not from the script's last line.
+
+## Data
+
+- `results.jsonl`: the 27 rows after 2026-09-14T21:03:29.
+- `bench/drafts/E14/`: the four drafts and `delivery.json`.
+- `bench/e14_read.py`, `bench/e14_deliver.py`, `bench/e14_probe.sh`.
