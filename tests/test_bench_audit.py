@@ -245,6 +245,46 @@ def test_read_of_another_project_folder_is_still_a_leak():
     with_env(body)
 
 
+def _plugin_scripts(e):
+    s = e.plugin / "scripts"
+    s.mkdir(parents=True)
+    for f in ("validate.py", "save_skill.py"):
+        (s / f).write_text("x\n", encoding="utf-8")
+    return s
+
+
+def test_a_relative_read_after_cd_into_the_plugin_is_seen_and_taints():
+    """E15 spec amendment 3: stage B attempt 1's draw 2 read validate.py this way."""
+    def body(e):
+        s = _plugin_scripts(e)
+        cmd = 'cd %s && grep -n "def verification_argv" -A30 scripts/validate.py' % e.plugin
+        res = e.run(e.transcript(("Bash", {"command": cmd}, "def verification_argv")))
+        assert res["leaked"] == [audit.display(str(s / "validate.py"))], res
+        assert audit.tainted_for(res, e.plugin, "scripts/validate.py") is True
+    with_env(body)
+
+
+def test_cd_into_plugin_scripts_is_not_itself_a_read():
+    """E15 spec amendment 3: attempt 1's draws 4 and 5 only read save_skill.py."""
+    def body(e):
+        s = _plugin_scripts(e)
+        cmd = 'cd %s && grep -n "def parse_front" save_skill.py | head -20' % s
+        res = e.run(e.transcript(("Bash", {"command": cmd}, "x")))
+        assert res["leaked"] == [audit.display(str(s / "save_skill.py"))], res
+        assert audit.tainted_for(res, e.plugin, "scripts/validate.py") is False
+        ran = e.run(e.transcript(("Bash", {"command": "cd %s && python3 save_skill.py d.md" % s}, "saved")))
+        assert ran["verdict"] == "clean", ran
+    with_env(body)
+
+
+def test_a_search_of_dot_after_cd_into_the_plugin_taints():
+    def body(e):
+        _plugin_scripts(e)
+        res = e.run(e.transcript(("Bash", {"command": "cd %s && grep -rn verdict_from ." % e.plugin}, "x")))
+        assert audit.tainted_for(res, e.plugin, "scripts/validate.py") is True
+    with_env(body)
+
+
 def test_missing_results_do_not_share_lists():
     def body(e):
         res1 = e.run(None)

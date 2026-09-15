@@ -133,7 +133,7 @@ def test_draw_outcomes_reports_saved_session_failed_missing_and_errored():
         assert outcomes[0]["counted"] is True
         assert outcomes[1]["counted"] is False
         assert outcomes[2] == {"draw": 3, "outcome": "missing", "sandbox": None,
-                               "audit": None, "tainted": None, "counted": False}
+                               "audit": None, "leaked": None, "tainted": None, "counted": False}
         assert outcomes[4]["counted"] is False  # tainted
         assert outcomes[5]["counted"] is True
 
@@ -157,6 +157,40 @@ def test_harness_failed_true_for_an_unresolved_repair_or_untrusted_isolation():
     assert ep.harness_failed([dict(base, audit="missing")]) is True
     assert ep.harness_failed([dict(base, outcome="saved", tainted=True)]) is True
     assert ep.harness_failed([dict(base, outcome="rejected")]) is False
+
+
+def test_a_leak_confined_to_the_snapshot_scripts_counts_unless_tainted():
+    """Spec amendment 3: only the fixed file, or a leak outside the variant
+    snapshot's scripts/, blocks a draw. A leak with no paths fails closed."""
+    with tempfile.TemporaryDirectory() as tmp:
+        seg = pathlib.Path(tmp)
+        variant_file = seg / "variant.md"
+        variant_file.write_text("variant rules\n", encoding="utf-8")
+        snap = "/private/tmp/skillforge-bench/plugin-45e0292-e15"
+
+        def draw(n, leaked, verdict="leak", tainted=False):
+            d = seg / str(n)
+            d.mkdir()
+            (d / "meta.json").write_text(json.dumps({
+                "outcome": "saved", "tainted": tainted, "sandbox": True,
+                "audit": {"verdict": verdict, "leaked": leaked},
+                "plugin_commit": "archive:deadbeef+e15-" + ep.sha256(variant_file)[:12]}),
+                encoding="utf-8")
+            (d / "SKILL.md").write_text("x\n", encoding="utf-8")
+
+        draw(1, [snap + "/scripts", snap + "/scripts/save_skill.py"])
+        draw(2, [snap + "/scripts/validate.py"], tainted=True)
+        draw(3, [snap + "/scripts/save_skill.py", "~/Developer/skill-forge/scripts/validate.py"])
+        draw(4, [])
+        draw(5, None)
+        draw(6, ["/private/tmp/skillforge-bench/plugin-45e0292/scripts/save_skill.py"])
+        draw(7, [], verdict="clean")
+        outcomes = ep.draw_outcomes(seg, expected=7, variant_file=variant_file)
+        assert [o["counted"] for o in outcomes] == [True, False, False, False, False, False, True]
+        assert [p.parent.name for p in ep.counted_variant_drafts(seg, variant_file=variant_file)] == ["1", "7"]
+        assert ep.harness_failed([outcomes[0], outcomes[6]]) is False
+        for bad in outcomes[1:6]:
+            assert ep.harness_failed([outcomes[0], bad]) is True, bad
 
 
 def test_stale_names_changed_or_missing_drafts_by_path():

@@ -39,6 +39,9 @@ BASELINE = tuple("bench/distilled/C/learn-nogate/%d/SKILL.md" % d for d in (1, 2
 # Spec amendment 1: repair_unresolved means the source session never fixed the
 # bug, before the distiller's rules were read -- not an emission outcome.
 HARNESS_OUTCOMES = ("session_failed", "errored", "missing", "repair_unresolved")
+# Spec amendment 3: a path in the variant snapshot's scripts/. Its hooks import
+# them, so the sandbox leaves them readable (sandbox spec section 3.4).
+SNAPSHOT_SCRIPTS = re.compile(r"/skillforge-bench/plugin-[^/]+-e15/scripts(/|$)")
 
 
 def _ran_under_variant(m, variant_file):
@@ -47,9 +50,15 @@ def _ran_under_variant(m, variant_file):
 
 
 def _isolated(m):
-    """Spec amendment 1: sandboxed, audit clean, not tainted. A missing key fails closed."""
-    return (m.get("sandbox") is True and (m.get("audit") or {}).get("verdict") == "clean"
-            and not m.get("tainted"))
+    """Spec amendments 1 and 3: sandboxed, not tainted, and an audit that is clean
+    or whose every leak is in the variant snapshot's scripts/ (a read of the fixed
+    file itself is `tainted`). A missing key fails closed."""
+    aud = m.get("audit") or {}
+    leaked = aud.get("leaked")
+    confined = (aud.get("verdict") == "leak" and isinstance(leaked, list) and bool(leaked)
+                and all(SNAPSHOT_SCRIPTS.search(str(p)) for p in leaked))
+    return (m.get("sandbox") is True and m.get("tainted") is False
+            and (aud.get("verdict") == "clean" or confined))
 
 
 def _counted(m, draft, variant_file):
@@ -76,22 +85,24 @@ def draw_outcomes(seg, expected=6, variant_file=VARIANT_FILE):
         draft = pathlib.Path(seg) / str(n) / "SKILL.md"
         if not meta.is_file():
             out.append({"draw": n, "outcome": "missing", "sandbox": None, "audit": None,
-                        "tainted": None, "counted": False})
+                        "leaked": None, "tainted": None, "counted": False})
             continue
         m = json.loads(meta.read_text(encoding="utf-8"))
+        aud = m.get("audit") or {}
         out.append({"draw": n, "outcome": m.get("outcome") or "missing",
-                    "sandbox": m.get("sandbox"), "audit": (m.get("audit") or {}).get("verdict"),
-                    "tainted": m.get("tainted"), "counted": _counted(m, draft, variant_file)})
+                    "sandbox": m.get("sandbox"), "audit": aud.get("verdict"),
+                    "leaked": aud.get("leaked"), "tainted": m.get("tainted"),
+                    "counted": _counted(m, draft, variant_file)})
     return out
 
 
 def harness_failed(outcomes):
-    """Finding 1 and spec amendment 1: a draw the harness failed on, whose source
-    repair did not resolve, or whose isolation cannot be trusted. None of these is
-    an emission outcome: it blocks the probe and stage B is re-run."""
+    """Finding 1 and spec amendments 1 and 3: a draw the harness failed on, whose
+    source repair did not resolve, or whose isolation cannot be trusted. None of
+    these is an emission outcome: it blocks the probe and stage B is re-run."""
     return any(o["outcome"] in HARNESS_OUTCOMES
-               or not _isolated({"sandbox": o["sandbox"], "audit": {"verdict": o["audit"]},
-                                 "tainted": o["tainted"]})
+               or not _isolated({"sandbox": o["sandbox"], "tainted": o["tainted"],
+                                 "audit": {"verdict": o["audit"], "leaked": o.get("leaked")}})
                for o in outcomes)
 
 

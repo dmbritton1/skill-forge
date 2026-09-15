@@ -68,11 +68,18 @@ def _under(path, root):
 def _tool_paths(name, inp, plugin_dir):
     """[(raw path, ran as a program)] for one tool call.
 
-    ponytail: only `${CLAUDE_PLUGIN_ROOT}`/`$CLAUDE_PLUGIN_ROOT` are expanded --
-    a path reached through `cd`, another env var, a glob, or `python3 -c` code
-    is not seen, and `python3 -u <script>` reads as text (a false leak, which
-    costs a re-run) because `-u` sits between `python3` and the script. A real
-    parser if a leak ever slips by.
+    A `cd` into the plugin is not itself a read (E15 spec amendment 3): the
+    command's later relative paths, and bare names that exist there (`.`
+    included), resolve against it instead. E15 stage B's first attempt read
+    scripts/validate.py as `cd <plugin> && grep ... scripts/validate.py`, which
+    this could not see.
+
+    ponytail: only `${CLAUDE_PLUGIN_ROOT}`/`$CLAUDE_PLUGIN_ROOT` are expanded,
+    and `cd` is followed only into the plugin and only within one command -- a
+    `cd` elsewhere, another env var, a glob, or `python3 -c` code is not seen,
+    and `python3 -u <script>` reads as text (a false leak, which costs a re-run)
+    because `-u` sits between `python3` and the script. A real parser if a leak
+    ever slips by.
     """
     if name == "Bash":
         cmd = inp.get("command") or ""
@@ -83,8 +90,25 @@ def _tool_paths(name, inp, plugin_dir):
             toks = list(lex)
         except ValueError:
             toks = cmd.split()
-        return [(t, i > 0 and os.path.basename(toks[i - 1]).startswith("python"))
-                for i, t in enumerate(toks) if "/" in t or t.startswith("~")]
+        out, cwd = [], None
+        for i, t in enumerate(toks):
+            ran = i > 0 and os.path.basename(toks[i - 1]).startswith("python")
+            if i > 0 and toks[i - 1] == "cd":
+                target = os.path.expanduser(t)
+                cwd = (os.path.realpath(os.path.join(cwd or "/", target))
+                       if cwd or os.path.isabs(target) else None)
+                if cwd and not _under(cwd, plugin_dir):
+                    cwd = None
+                if cwd:
+                    continue
+            elif cwd and not t.startswith(("/", "~")):
+                p = os.path.join(cwd, t)
+                if "/" in t or os.path.lexists(p):
+                    out.append((p, ran))
+                continue
+            if "/" in t or t.startswith("~"):
+                out.append((t, ran))
+        return out
     raw = inp.get("file_path") or inp.get("path") or inp.get("notebook_path")
     return [(raw, False)] if isinstance(raw, str) and raw else []
 

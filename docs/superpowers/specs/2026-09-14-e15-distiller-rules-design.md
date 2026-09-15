@@ -204,8 +204,10 @@ caveat.
 
 ## Amendments
 
-Both were made on 2026-09-15, after a pre-run review and before any E15
-session, at the user's ruling. The sections above are left as written.
+Amendments 1 and 2 were made on 2026-09-15, after a pre-run review and before
+any E15 session. Amendment 3 was made later that day, after stage B's first
+attempt. All three are at the user's ruling. The sections above are left as
+written.
 
 1. **Stage B, stage C: a draw that says nothing about the rules is a harness
    failure, not a non-emission.** A draw that is `session_failed`, `errored`,
@@ -219,3 +221,22 @@ session, at the user's ruling. The sections above are left as written.
    leave fewer than 3, d is not computed and the batch is recorded as not
    readable, as for a void baseline draft. Previously V could rest on a single
    draft's 3 runs.
+3. **Stage B, stage C: only the trap's fixed file taints, and the audit follows
+   `cd` into the plugin.** Stage B's first attempt (commit `49f3ae3`, moved
+   aside to `learn-e15-nogate-postponed-1`) had draws 2, 4 and 5 tainted, which
+   blocked the probe under amendment 1. Draws 4 and 5 read only
+   `scripts/save_skill.py`. Their taint came from `cd <snapshot>/scripts`, which
+   the audit counted as a read of the folder holding `validate.py`. Draw 2
+   read `scripts/validate.py` after `cd <snapshot>`, which the audit could not
+   see (it read `verification_argv`, not `verdict_from`). From the re-run on:
+   - a `cd` into the plugin is not itself a read, and the command's later
+     relative paths and existing bare names resolve against it
+     (`bench/audit.py`, so this also applies to stage D's probe audits);
+   - a counted draw may have audit `leak` if every leaked path is in the
+     variant snapshot's `scripts/` and it is not tainted. This restores sandbox
+     spec section 3.4 (a distill audit never voids a draft; only the trap's
+     fixed file taints) for the files around `validate.py`. A leak anywhere
+     else, or with no recorded path, still blocks.
+
+   The first attempt's draws are not re-scored under this amendment. Stage B is
+   re-run whole.
