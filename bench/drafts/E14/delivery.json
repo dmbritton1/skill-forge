@@ -1,0 +1,36 @@
+{
+  "task": "sf-author-verdict-from",
+  "ref": "HEAD",
+  "commit": "36977b50f4de716628278f960f864a8b9dec3fe9",
+  "drafts": [
+    {
+      "cell": "sf",
+      "name": "e14-quote-gate-rewrap-sf",
+      "path": "bench/drafts/E14/e14-quote-gate-rewrap-sf.md",
+      "sha256": "591d8590f0e693a340b3142503543e439d8f7680b52c067500d98e32b9edd662",
+      "delivered": true
+    },
+    {
+      "cell": "sw",
+      "name": "e14-quote-gate-rewrap-sw",
+      "path": "bench/drafts/E14/e14-quote-gate-rewrap-sw.md",
+      "sha256": "8a35c1c379d54ffc479719e23c30b0c65cc17d87c023097ccca198ef9354c431",
+      "delivered": true
+    },
+    {
+      "cell": "af",
+      "name": "e14-quote-gate-rewrap-af",
+      "path": "bench/drafts/E14/e14-quote-gate-rewrap-af.md",
+      "sha256": "dfb9d253040a8e053ec6ea56ed48dcb9aa06ee2d9b90818ceb2dbb9250670995",
+      "delivered": true
+    },
+    {
+      "cell": "aw",
+      "name": "e14-quote-gate-rewrap-aw",
+      "path": "bench/drafts/E14/e14-quote-gate-rewrap-aw.md",
+      "sha256": "20c4309b1f9eae0c5010c1fc94e3b7d67dda3ee0dee6f55f6176aed5d62fe65d",
+      "delivered": true
+    }
+  ],
+  "library_untouched": true
+}
