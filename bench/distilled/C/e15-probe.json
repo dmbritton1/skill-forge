@@ -1,0 +1,179 @@
+{
+  "task": "sf-author-verdict-from",
+  "commit": "83953c2830251f05f81fcbf707a01dcc470a9d37",
+  "drafts": [
+    {
+      "group": "variant",
+      "path": "bench/distilled/C/learn-e15-nogate/1/SKILL.md",
+      "name": "whitespace-insensitive-evidence-quote-check",
+      "sha256": "773f1dd89806b7e53b0570bd89f89bced668d4ddbdc3a2ba87d51e773fa99e86",
+      "delivered": true,
+      "compliance": {
+        "names_test": false,
+        "find_step": false,
+        "fn_first": true
+      }
+    },
+    {
+      "group": "variant",
+      "path": "bench/distilled/C/learn-e15-nogate/2/SKILL.md",
+      "name": "whitespace-insensitive-evidence-quote-gate",
+      "sha256": "0e0274bec079702aa57433c3bc01632c09fc1db1fe11431d48947deac4a9da84",
+      "delivered": true,
+      "compliance": {
+        "names_test": false,
+        "find_step": false,
+        "fn_first": true
+      }
+    },
+    {
+      "group": "variant",
+      "path": "bench/distilled/C/learn-e15-nogate/3/SKILL.md",
+      "name": "whitespace-insensitive-evidence-match",
+      "sha256": "645f23cbc93589d3447ef3316ca840b3d2d4513f45e1655f74b093ef15c3c780",
+      "delivered": true,
+      "compliance": {
+        "names_test": false,
+        "find_step": false,
+        "fn_first": true
+      }
+    },
+    {
+      "group": "variant",
+      "path": "bench/distilled/C/learn-e15-nogate/4/SKILL.md",
+      "name": "whitespace-insensitive-evidence-quote-gate",
+      "sha256": "47c07220092dc15fac8ece85090667a1559b51a5c103075fc1ddb4bd6ac5b2e2",
+      "delivered": true,
+      "compliance": {
+        "names_test": false,
+        "find_step": false,
+        "fn_first": true
+      }
+    },
+    {
+      "group": "variant",
+      "path": "bench/distilled/C/learn-e15-nogate/5/SKILL.md",
+      "name": "whitespace-insensitive-evidence-quote",
+      "sha256": "1114dd6ee5f8988a0020f279c7f113328b6809a72d83ba08662bf682d94e78f9",
+      "delivered": true,
+      "compliance": {
+        "names_test": false,
+        "find_step": false,
+        "fn_first": true
+      }
+    },
+    {
+      "group": "variant",
+      "path": "bench/distilled/C/learn-e15-nogate/6/SKILL.md",
+      "name": "verbatim-evidence-whitespace-insensitive",
+      "sha256": "64271ed1f4a378b8b4c4f682b9b60b25d2172bc6f70f983a357ab97128c4006b",
+      "delivered": true,
+      "compliance": {
+        "names_test": false,
+        "find_step": false,
+        "fn_first": true
+      }
+    },
+    {
+      "group": "baseline",
+      "path": "bench/distilled/C/learn-nogate/1/SKILL.md",
+      "name": "whitespace-insensitive-evidence-gate",
+      "sha256": "e418758d1e037dabc8e3234f5615332a96f7b672b251267721dfb91d76d06486",
+      "delivered": true,
+      "compliance": {
+        "names_test": true,
+        "find_step": true,
+        "fn_first": false
+      }
+    },
+    {
+      "group": "baseline",
+      "path": "bench/distilled/C/learn-nogate/2/SKILL.md",
+      "name": "whitespace-insensitive-evidence-quotes",
+      "sha256": "b4d9b3813349ca10ce799b3b533a6c322464554b68ff79d9fba73204bc7b75d4",
+      "delivered": true,
+      "compliance": {
+        "names_test": true,
+        "find_step": true,
+        "fn_first": false
+      }
+    },
+    {
+      "group": "baseline",
+      "path": "bench/distilled/C/learn-nogate/3/SKILL.md",
+      "name": "whitespace-tolerant-quote-evidence",
+      "sha256": "0c26a166c26da79dba33c2605608c09ca21a24d96eef2ed9890f731654bba52a",
+      "delivered": true,
+      "compliance": {
+        "names_test": true,
+        "find_step": true,
+        "fn_first": false
+      }
+    }
+  ],
+  "draws": [
+    {
+      "draw": 1,
+      "outcome": "saved",
+      "sandbox": true,
+      "audit": "clean",
+      "leaked": [],
+      "tainted": false,
+      "counted": true
+    },
+    {
+      "draw": 2,
+      "outcome": "saved",
+      "sandbox": true,
+      "audit": "leak",
+      "leaked": [
+        "/private/tmp/skillforge-bench/plugin-7a3011a-e15/scripts/save_skill.py"
+      ],
+      "tainted": false,
+      "counted": true
+    },
+    {
+      "draw": 3,
+      "outcome": "saved",
+      "sandbox": true,
+      "audit": "leak",
+      "leaked": [
+        "/private/tmp/skillforge-bench/plugin-7a3011a-e15/scripts/save_skill.py"
+      ],
+      "tainted": false,
+      "counted": true
+    },
+    {
+      "draw": 4,
+      "outcome": "saved",
+      "sandbox": true,
+      "audit": "leak",
+      "leaked": [
+        "/private/tmp/skillforge-bench/plugin-7a3011a-e15/scripts/save_skill.py"
+      ],
+      "tainted": false,
+      "counted": true
+    },
+    {
+      "draw": 5,
+      "outcome": "saved",
+      "sandbox": true,
+      "audit": "clean",
+      "leaked": [],
+      "tainted": false,
+      "counted": true
+    },
+    {
+      "draw": 6,
+      "outcome": "saved",
+      "sandbox": true,
+      "audit": "clean",
+      "leaked": [],
+      "tainted": false,
+      "counted": true
+    }
+  ],
+  "harness_failure": false,
+  "probe_allowed": true,
+  "library_untouched": true
+}
