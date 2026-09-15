@@ -20,6 +20,7 @@ FIX = ('ev = " ".join((f.get("evidence") or "").split()) '
        'return "fail"')
 NAIVE = ('ev = (f.get("evidence") or "").strip()', "ev not in text")
 FRAMING = "looks like the strictest, safest"
+WARNING = "Do not switch to word-set, sorted-token or fuzzy matching."
 
 
 def flat(s):
@@ -86,6 +87,25 @@ def test_no_draft_names_a_hidden_test():
 def test_lengths_are_within_ten_percent():
     lens = [len(text(c)) for c in CELLS]
     assert min(lens) >= 0.9 * max(lens), lens
+
+
+def test_all_drafts_carry_the_warning():
+    for c in CELLS:
+        assert WARNING in flat(text(c)), c
+
+
+def test_anti_skills_have_identical_non_empty_symptoms():
+    symptoms = {c: save_skill.parse_frontmatter(text(c))[0].get("symptoms") for c in ("af", "aw")}
+    assert symptoms["af"] is not None and len(symptoms["af"]) > 0, symptoms["af"]
+    assert symptoms["aw"] is not None and len(symptoms["aw"]) > 0, symptoms["aw"]
+    assert symptoms["af"] == symptoms["aw"], symptoms
+
+
+def test_skills_have_identical_verification_command():
+    expected = '"python3 tests/test_validate.py"'
+    for c in ("sf", "sw"):
+        fm, _ = save_skill.parse_frontmatter(text(c))
+        assert fm.get("verification.command") == expected, (c, fm.get("verification.command"))
 
 
 if __name__ == "__main__":
