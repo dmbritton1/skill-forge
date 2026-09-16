@@ -92,9 +92,55 @@ def test_a_resolved_valid_control_voids_the_batch():
     assert res["batch"] == "void" and res["measures"] is None
 
 
-def test_a_session_limit_postpones_the_batch():
-    rows = [ctl()] * 3 + full({}) + [dict(ctl(ok=False), session_tail="You've hit your session limit")]
-    assert er.read_batch(rows, DRAFTS)["batch"] == "postponed"
+LIMIT = "You've hit your session limit · resets 12:50am (America/New_York)\n"
+
+
+def test_a_failed_last_session_pauses_an_unfinished_batch_and_never_counts():
+    """Spec amendment 4: a session limit pauses the batch instead of postponing it."""
+    rows = [ctl(), trt(V[0]), dict(trt(B[0], resolved=True, ok=False), session_tail=LIMIT)]
+    res = er.read_batch(rows, DRAFTS)
+    assert (res["batch"], res["reason"]) == ("paused", "session limit")
+    assert res["drafts"][B[0]["path"]]["valid"] == 0
+    assert er.read_batch(rows[:2] + [trt(B[0], ok=False)], DRAFTS)["reason"] == "failed session"
+    weekly = dict(trt(B[0], ok=False), session_tail="You've hit your weekly limit · resets Mon")
+    assert er.read_batch(rows[:2] + [weekly], DRAFTS)["reason"] == "session limit"
+    assert er.read_batch(rows + [trt(B[0])], DRAFTS)["batch"] == "incomplete"
+    done = [ctl()] * 3 + full({}) + [dict(ctl(ok=False), session_tail=LIMIT)]
+    assert er.read_batch(done, DRAFTS)["batch"] == "complete"
+
+
+def test_next_run_follows_the_order_and_reruns_a_failed_session_in_place():
+    plan = er.order(DRAFTS)
+    nxt = lambda rows: er.next_run(rows, DRAFTS, er.read_batch(rows, DRAFTS))
+    run = lambda arm, **kw: ctl(**kw) if arm == "control" else trt(next(d for d in DRAFTS if d["path"] == arm), **kw)
+    rows = []
+    for i, arm in enumerate(plan):
+        assert nxt(rows) == arm, i
+        if i in (4, 17):  # cut off at the limit, then re-run in place after the reset
+            rows.append(dict(run(arm, ok=False), session_tail=LIMIT))
+            assert nxt(rows) == arm
+        rows.append(run(arm))
+    assert nxt(rows) is None and er.read_batch(rows, DRAFTS)["batch"] == "complete"
+
+
+def test_repeats_after_the_order_are_capped_at_eight_finished_sessions():
+    rows = [ctl()] * 3 + full({})
+    rows = [trt(V[0], audit="leak") if (r.get("skill_path") or "").endswith(V[0]["path"]) else r for r in rows]
+    nxt = lambda rows: er.next_run(rows, DRAFTS, er.read_batch(rows, DRAFTS))
+    for _ in range(8):
+        assert nxt(rows) == V[0]["path"]
+        rows.append(trt(V[0], ok=False))           # a failed repeat does not use the budget
+        assert nxt(rows) == V[0]["path"]
+        rows.append(trt(V[0], audit="leak"))
+    assert nxt(rows) is None and er.read_batch(rows, DRAFTS)["batch"] == "incomplete"
+
+
+def test_rows_from_two_cli_versions_make_the_batch_unreadable():
+    a = dict(ctl(), env={"cli": "2.1.266 (Claude Code)", "plugin_commit": "archive:x"})
+    b = dict(ctl(), env={"cli": "2.1.267 (Claude Code)", "plugin_commit": "archive:x"})
+    assert er.read_batch([a, a], DRAFTS)["batch"] == "incomplete"
+    res = er.read_batch([a, b], DRAFTS)
+    assert res["batch"] == "mixed" and er.next_run([a, b], DRAFTS, res) is None
 
 
 def test_invalid_and_undelivered_rows_do_not_count():

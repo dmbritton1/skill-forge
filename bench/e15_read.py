@@ -7,7 +7,10 @@ Variant drafts (distilled under bench/variants/E15/distilling-skills.md) and
 E13's three skill drafts (the baseline), each installed alone, 3 runs each,
 plus a same-batch control of 3, in three interleaved rounds.
 
-A row refused at the session limit postpones the batch. A valid control that
+A failed session (at the session limit or otherwise) never counts and is
+re-run in its place in the order (spec amendment 4): the batch pauses and
+resumes across session-limit windows. Rows from more than one CLI version,
+model or plugin commit make the batch unreadable. A valid control that
 resolves voids it. A row audit.counts() rejects, a failed session, or a draft
 row that did not inject its draft does not count; a second undelivered row
 voids that draft. A void variant draft drops out of V; fewer than 3 live
@@ -21,9 +24,13 @@ Otherwise ambiguous. Fisher's p is reported, never a threshold. Run:
     python3 bench/e15_read.py --order
     python3 bench/e15_read.py --window <E15_START> -
     python3 bench/e15_read.py --window <E15_START> - --todo
+    python3 bench/e15_read.py --window <E15_START> - --next
+    python3 bench/e15_read.py --window <E15_START> - --env
 """
 import argparse
+import collections
 import json
+import re
 import sys
 from fractions import Fraction
 from pathlib import Path
@@ -39,7 +46,8 @@ N_DRAFT = 3
 N_CONTROL = 3
 ROUNDS = 3
 MIN_VARIANT = 3  # spec section 3 emission gate and amendment 2
-LIMIT_MARK = "session limit"
+REPEATS = 8
+LIMIT_MARK = re.compile(r"hit your [\w ]*limit")  # session, weekly, Opus ...
 RECORD = ROOT / "distilled" / "C" / "e15-probe.json"
 
 
@@ -81,15 +89,27 @@ def band(d, v):
     return "ambiguous"
 
 
+def env_of(row):
+    """What must not change across the batch's windows (spec amendment 4)."""
+    env = row.get("env") or {}
+    return (env.get("cli"), row.get("model"), env.get("plugin_commit"))
+
+
+def arm_of(row, drafts):
+    if row.get("arm") == "control":
+        return "control"
+    d = draft_of(row, drafts)
+    return d["path"] if d else None
+
+
 def _valid(row):
     return counts(row) and bool(row.get("session_ok"))
 
 
 def read_batch(rows, drafts):
     mine = [r for r in rows if r.get("task") == TASK]
-    if any(not r.get("session_ok") and LIMIT_MARK in (r.get("session_tail") or "")
-           for r in mine):
-        return {"batch": "postponed", "reason": "a session hit the session limit: re-run the whole batch",
+    if len({env_of(r) for r in mine}) > 1:
+        return {"batch": "mixed", "reason": "rows from more than one CLI version, model or plugin commit",
                 "control": None, "drafts": {}, "measures": None}
     control = [r for r in mine if r.get("arm") == "control"]
     ok = [r for r in control if _valid(r)]
@@ -116,7 +136,11 @@ def read_batch(rows, drafts):
         complete = complete and cell["status"] != "incomplete"
         out["drafts"][d["path"]] = cell
     if not complete:
-        out.update(batch="incomplete", reason="the control or a draft is not fully measured")
+        if mine and not mine[-1].get("session_ok"):
+            limit = bool(LIMIT_MARK.search(mine[-1].get("session_tail") or ""))
+            out.update(batch="paused", reason="session limit" if limit else "failed session")
+        else:
+            out.update(batch="incomplete", reason="the control or a draft is not fully measured")
         return out
     cells = list(out["drafts"].values())
     if any(c["group"] == "baseline" and c["status"] == "void" for c in cells):
@@ -141,7 +165,7 @@ def read_batch(rows, drafts):
 
 def todo(res, drafts):
     """One entry per run still needed, for bench/e15_probe.sh's repeat loop."""
-    if res["batch"] != "incomplete":
+    if res["batch"] not in ("incomplete", "paused"):
         return []
     need = ["control"] * (N_CONTROL - res["control"]["valid"])
     for d in drafts:
@@ -151,11 +175,31 @@ def todo(res, drafts):
     return need
 
 
+def next_run(rows, drafts, res):
+    """Spec amendment 4: the next run, or None. A finished session takes its slot
+    in the pre-registered order; a failed one does not, so it is re-run in place.
+    After the order, at most REPEATS finished sessions beyond it, from todo()."""
+    if res["batch"] not in ("incomplete", "paused"):
+        return None
+    done = collections.Counter(arm_of(r, drafts) for r in rows
+                               if r.get("task") == TASK and r.get("session_ok"))
+    plan, seen = order(drafts), collections.Counter()
+    for arm in plan:
+        seen[arm] += 1
+        if seen[arm] > done[arm]:
+            return arm
+    used = sum(max(0, n - plan.count(arm)) for arm, n in done.items())
+    need = todo(res, drafts)
+    return need[0] if need and used < REPEATS else None
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--window", nargs=2, action="append", metavar=("FROM", "TO"))
     ap.add_argument("--todo", action="store_true", help="print only the runs still needed")
     ap.add_argument("--order", action="store_true", help="print the pre-registered run order")
+    ap.add_argument("--next", action="store_true", help="print the next run, or nothing")
+    ap.add_argument("--env", action="store_true", help="print the batch's CLI|model|plugin commit")
     ap.add_argument("--record", default=str(RECORD), help="e15-probe.json (tests pass a copy)")
     args = ap.parse_args(argv)
     drafts = probe_drafts(json.loads(Path(args.record).read_text(encoding="utf-8")))
@@ -167,7 +211,16 @@ def main(argv=None):
         ap.error("--window is required unless --order")
     rows = [json.loads(l) for l in (ROOT / "results.jsonl").read_text(encoding="utf-8").splitlines()
             if l.strip()]
-    res = read_batch(select(rows, args.window), drafts)
+    rows = select(rows, args.window)
+    res = read_batch(rows, drafts)
+    if args.next:
+        print(next_run(rows, drafts, res) or "")
+        return 0
+    if args.env:
+        envs = {env_of(r) for r in rows if r.get("task") == TASK}
+        for e in envs:
+            print("|".join(str(x) for x in e))
+        return 0
     if args.todo:
         for arm in todo(res, drafts):
             print(arm)

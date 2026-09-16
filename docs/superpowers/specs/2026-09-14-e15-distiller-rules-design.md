@@ -206,7 +206,8 @@ caveat.
 
 Amendments 1 and 2 were made on 2026-09-15, after a pre-run review and before
 any E15 session. Amendment 3 was made later that day, after stage B's first
-attempt. All three are at the user's ruling. The sections above are left as
+attempt. Amendment 4 was made on 2026-09-16, after two probe batches were
+postponed. All four are at the user's ruling. The sections above are left as
 written.
 
 1. **Stage B, stage C: a draw that says nothing about the rules is a harness
@@ -240,3 +241,30 @@ written.
 
    The first attempt's draws are not re-scored under this amendment. Stage B is
    re-run whole.
+4. **Stage D: the batch pauses at the session limit and resumes; it is no
+   longer postponed.** Probe attempt 1 (`E15_START` 2026-09-15T12:10:52) was cut
+   off after 15 rows, and attempt 2 (19:56:46) after 25 rows, 36 minutes into
+   a fresh window. A batch needs 31 to 39 sessions, and one window held about
+   25, so a batch re-run whole could never finish. Both attempts' rows stay
+   excluded. Their outcomes were visible when this was written; the change is
+   triggered by the clock, not by the outcomes, and reports must say so. From
+   the third attempt on:
+   - a failed session (`session_ok` false: at the session limit or otherwise)
+     never counts, does not take its slot in the pre-registered order, and is
+     re-run in its place. It does not use one of the 8 repeats. The limit cuts
+     sessions off mid-run (both limit rows were about 60 s long, with
+     `resolved` true), so such a row is never read as a result;
+   - repeats are the at most 8 finished sessions after the order;
+   - at the session limit, `bench/e15_probe.sh` waits for the reset and goes
+     on. There is no cap on windows. After 3 failed sessions in a row, or 3
+     runs that wrote no row, it stops, and `--resume <E15_START>` continues the
+     same batch from the rows already written;
+   - every row of the batch must share one CLI version, model and plugin
+     commit. The script stops before a session if the CLI or HEAD changed, and
+     the reader reports a batch with mixed rows as `mixed` (not readable). The
+     script runs sessions with `DISABLE_AUTOUPDATER=1`.
+
+   What amendment 4 cannot rule out: a change that the version, model and
+   commit do not show (such as a server-side change) between windows. The
+   interleaved order spreads each draft's runs across windows, which limits,
+   but does not remove, that confound.
