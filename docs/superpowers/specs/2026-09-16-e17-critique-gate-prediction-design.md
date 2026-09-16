@@ -161,3 +161,21 @@ value on offer here, and it is small but real.
 27 `claude -p` turns, plus re-runs for inconclusive calls. **Zero bench
 sessions, zero clones, zero writes.** Results land in
 `bench/e17-q5-results.json` and are read by `bench/e17_q5.py --read`.
+
+## Amendment 1 (2026-09-16, before any E17 call ran)
+
+**An outage is not an inconclusive.** `critique` returns `inconclusive` both
+for a reply it could not parse — which is data about the gate — and for a
+model call that never happened, which is not. At the session limit every call
+would come back inconclusive, §2's "two inconclusive drops the draft" rule
+would drop all nine, and the batch would record a verdict about the drafts
+that is really a verdict about the clock.
+
+From now on, a call that is inconclusive twice asks `claude -p` a trivial
+question first. If that answers, the inconclusive is genuine and is recorded
+as §2 says. If it does not, **nothing is recorded for that call** and the run
+stops; finished calls are kept in `bench/e17-q5-results.json` and a later run
+resumes from them.
+
+This changes no reading rule, no band, no count and no group. It was written
+before the first call, so no E17 data existed to contaminate it.

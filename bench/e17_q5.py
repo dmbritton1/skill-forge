@@ -113,6 +113,20 @@ def read_results(records):
     return out
 
 
+def transport_ok(validate):
+    """Is `claude -p` answering at all? (spec amendment 1)
+
+    `critique` returns `inconclusive` both for a reply it could not parse and
+    for a model call that never happened. Only the first is data. At the
+    session limit every call would come back inconclusive, and the spec's
+    "two inconclusive drops the draft" rule would quietly drop the whole
+    corpus and record a batch that is not readable. So a double inconclusive
+    asks this question first, and an outage stops the run instead of writing
+    a verdict about the drafts.
+    """
+    return validate.run_model("reply with the single word: ok", str(REPO)) is not None
+
+
 def load():
     if RESULTS.exists():
         return json.loads(RESULTS.read_text(encoding="utf-8"))
@@ -174,6 +188,12 @@ def main(argv=None):
             verdict, _ = validate.critique(text, {"kind": "skill"}, str(REPO))
             if verdict == "inconclusive":
                 verdict, _ = validate.critique(text, {"kind": "skill"}, str(REPO))
+            if verdict == "inconclusive" and not transport_ok(validate):
+                print("STOP: `claude -p` is not answering (session limit, most "
+                      "likely). Nothing was recorded for this call -- wait for "
+                      "the reset and re-run; finished calls are kept.",
+                      file=sys.stderr)
+                return 2
             rec["calls"].append(verdict)
             save(records)
             print("%-3s %-44s %s" % (group, rel.replace("distilled/C/", ""), verdict))

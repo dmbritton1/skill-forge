@@ -98,6 +98,26 @@ def test_a_partial_run_is_not_read_and_stability_is_not_claimed():
     assert res["stability"] == "not measured", res["stability"]
 
 
+class _Stub:
+    """Stands in for scripts/validate: run_model answers, or it does not."""
+
+    def __init__(self, answering):
+        self.answering = answering
+        self.asked = 0
+
+    def run_model(self, prompt, cwd):
+        self.asked += 1
+        return "ok" if self.answering else None
+
+
+def test_transport_ok_is_true_only_when_claude_answers():
+    """Amendment 1: a double inconclusive must be able to tell a bad reply
+    from a session limit, or an outage silently drops the whole corpus."""
+    up, down = _Stub(True), _Stub(False)
+    assert q5.transport_ok(up) is True and up.asked == 1
+    assert q5.transport_ok(down) is False and down.asked == 1
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):
