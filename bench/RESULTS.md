@@ -31,6 +31,7 @@ because nothing indexed the data — see "What the register caught".
 | E13 trap C (2026-09-14) | Does a skill distilled from trap C make its author task pass, and can C carry the tokenizer outcome test? | **Answered: no — C is not a working trap, so the outcome test did not run.** Distillation saved 6/6 draws, every repair resolved. Qualification: `learn-failure` 1 and 3 qualify (the old tokenizer misses them, the new one delivers them); 5 of 6 are deliverable alone. Probe, one fresh batch after a postponed attempt: control 0/3, the three `learn` skills **1/9**, the two `learn-failure` anti-skills **6/6**; pooled **7/15**, one short of the pre-registered half. The skill/anti-skill split is exploratory, not pre-registered. Under §6, C serves neither trap 1 nor trap 2, and both go back to the candidate list | `bench/distilled/C/` (6 draws + `qualification.json`); `results.jsonl`, the 18 rows after 2026-09-14T14:31:15. The 15 rows from 14:09:15 to 14:24:53 are the attempt postponed at the session limit and are **excluded** |
 | E14 stage 1 (2026-09-14) | On trap C, does a draft's trigger wording (failure-time vs write-time) or its kind (skill vs anti-skill) decide whether the author session applies the fix? | **Answered: neither reaches the pre-registered bar.** Four hand-written drafts carrying the same fix: skill-failure 4/6, skill-write 5/6, anti-failure 6/6, anti-write 6/6, control 0/3, zero repeats or exclusions. Trigger **+1** (no large effect, p = 1.000); kind **+3** (ambiguous, p = 0.217). The baseline **moved**: skill-failure resolved 4/6 where E13 predicted at most 1, so rewriting the E13 skill draft recovered most of its failure on its own. Stage 2 is not triggered | `results.jsonl`, the 27 rows after 2026-09-14T21:03:29; `bench/drafts/E14/` (+ `delivery.json`); `bench/e14_read.py`; spec `docs/superpowers/specs/2026-09-14-e14-trigger-kind-design.md` |
 | E14 drafts as trap 2 (2026-09-14) | Can any E14 draft carry the tokenizer outcome test (old hook `06885c0` misses it, new hook `9cbb472` delivers it)? | **No — 0 of 4 qualify.** Installed with the consolidated seven through the real `save_skill.py` into a sandboxed HOME, every draft was delivered by the old hook, the new hook and HEAD alike. The rewrite names `validate.verdict_from` up front, which ranks it first even under the pre-fix tokenizer. The outcome test stays blocked; the operator's library was untouched | Throwaway spike, not committed (E13 qualification method via `e13_qualify` helpers) — deterministic, 0 sessions |
+| E15 (2026-09-16) | Do three writing rules for the skills distiller (no test names, write the Procedure for first-time code, name the function up front) make its drafts work on trap C's author task? | **Answered: yes — the rules help.** Six drafts distilled under the variant rules resolved **18/18**; E13's three skill drafts, re-probed in the same batch, **0/9**; control 0/3. d = **+1.00**, Fisher p < 0.001. Every variant draft obeyed all three rules, and every baseline draft broke all three. Per spec §5 the rules go into the shipped `distilling-skills` as their own reviewed commit. Two probe batches were cut off at the session limit and are **excluded**; spec amendment 4 (pause and resume) came before the third | `results.jsonl`, the 32 rows after 2026-09-16T10:06:14 (the 15 rows 2026-09-15 12:10:52–12:26:06 and the 25 rows 19:56:46–20:26:39 are **excluded**); `bench/distilled/C/learn-e15-nogate/` + `e15-probe.json`; spec `docs/superpowers/specs/2026-09-14-e15-distiller-rules-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -2725,3 +2726,125 @@ This list is exploratory. Which of these matters is a new, unregistered question
 - `results.jsonl`: the 27 rows after 2026-09-14T21:03:29.
 - `bench/drafts/E14/`: the four drafts and `delivery.json`.
 - `bench/e14_read.py`, `bench/e14_deliver.py`, `bench/e14_probe.sh`.
+
+# E15 — do three writing rules make the skills distiller's drafts work? (2026-09-16)
+
+Spec: `docs/superpowers/specs/2026-09-14-e15-distiller-rules-design.md`, written
+before any E15 session, with four dated amendments. Handoff:
+`docs/handoff-2026-09-15-e15.md`.
+
+## Headline
+
+**The rules help, by the largest margin the design can show.**
+
+| arm | drafts | resolved |
+| --- | --- | --- |
+| control (no skill) | — | 0/3 |
+| variant (distilled under the three rules) | 6 | **18/18** |
+| baseline (E13's `C/learn-nogate/1..3`) | 3 | **0/9** |
+
+- **d = V − B = +1.00**: "the rules help" (spec §5 row 1: d ≥ +0.40 and V ≥ 0.50). Fisher p < 0.001.
+- **Baseline check:** E13 measured these drafts at 1/9; here 0/9. Not moved.
+- **Consequence:** the three paragraphs go into `skills/distilling-skills/SKILL.md`, as their own reviewed commit.
+
+Reader output, verbatim (`python3 bench/e15_read.py --window 2026-09-16T10:06:14 -`):
+
+```
+batch: complete
+  control  valid 3/3  resolved 0  invalid 0
+  variant  learn-e15-nogate/1/SKILL.md        valid 3/3  resolved 3  undelivered 0  invalid 2  complete
+  variant  learn-e15-nogate/2/SKILL.md        valid 3/3  resolved 3  undelivered 0  invalid 0  complete
+  variant  learn-e15-nogate/3/SKILL.md        valid 3/3  resolved 3  undelivered 0  invalid 0  complete
+  variant  learn-e15-nogate/4/SKILL.md        valid 3/3  resolved 3  undelivered 0  invalid 0  complete
+  variant  learn-e15-nogate/5/SKILL.md        valid 3/3  resolved 3  undelivered 0  invalid 0  complete
+  variant  learn-e15-nogate/6/SKILL.md        valid 3/3  resolved 3  undelivered 0  invalid 0  complete
+  baseline learn-nogate/1/SKILL.md            valid 3/3  resolved 0  undelivered 0  invalid 0  complete
+  baseline learn-nogate/2/SKILL.md            valid 3/3  resolved 0  undelivered 0  invalid 0  complete
+  baseline learn-nogate/3/SKILL.md            valid 3/3  resolved 0  undelivered 0  invalid 0  complete
+V 18/18  B 0/9  d = +1.00 -- the rules help (Fisher p = 0.000)
+```
+
+## Stages A–C
+
+- **A, smoke (1 session):** passed — saved, sandboxed, audit `clean`, variant
+  mark recorded (`+e15-9dacd4a3905a`). Never probed. Its draft named
+  `tests/test_validate.py` in its verification command (`names_test` true); the
+  other two rules held.
+- **B, draws (6 sessions), attempt 1** (`49f3ae3`, kept as
+  `learn-e15-nogate-postponed-1`): 6/6 saved, but draws 2, 4 and 5 were
+  `tainted`, a harness failure under amendment 1. Draws 4 and 5 only did
+  `cd <snapshot>/scripts` and read `save_skill.py`; draw 2 read `validate.py`
+  after a `cd` the audit could not follow. Amendment 3 (only the fixed file
+  taints; the audit follows `cd`) was made, and the stage re-run whole. The
+  attempt-1 draws were not re-scored.
+- **B, attempt 2** (`83953c2`): 6/6 saved, sandboxed, none tainted. Draws 2–4
+  have audit `leak` confined to the snapshot's `scripts/save_skill.py`, which
+  amendment 3 allows. All six counted; no harness failure.
+- **C, delivery, compliance, freeze** (`3b23ebe`, run at `83953c2`): every
+  draft delivered alone by HEAD's prompt hook; operator's library untouched.
+
+| draft | delivered | names a test | a `Find` step | function in first sentence |
+| --- | --- | --- | --- | --- |
+| variant 1–6 | all | none | none | all six |
+| baseline 1–3 | all | all three | all three | none |
+
+The variant drafts obeyed the rules completely and the baseline drafts broke
+all three, so the comparison is between drafts that actually differ on the
+rules, not between two labels.
+
+## What the batch was
+
+- Attempt 3: 32 sessions, 10:06–10:31 on 2026-09-16, one window, all on CLI
+  2.1.266, `claude-opus-5`, plugin commit `945f8df`. The pre-registered order
+  (30 runs) plus two repeats.
+- The two repeats replaced variant 1 rows that `audit.counts()` rejected: their
+  audit flagged the bench workdir's own `before.txt` and `after.txt`. Both
+  rejected rows also resolved, so excluding them changes nothing.
+- **Mechanism.** Every unresolved session — all three controls and all nine
+  baseline runs — failed exactly one graded test,
+  `test_a_rewrapped_quote_still_counts_as_evidence`, the byte-exact-match bug
+  trap C was admitted for. Every variant run passed it.
+- **Two earlier batches are excluded.** Attempt 1 (`E15_START`
+  2026-09-15T12:10:52, 15 rows) and attempt 2 (19:56:46, 25 rows, 36 minutes
+  into a fresh window) were cut off at the session limit; under the original
+  §3 a postponed batch is re-run whole. A batch needs 31–39 sessions and a
+  window held about 25, so **amendment 4** (2026-09-16) let a batch pause at
+  the limit and resume, re-running a cut-off session in place, with one CLI,
+  model and plugin commit required across the batch. Attempt 3 fitted in one
+  window, so the resume path never ran.
+
+## Limits and caveats
+
+- **Pre-registration was bent, and in the open.** Amendment 4 was written after
+  40 rows from the excluded attempts had been visible, and those rows already
+  leaned the same way. It changed only how a session-limit cut-off is handled,
+  was triggered by the clock rather than the outcomes, and was not exercised.
+  The bands, counts and drafts were fixed before any probe.
+- **The sandbox bias runs one way.** The E13 baseline drafts were distilled
+  unsandboxed and unaudited; the variant drafts under both (ruling 3). The
+  baseline sessions could read more and still scored 1/9 then and 0/9 now, so a
+  "help" result is the readable direction.
+- **One trap, one task, 3 runs per draft.** Pooled V and B rest on 18 and 9
+  runs. The effect is saturated (18/18 against 0/9), so its size here says
+  nothing about other traps.
+- **The three rules are bundled.** No single rule is identified. E14 already
+  showed a hand rewrite with all three differences at 4/6.
+- **Fixture strings don't explain it.** All six variant drafts and baseline
+  drafts 1 and 3 quote the hidden test's fixture text (`flush() before …`),
+  yet baseline 1 and 3 resolved 0/6.
+- **Different distill dates.** The variant drafts were distilled on
+  2026-09-15, E13's on 2026-09-14, both on `claude-opus-5`, which has no dated
+  snapshot. The probe itself re-ran both groups in one batch.
+- **Reasoning isn't visible:** thinking blocks are stored empty.
+- **Resolution** (from the handoff's power check): at V 0.67 / B 0.11 "help" is
+  read about 82% of the time. The observed rates are well past that.
+
+## Data
+
+- `results.jsonl`: the 32 rows after 2026-09-16T10:06:14. Excluded: the 15
+  rows 2026-09-15T12:10:52–12:26:06 and the 25 rows 19:56:46–20:26:39.
+- `bench/distilled/C/learn-e15-nogate/` (the six draws),
+  `learn-e15-nogate-postponed-1/` (stage B attempt 1, excluded),
+  `learn-e15-smoke-nogate/`, `e15-probe.json`.
+- `bench/variants/E15/distilling-skills.md`; `bench/e15_prep.py`,
+  `bench/e15_read.py`, `bench/e15_distill.sh`, `bench/e15_probe.sh`.
