@@ -32,6 +32,8 @@ because nothing indexed the data — see "What the register caught".
 | E14 stage 1 (2026-09-14) | On trap C, does a draft's trigger wording (failure-time vs write-time) or its kind (skill vs anti-skill) decide whether the author session applies the fix? | **Answered: neither reaches the pre-registered bar.** Four hand-written drafts carrying the same fix: skill-failure 4/6, skill-write 5/6, anti-failure 6/6, anti-write 6/6, control 0/3, zero repeats or exclusions. Trigger **+1** (no large effect, p = 1.000); kind **+3** (ambiguous, p = 0.217). The baseline **moved**: skill-failure resolved 4/6 where E13 predicted at most 1, so rewriting the E13 skill draft recovered most of its failure on its own. Stage 2 is not triggered | `results.jsonl`, the 27 rows after 2026-09-14T21:03:29; `bench/drafts/E14/` (+ `delivery.json`); `bench/e14_read.py`; spec `docs/superpowers/specs/2026-09-14-e14-trigger-kind-design.md` |
 | E14 drafts as trap 2 (2026-09-14) | Can any E14 draft carry the tokenizer outcome test (old hook `06885c0` misses it, new hook `9cbb472` delivers it)? | **No — 0 of 4 qualify.** Installed with the consolidated seven through the real `save_skill.py` into a sandboxed HOME, every draft was delivered by the old hook, the new hook and HEAD alike. The rewrite names `validate.verdict_from` up front, which ranks it first even under the pre-fix tokenizer. The outcome test stays blocked; the operator's library was untouched | Throwaway spike, not committed (E13 qualification method via `e13_qualify` helpers) — deterministic, 0 sessions |
 | E15 (2026-09-16) | Do three writing rules for the skills distiller (no test names, write the Procedure for first-time code, name the function up front) make its drafts work on trap C's author task? | **Answered: yes — the rules help.** Six drafts distilled under the variant rules resolved **18/18**; E13's three skill drafts, re-probed in the same batch, **0/9**; control 0/3. d = **+1.00**, Fisher p < 0.001. Every variant draft obeyed all three rules, and every baseline draft broke all three. Per spec §5 the rules go into the shipped `distilling-skills` as their own reviewed commit. Two probe batches were cut off at the session limit and are **excluded**; spec amendment 4 (pause and resume) came before the third | `results.jsonl`, the 32 rows after 2026-09-16T10:06:14 (the 15 rows 2026-09-15 12:10:52–12:26:06 and the 25 rows 19:56:46–20:26:39 are **excluded**); `bench/distilled/C/learn-e15-nogate/` + `e15-probe.json`; spec `docs/superpowers/specs/2026-09-14-e15-distiller-rules-design.md` |
+| E16 screen (2026-09-16) | Do either of the two remaining well-shaped fix commits (F `read_markers`, G `event_totals`) have a zero control floor? | **Answered: no — both rejected.** G 6/6, ceiling, like E13's D and E. F **1/6**, and the five unresolved sessions each failed **exactly** `test_read_markers_skips_junk_without_losing_good_lines` and nothing else — the trap springs, but not reliably, and a non-zero floor rejects. Same-batch reference 0/3 (**0/28** lifetime), so the screen is valid. First batch to pause at the session limit and resume (E15 amendment 4): one environment across a 2h45m gap. Corrects the register: the bench had **two** working traps before this screen, not one | `results.jsonl`, the 16 rows after 2026-09-16T11:44:14 (one `session_ok: false` limit cut-off, re-run in place); spec `docs/superpowers/specs/2026-09-16-e16-author-traps-design.md`; `bench/e16_preflight.py`, `bench/e16_screen.sh`, `bench/e16_screen_read.py` |
+| Q4 token cost (2026-09-16) | What does a unit of benefit cost in injected tokens? (= brief Q4) | **Answered, and the two traps agree without being made to: ~1,100 tokens per additional resolved run** — 1,100 on `fingerprint_preexisting`, 1,091 on `verdict_from`, across five experiments. Hand-written drafts are the cheapest by far (E14's four at 503–510 tokens, 42% of budget, best price **507**); distilled drafts cost 647–1,192 (up to **99% of the 1,200 budget**, eight tokens of headroom). Two E13 baseline drafts are bill-only: ~18,500 tokens for zero resolutions | `bench/q4_token_cost.py` — deterministic, 0 sessions. Prices only tasks whose control floor is measured at zero, which it derives rather than hardcodes |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -44,7 +46,7 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 | Q1 | Does the pipeline work end to end, or only the injection half? | **Answered 2026-09-09.** It works when it emits, and it emits 4 times in 12. The four that emitted scored 12/12 against a 1/6 floor. The distiller is no longer the untested link — but the 8 novelty-gate refusals are never probed, so whether the gate is right is a new open question |
 | Q2 | Is transfer real at any n? | **Replicated null, still open.** 0/6 in the pilot and 0/6 again on 2026-09-09, the second time against a floor measured in the same batch on the same pinned model. Two nulls at n=6 is not absence at a convincing n |
 | Q3 | Does injection ever hurt? | = E4. **Partly answered 2026-09-13 by E12:** no large harm from an irrelevant skill on repair-mode tasks whose tests are visible. Together with E6 and E10 that makes three nulls, so injection has never yet been shown to hurt on this bench. Author-mode harm is still untested, for want of headroom |
-| Q4 | Token cost per unit of benefit? | **No experiment exists** |
+| Q4 | Token cost per unit of benefit? | **Answered 2026-09-16, deterministically.** ~1,100 tokens per additional resolved run, and the two working traps agree to within nine tokens. Hand-written drafts price at ~507 and distilled ones at 798–2,142; two drafts have no price at all, only a bill. `bench/q4_token_cost.py` |
 | Q5 | Does the `trusted` gate predict anything? | **Attempted 2026-09-09, no split available.** Pre-registered as a Q1 secondary and run: critique passed all 4 distilled drafts, so there is no failing group to compare against. Still unanswered, and now known to need drafts the gate *rejects* — which this design does not produce |
 
 ## Where the raw rows are
@@ -2848,3 +2850,206 @@ rules, not between two labels.
   `learn-e15-smoke-nogate/`, `e15-probe.json`.
 - `bench/variants/E15/distilling-skills.md`; `bench/e15_prep.py`,
   `bench/e15_read.py`, `bench/e15_distill.sh`, `bench/e15_probe.sh`.
+
+---
+
+# E16 screen — do either of two new author traps have a zero floor? (2026-09-16)
+
+Spec: `docs/superpowers/specs/2026-09-16-e16-author-traps-design.md`, written
+before any E16 session ran.
+
+## Headline
+
+**Both rejected. The trap well is dry in this shape.**
+
+| cand | fix | function | control | verdict |
+| --- | --- | --- | --- | --- |
+| F | `ea4c47f` | `reconcile.read_markers` | **1/6** | rejected — non-zero floor |
+| G | `58ce279` | `ledger.event_totals` | **6/6** | rejected — ceiling |
+| R | `ab4acfe` | reference | **0/3** (0/28 lifetime) | the screen is valid |
+
+Reader output, verbatim
+(`python3 bench/e16_screen_read.py --window 2026-09-16T11:44:14 -`):
+
+```
+screen: complete
+  reference sf-author-fingerprint-preexisting  valid 3/3  resolved 0  invalid 0
+  candidate sf-author-read-markers             valid 6/6  resolved 1  invalid 1  rejected  unresolved: trap 5, wider 0
+  candidate sf-author-event-totals             valid 6/6  resolved 6  invalid 0  rejected  unresolved: trap 0, wider 0
+```
+
+## F is not the same kind of rejection as G
+
+G resolved 6 of 6: the docstring suffices and there is no trap, exactly as E13
+found for D and E.
+
+F did not. It resolved 1 of 6, and **each of the five unresolved sessions
+failed exactly one graded test of 64** —
+`test_read_markers_skips_junk_without_losing_good_lines`, the historical bug's
+own. Five sessions implemented `read_markers` correctly in every other
+respect and wrote an `except` clause too narrow for `RecursionError`. The trap
+is real and it springs; it is not reliable.
+
+**It is still rejected, and the rule that rejects it is the right one.** A 1/6
+floor is the same figure as `response_text`'s 1/6, which this project read as
+noise for four batches before E10 retired the task at 6/6. Spec §3.3 fixed
+"any valid control row resolved rejects" before the data existed, and
+reinterpreting it now to keep a nearly-good trap is the exact failure mode the
+pre-registration exists to prevent.
+
+Section 3.3's attribution gate never became load-bearing: it exists to catch a
+0/6 floor the trap did not produce, and neither candidate reached 0/6. It did
+its second job, which was to make the difference between F and G legible
+instead of collapsing both into "rejected".
+
+## The first batch to pause and resume
+
+E16 is the first screen to run under E15 amendment 4 rather than E13's
+postpone-and-re-run-whole rule, and the machinery worked unattended:
+
+- 12 runs at 11:44–11:54, then the session limit. The cut-off row
+  (`sf-author-read-markers`, 11:54:43, 8 seconds after the previous run) is
+  `session_ok: false`, shows 64 failing tests because it was killed mid-run,
+  does not count, and did not take its slot.
+- The script polled every 10 minutes for 2h45m and resumed at **14:42:38**,
+  two seconds after the 2:40pm reset.
+- Every row of the batch carries one environment —
+  `2.1.266 (Claude Code) | claude-opus-5 | archive:cb24585` — so the reader
+  read it as one batch rather than `mixed`.
+
+Interleaving earned its place: each cell's six runs are spread across both
+windows, so the window boundary is not confounded with any one candidate.
+
+## What this corrects
+
+`docs/session-handoff.md` §3.8 says the bench has one usable trap. It had
+**two** before this screen, and still does. From every valid control row in
+`results.jsonl`:
+
+| task | control | with a good skill |
+| --- | --- | --- |
+| `sf-author-fingerprint-preexisting` | 0/28 | pilot 5/6 |
+| `sf-author-verdict-from` | 0/23 | E15 variant drafts 18/18 |
+
+E13 §6 read trap C as serving neither of its traps. That measured E13's own
+drafts, not the task; E15 then took the same task to 18/18. A task with a zero
+floor that a good skill takes to ceiling is a working trap.
+
+## Limits and caveats
+
+- **Two candidates, not a survey.** They were the only two open fix commits
+  whose change is one top-level function that existed at the parent carrying a
+  docstring. Spec §1.1 records why each of the other 27 fails that shape, so
+  the field is exhausted for this construction — not for author-mode traps in
+  general.
+- **The pre-flight departure did not decide anything.** §2.1 counts tests the
+  fix added *or changed*, because F's fix modified an existing test. Both
+  candidates were VALID and both were rejected on session data, so the rule
+  change never carried a verdict.
+- **F's floor rests on 6 runs.** 1/6 and 0/6 are one session apart. The
+  rejection is a pre-registered decision, not a claim that F could never be a
+  trap at larger n.
+- **Threat 1 was the outcome, twice.** Both docstrings state the property the
+  historical bug broke, and a fresh model mostly just reads them correctly.
+  Three of five candidates screened this way (D, E, G) resolved at ceiling.
+- **Nothing follows.** §4's distillation is not triggered, and §1.1's
+  next-in-line (`7a1d3ac`) needs a fresh contract of the kind E13's trap E
+  already failed at 6/6.
+
+## Data
+
+- `results.jsonl`: the 16 rows after 2026-09-16T11:44:14. Fifteen valid, one
+  `session_ok: false` (the limit cut-off), re-run in place under amendment 4.
+- Spec `docs/superpowers/specs/2026-09-16-e16-author-traps-design.md`.
+- `bench/e16_preflight.py`, `bench/e16_screen.sh`, `bench/e16_screen_read.py`,
+  `bench/stubs/stub_read_markers.py`, `bench/stubs/stub_event_totals.py`.
+- Tasks `sf-author-read-markers` and `sf-author-event-totals` stay in
+  `bench/tasks.json`: their pre-flight is valid and their floors are now
+  measured, which is exactly the record a later session needs in order not to
+  re-screen them.
+
+---
+
+# Q4 — what does a unit of benefit cost in tokens? (2026-09-16)
+
+`bench/q4_token_cost.py`. Deterministic, 0 sessions, no model. This row read
+"No experiment exists" until today; none was needed, because every input was
+already on disk.
+
+## The metric
+
+For one task and one injected skill:
+
+```
+cost  = retrieve.injection_cost(whole file)      -- what the selector charges
+lift  = treatment resolved rate - control rate
+price = cost / lift                              -- tokens per ADDITIONAL resolution
+```
+
+The script imports `retrieve.injection_cost` rather than restating it, so the
+number is the one the shipped selector charges, frontmatter included. It reads
+only tasks whose control floor is **measured at zero** — derived, not
+hardcoded, which selects exactly the two working traps. Rows are filtered by
+`audit.counts` plus `session_ok`, as every other reader filters them.
+
+## Headline
+
+**~1,100 tokens per additional resolved run, and the two traps agree to within
+nine tokens without being made to.**
+
+| trap | control | paid | gained | price |
+| --- | --- | --- | --- | --- |
+| `sf-author-fingerprint-preexisting` | 0/28 | 30,810 tok | 28 | **1,100 tok each** |
+| `sf-author-verdict-from` | 0/23 | 77,520 tok | 71 | **1,091 tok each** |
+
+Two traps, different skills, across the pilot, E7, E9, E13, E14 and E15.
+
+## Three things that fell out
+
+**Hand-written drafts are the cheapest benefit on this bench.** E14's four
+hand-written drafts cost 503–510 tokens — 42% of the 1,200 budget — at 4–6 of
+6, for a best price of **507 tok/resolution**. E15's distilled drafts, on the
+same trap and the same task, cost 798–945 (66–79% of budget) for a best price
+of 798. The distillers write long, and the selector charges every byte.
+
+**Distilled drafts crowd the budget ceiling.** Trap B's sit at 80–99% of
+1,200; `B/learn-nogate/1` is 1,192 — eight tokens of headroom. This
+*corroborates* handoff §3.3 rather than discovering it: the save-time size
+guard shipped 2026-09-13 for exactly this reason, and quotes the same
+759–1,192 range. Q4 adds the wider corpus and the consequence — the guard
+refuses an oversized draft rather than shortening it, so the distillers'
+length habit now surfaces as a refused save instead of a silent
+non-injection, and the cheapest drafts on the bench are the hand-written ones
+at 42% of budget.
+
+**Two drafts have no price, only a bill.** `C/learn-nogate/1` and `/2` resolved
+0 of 13 each, at 647 and 779 tokens: ~18,500 tokens paid for zero resolutions.
+`C/learn-nogate/3` is the expensive tail at 2,142 tok/resolution.
+
+## Limits and caveats
+
+- **It prices benefit where benefit exists, and nowhere else.** Both priced
+  tasks have a control of exactly zero, so `lift` is just the treatment rate.
+  The metric is untested against a mid-range control, because this bench has
+  never had one.
+- **Not read:** repair-mode tasks (control already at ceiling, no room to
+  lift), `sf-author-response-text` (retired, control 7/19), and E16's two
+  rejected candidates. The script prints each with its control.
+- **Multi-skill runs are excluded.** When two skills inject, the cost cannot
+  be attributed to one, which drops the dilution arms of E6, E10 and E12 —
+  harm measurements, not benefit measurements.
+- **Lifetime rows, pooled across batches.** This is a cost ratio rather than a
+  contrast between arms, so it does not need one batch's window. It therefore
+  inherits every batch's environment differences.
+- **Cost is exact; benefit is not.** `injection_cost` is a formula over bytes.
+  The resolved rates behind `lift` carry the n of their own experiments, some
+  as low as 3.
+- **Price is not value.** Tokens per resolution says nothing about whether the
+  resolution was worth 1,100 tokens of every future prompt.
+
+## Data
+
+- `bench/q4_token_cost.py` (`--json` for the raw cells);
+  `tests/test_bench_q4.py`, nine cases on fixed rows, no model.
+- `results.jsonl`, every valid row carrying a resolvable `skill_path`;
+  the draft files under `bench/distilled/`, `bench/drafts/` and `bench/skills/`.
