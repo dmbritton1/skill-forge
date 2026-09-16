@@ -31,6 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 REPO = ROOT.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(REPO / "scripts"))   # validate, as the calibration runner does
 from e13_outcome_read import fisher_two_sided  # noqa: E402
 
 RESULTS = ROOT / "e17-q5-results.json"
@@ -170,13 +171,17 @@ def main(argv=None):
         report(read_results(records))
         return 0
     if args.dry_run:
+        # Import here too. A dry run that skips the one import the real run
+        # needs is not a dry run: the first attempt at this batch died on
+        # `No module named validate` after --dry-run had passed twice.
+        import validate  # noqa: F401
         todo = sum(max(0, N_CALLS - len(records.get(p, {}).get("calls", [])))
                    for _, p in CORPUS)
-        print("corpus ok: %d drafts, %d calls each; %d call(s) still to make"
-              % (len(CORPUS), N_CALLS, todo))
+        print("corpus ok: %d drafts, %d calls each; %d call(s) still to make; "
+              "validate imports" % (len(CORPUS), N_CALLS, todo))
         return 0
 
-    import validate  # noqa: E402  -- imported late: --dry-run and --read need no model path
+    import validate  # noqa: E402
     for group, rel in CORPUS:
         path = ROOT / rel
         rec = records.setdefault(rel, {"group": group, "bytes": len(
@@ -185,9 +190,9 @@ def main(argv=None):
         # An inconclusive call is re-run once (spec section 2), so a slot may
         # cost two turns; the second inconclusive is recorded and drops the draft.
         while len(rec["calls"]) < N_CALLS:
-            verdict, _ = validate.critique(text, {"kind": "skill"}, str(REPO))
+            verdict, detail = validate.critique(text, {"kind": "skill"}, str(REPO))
             if verdict == "inconclusive":
-                verdict, _ = validate.critique(text, {"kind": "skill"}, str(REPO))
+                verdict, detail = validate.critique(text, {"kind": "skill"}, str(REPO))
             if verdict == "inconclusive" and not transport_ok(validate):
                 print("STOP: `claude -p` is not answering (session limit, most "
                       "likely). Nothing was recorded for this call -- wait for "
@@ -195,6 +200,14 @@ def main(argv=None):
                       file=sys.stderr)
                 return 2
             rec["calls"].append(verdict)
+            # The findings, not just the verdict: the first E17 run kept only
+            # verdicts and so could not say WHY critique failed the drafts that
+            # work, which left its own threat 4 (length) untestable after the
+            # fact. bench/critique-calibration/run.py has always saved these.
+            try:
+                rec.setdefault("findings", []).append(json.loads(detail) if detail else [])
+            except ValueError:
+                rec.setdefault("findings", []).append([])
             save(records)
             print("%-3s %-44s %s" % (group, rel.replace("distilled/C/", ""), verdict))
     report(read_results(records))

@@ -34,6 +34,7 @@ because nothing indexed the data — see "What the register caught".
 | E15 (2026-09-16) | Do three writing rules for the skills distiller (no test names, write the Procedure for first-time code, name the function up front) make its drafts work on trap C's author task? | **Answered: yes — the rules help.** Six drafts distilled under the variant rules resolved **18/18**; E13's three skill drafts, re-probed in the same batch, **0/9**; control 0/3. d = **+1.00**, Fisher p < 0.001. Every variant draft obeyed all three rules, and every baseline draft broke all three. Per spec §5 the rules go into the shipped `distilling-skills` as their own reviewed commit. Two probe batches were cut off at the session limit and are **excluded**; spec amendment 4 (pause and resume) came before the third | `results.jsonl`, the 32 rows after 2026-09-16T10:06:14 (the 15 rows 2026-09-15 12:10:52–12:26:06 and the 25 rows 19:56:46–20:26:39 are **excluded**); `bench/distilled/C/learn-e15-nogate/` + `e15-probe.json`; spec `docs/superpowers/specs/2026-09-14-e15-distiller-rules-design.md` |
 | E16 screen (2026-09-16) | Do either of the two remaining well-shaped fix commits (F `read_markers`, G `event_totals`) have a zero control floor? | **Answered: no — both rejected.** G 6/6, ceiling, like E13's D and E. F **1/6**, and the five unresolved sessions each failed **exactly** `test_read_markers_skips_junk_without_losing_good_lines` and nothing else — the trap springs, but not reliably, and a non-zero floor rejects. Same-batch reference 0/3 (**0/28** lifetime), so the screen is valid. First batch to pause at the session limit and resume (E15 amendment 4): one environment across a 2h45m gap. Corrects the register: the bench had **two** working traps before this screen, not one | `results.jsonl`, the 16 rows after 2026-09-16T11:44:14 (one `session_ok: false` limit cut-off, re-run in place); spec `docs/superpowers/specs/2026-09-16-e16-author-traps-design.md`; `bench/e16_preflight.py`, `bench/e16_screen.sh`, `bench/e16_screen_read.py` |
 | Q4 token cost (2026-09-16) | What does a unit of benefit cost in injected tokens? (= brief Q4) | **Answered, and the two traps agree without being made to: ~1,100 tokens per additional resolved run** — 1,100 on `fingerprint_preexisting`, 1,091 on `verdict_from`, across five experiments. Hand-written drafts are the cheapest by far (E14's four at 503–510 tokens, 42% of budget, best price **507**); distilled drafts cost 647–1,192 (up to **99% of the 1,200 budget**, eight tokens of headroom). Two E13 baseline drafts are bill-only: ~18,500 tokens for zero resolutions | `bench/q4_token_cost.py` — deterministic, 0 sessions. Prices only tasks whose control floor is measured at zero, which it derives rather than hardcodes |
+| E17 (2026-09-16) | Does the critique conjunct of the `trusted` gate predict whether a skill works? (= brief Q5) | **Answered: no, and its verdict is not even reproducible.** 27 calls over E15's nine frozen drafts. **Stability: 5 of 9 drafts gave different verdicts on unchanged text** (4 unanimous, needs 7) — that half is clean and is the finding. On prediction: V (the six drafts that resolve 18/18) passed **4/18**; B (the three that resolve 0/9) passed **6/9**; d = **−0.44**, the pre-registered "predicts backwards" band, Fisher p = 0.039. **But do not read the direction:** spec threat 4 fires completely — the three B drafts are the three *shortest* and the six V drafts the six longest, a perfect rank separation, r(bytes, passes) = −0.70, and dropping one baseline draft moves d to −0.28 (p = 0.307). What survives: critique does **not** prefer the drafts that work. The spec's §4 prediction of a degenerate d ≈ 0 was wrong | `bench/e17-q5-results.json`; `bench/e17_q5.py --read`; spec `docs/superpowers/specs/2026-09-16-e17-critique-gate-prediction-design.md` + amendment 1 |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -47,7 +48,7 @@ value. The E-numbers are **not** those numbers. Only E4 maps cleanly.
 | Q2 | Is transfer real at any n? | **Replicated null, still open.** 0/6 in the pilot and 0/6 again on 2026-09-09, the second time against a floor measured in the same batch on the same pinned model. Two nulls at n=6 is not absence at a convincing n |
 | Q3 | Does injection ever hurt? | = E4. **Partly answered 2026-09-13 by E12:** no large harm from an irrelevant skill on repair-mode tasks whose tests are visible. Together with E6 and E10 that makes three nulls, so injection has never yet been shown to hurt on this bench. Author-mode harm is still untested, for want of headroom |
 | Q4 | Token cost per unit of benefit? | **Answered 2026-09-16, deterministically.** ~1,100 tokens per additional resolved run, and the two working traps agree to within nine tokens. Hand-written drafts price at ~507 and distilled ones at 798–2,142; two drafts have no price at all, only a bill. `bench/q4_token_cost.py` |
-| Q5 | Does the `trusted` gate predict anything? | **Attempted 2026-09-09, no split available.** Pre-registered as a Q1 secondary and run: critique passed all 4 distilled drafts, so there is no failing group to compare against. Still unanswered, and now known to need drafts the gate *rejects* — which this design does not produce |
+| Q5 | Does the `trusted` gate predict anything? | **Answered 2026-09-16 by E17: no.** Critique's verdict is not reproducible on unchanged text — 5 of 9 drafts flipped across three calls — and it does not prefer the drafts that work (V 4/18 against B 6/9). The negative *direction* is not claimable: draft length is perfectly rank-confounded with the groups. The 2026-09-09 attempt failed for want of a split; E15's drafts supplied one |
 
 ## Where the raw rows are
 
@@ -3053,3 +3054,123 @@ at 42% of budget.
   `tests/test_bench_q4.py`, nine cases on fixed rows, no model.
 - `results.jsonl`, every valid row carrying a resolvable `skill_path`;
   the draft files under `bench/distilled/`, `bench/drafts/` and `bench/skills/`.
+
+---
+
+# E17 — does the critique gate predict whether a skill works? (2026-09-16)
+
+Spec: `docs/superpowers/specs/2026-09-16-e17-critique-gate-prediction-design.md`,
+written before any call, plus amendment 1 (also before any call). Brief Q5.
+
+27 `claude -p` critique calls over E15's nine frozen drafts — no bench session,
+no clone, no ledger row, no trust entry. The corpus splits cleanly on
+**outcome**: V (`learn-e15-nogate/1..6`) resolves 18/18 on
+`sf-author-verdict-from`, B (`learn-nogate/1..3`) resolves 0/9.
+
+## Headline
+
+**Q5 is answered: no. The gate does not prefer the drafts that work, and its
+verdict is not reproducible on unchanged text.**
+
+```
+stability: unstable -- 4 of 9 drafts unanimous over 3 calls (needs 7)
+  V   learn-e15-nogate/1   fail fail fail    fail
+  V   learn-e15-nogate/2   fail pass fail    fail
+  V   learn-e15-nogate/3   pass fail pass    pass
+  V   learn-e15-nogate/4   fail fail fail    fail
+  V   learn-e15-nogate/5   fail fail fail    fail
+  V   learn-e15-nogate/6   fail fail pass    fail
+  B   learn-nogate/1       pass pass pass    pass
+  B   learn-nogate/2       pass fail pass    pass
+  B   learn-nogate/3       fail fail pass    fail
+V 4/18  B 6/9  delta = -0.44 -- the gate predicts backwards (Fisher p = 0.039)
+```
+
+## The stable half: the verdict does not reproduce
+
+**Five of nine drafts returned different verdicts across three calls on byte-identical
+text.** Four were unanimous; §3.2 needed seven.
+
+This half is clean. It has no confound, it does not depend on which group a
+draft is in, and it is a property of the shipped promotion gate rather than of
+this corpus: `critique == "pass"` is a required conjunct of `trusted` in
+`ledger.confidence()`, and re-running it on an unchanged file can change the
+answer. `validate.main()` early-returns on an existing verdict for a hash, so
+in production **whichever verdict landed first is the one that sticks**, and
+this measurement says it is close to a coin-flip for half the library.
+
+It also corroborates `bench/critique-calibration/`, which saw case 07 read
+`pass`, `pass`, `fail` at n=2. E17 puts that at n=9 drafts × 3.
+
+## The unstable half: do not read the direction
+
+d = −0.44 lands in the pre-registered "predicts backwards" band, and it is
+reported because it was pre-registered. **It should not be believed as a claim
+about outcome**, for two reasons decided before the data:
+
+**Threat 4 fired completely.** Draft length is perfectly rank-separated from
+group — the three B drafts are the three shortest files, the six V drafts the
+six longest, with no overlap:
+
+| bytes | group | passes |
+| --- | --- | --- |
+| 2590 | B | 3/3 |
+| 2856 | B | 1/3 |
+| 3116 | B | 2/3 |
+| 3192 | V | 1/3 |
+| 3212 | V | 2/3 |
+| 3351 | V | 0/3 |
+| 3435 | V | 0/3 |
+| 3672 | V | 0/3 |
+| 3782 | V | 1/3 |
+
+r(bytes, passes) = **−0.70**. "Critique prefers the drafts that do not work"
+and "critique prefers shorter drafts" make the same prediction here, and this
+corpus cannot separate them. The second is independently plausible: the
+calibration corpus records that critique's objections are usually real, and a
+longer file offers more surface to object to.
+
+**It is fragile to one draft.** `B/learn-nogate/1` is 3/3. Drop it and
+d = −0.28 with p = 0.307 — the ambiguous band.
+
+**What survives both:** critique does not prefer the working drafts. V 4/18
+against B 6/9 rules out the useful direction at this n whatever explains the
+negative one.
+
+## The spec's own prediction was wrong
+
+§4 was written in advance and said the likely result was degenerate — pass
+everything or fail everything, d ≈ 0 — because critique passed all 4 Q1 drafts
+and failed all 9 hand-written calibration skills. It did neither. Recording
+that here because §4 existed precisely so the prediction could be scored.
+
+## Limits and caveats
+
+- **The findings were not saved.** The first run kept only verdicts, so this
+  experiment cannot say *why* critique failed the drafts that work — which is
+  exactly what would separate "length" from "outcome". `bench/critique-calibration/run.py`
+  has always saved them; `bench/e17_q5.py` now does too, from this commit on.
+  Testing the length hypothesis costs another 27 calls.
+- **n is small and one-sided.** B is 3 drafts, 9 calls. Fisher p = 0.039 is
+  reported and not thresholded, per this project's convention.
+- **One trap, one bug, one distiller.** All nine drafts are `learn` drafts
+  about `validate.verdict_from`. Nothing generalises beyond this corpus.
+- **Critique judges legibility, not whether the fix lands** (threat 1). Its
+  rubric is `followable`, `preconditions`, `checkable`. "Does not predict
+  outcome" is not an indictment of the rubric; it is a statement about what
+  the `trusted` conjunct buys. The instability finding *is* a defect claim,
+  and it stands on its own.
+- **Different model from the bench rows.** Critique runs on `sonnet`
+  (`validate.DEFAULT_MODEL`); the V/B outcomes were measured on
+  `claude-opus-5`. Recorded, not controlled — the shipped gate is what Q5 asks
+  about.
+- **Amendment 1 never fired.** No call came back inconclusive, so no draft was
+  dropped and the transport guard was not exercised.
+
+## Data
+
+- `bench/e17-q5-results.json` (9 drafts × 3 verdicts); `bench/e17_q5.py`
+  (`--read`, `--dry-run`); `tests/test_bench_e17_q5.py`, 11 cases on fixed
+  verdicts, no model.
+- The corpus is unmodified: `bench/distilled/C/learn-e15-nogate/1..6/SKILL.md`
+  and `bench/distilled/C/learn-nogate/1..3/SKILL.md`.
