@@ -39,6 +39,12 @@ one line and stop.
    versions) unless the knowledge is genuinely project-specific. Test:
    "would a fresh Claude in a different repo benefit?"
 
+   **Name nothing a future session may not have.** Do not name tests, test
+   files, fixtures or line numbers from this session. The session that uses
+   the skill may be writing the code before any test exists, or may never see
+   the test that caught the bug. Describe what the check verifies instead
+   ("a request with no body must still get a 400 response").
+
 5. **Assign scope.** Mentions repo-specific paths/conventions → `project`;
    otherwise `global`. Tell the user which you chose; they can override.
 
@@ -48,9 +54,23 @@ one line and stop.
    mandatory `## Verification` (a concrete command or check that proves
    the procedure worked).
 
+   **Write the procedure for someone writing the code, not only fixing it.**
+   The session that uses this skill may be implementing the function for the
+   first time, with no broken version in front of it. Phrase each step as
+   what the code must do ("return an empty list when there are no rows"),
+   not as a search for the old mistake ("find the existing check and change
+   it"). Do not start a step with "Find" unless the procedure is only ever
+   about code that already exists.
+
 7. **Write both trigger directions.** The `description` frontmatter MUST
    contain "Use when:" cases AND "Do NOT use when:" cases. Negative
    triggers fight over-injection; save_skill.py rejects drafts without them.
+
+   **Name the code, and the moment of writing it.** Put the function, class
+   or API the skill is about in the description's first sentence, and make
+   `Use when:` cover writing or editing that code, not only the moment it
+   fails. A skill whose only trigger is a failure is never used by a session
+   that has not failed yet.
 
 8. **Emit attribution artifacts.** Add two frontmatter fields:
    `verification.command` — the single machine-runnable command from your
