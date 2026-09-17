@@ -107,19 +107,32 @@ def main():
           % ("pool", "rule", "shrinks", "inversions", "skills demoted by a bigger budget"))
     for pool_name, pool in POOLS:
         ranked = hot_pool(pool)
-        for label, stop in (("continue (today)", False), ("break", True)):
+        for label, stop in (("continue (pre-2026-09-16)", False),
+                            ("prefix/break (today)", True)):
             shrinks, demotions = sweep(ranked, stop)
             inv = sum(len(inversions(ranked, b, stop)) for b in GRID)
             print("  %-8s %-26s %-8d %-10d %s"
                   % (pool_name, label, shrinks, inv,
                      ", ".join(sorted(set(demotions))) or "-"))
 
+    # What the prefix rule costs: one fat description stalls the tier below it.
+    ranked = hot_pool(bs.seven)
+    budget = sync.hot_budget()
+    worst = max(s["_desc_cost"] for s in ranked)
+    print("\nprefix-rule stall threshold")
+    print("  a RANK-1 description over the budget blocks the whole tier: > %d tokens"
+          " (~%d chars)" % (budget, budget * 4))
+    print("  largest description measured in `seven`: %d tokens -- %.0fx headroom"
+          % (worst, budget / worst))
+    print("  all seven together: %d tokens, %.0f%% of the budget"
+          % (sum(s["_desc_cost"] for s in ranked),
+             100.0 * sum(s["_desc_cost"] for s in ranked) / budget))
+
     print("\ncost basis: sync charges the DESCRIPTION; every other path charges the whole file")
     same = sync.est_tokens("x" * 400) == retrieve.injection_cost("x" * 400)
-    print("  sync.est_tokens and retrieve.injection_cost agree on a fixed string: %s"
-          % ("yes -- one duplicated definition, not yet drifted" if same
-             else "NO -- the duplicated formulas have DRIFTED"))
-    ranked = hot_pool(bs.seven)
+    print("  sync.est_tokens agrees with retrieve.injection_cost: %s"
+          % ("yes -- sync now delegates to it, so there is one definition"
+             if same else "NO -- they have DRIFTED"))
     print("  %-34s %8s %8s %6s" % ("skill (pool: seven)", "desc", "file", "ratio"))
     for s in ranked:
         print("  %-34s %8d %8d %5.1fx"

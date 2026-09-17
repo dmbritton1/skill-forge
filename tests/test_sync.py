@@ -316,6 +316,41 @@ def test_quarantined_antiskill_symptoms_excluded():
     in_sandbox(check)
 
 
+def test_a_cheaper_lower_ranked_skill_does_not_jump_the_hot_queue():
+    """Set monotonicity: the hot promoter must stop at the first skill that
+    does not fit, not skip past it.
+
+    bench/selector_check.py proved skip-and-continue non-monotone in
+    retrieve.run_hook on 2026-09-11 and it was fixed there with a break;
+    bench/hot_check.py found the identical shape still here on 2026-09-16 --
+    2 shrinks and 3 inversions on the consolidated seven, 23 of 25 random
+    rankings shrinking. The user-visible half is that RAISING the budget can
+    demote a skill, because which skills fit depends on the budget in a way
+    that is not monotone.
+    """
+    def check(home):
+        # `dear` outranks `cheap` (trusted beats working) but its description
+        # does not fit; `cheap`'s does. Skip-and-continue makes `cheap` hot.
+        # `% "dear"` FIRST: SKILL carries `name: %s`, and replacing before
+        # substituting leaves the skill literally named "%s", which does not
+        # match its trust entry and gets it quarantined out of the index.
+        dear = put_skill(home, "dear", (SKILL % "dear").replace(
+            "A thing.", "A " + "very " * 40 + "long thing."))
+        cheap = put_skill(home, "cheap")
+        for name, md in (("dear", dear), ("cheap", cheap)):
+            trust.record(name, md.read_text(encoding="utf-8"), "self")
+        earn_success("dear", session="s1")
+        earn_success("dear", session="s2")      # trusted, ranks first
+        earn_success("cheap", session="s1")     # working
+
+        def run():
+            sync.sync()
+            tiers = {e["name"]: e["tier"] for e in read_index(home)["entries"]}
+            assert tiers == {"dear": "warm", "cheap": "warm"}, tiers
+        with_budget("30", run)                  # room for cheap alone, not dear
+    in_sandbox(check)
+
+
 def test_antiskills_are_never_hot():
     def check(home):
         md = put_antiskill(home, "widget-trap")

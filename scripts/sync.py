@@ -58,7 +58,27 @@ def materialize_one_text(text, dest):
 
 
 def est_tokens(text):
-    return max(1, len(text) // 4)
+    """The ONE cost formula, not a fourth copy of it.
+
+    `retrieve.injection_cost` was made the single definition (handoff 3.3)
+    precisely because the same expression had been duplicated across files and
+    could drift; this module kept a copy anyway, which bench/hot_check.py found
+    still byte-identical but unguarded. It now delegates.
+
+    WHAT is charged differs by tier, and that asymmetry is deliberate:
+
+      warm / symptom  the WHOLE file, because the selector injects the text
+                      into the prompt and pays for every byte of it.
+      hot             the DESCRIPTION only, because the harness loads a native
+                      skill's description into standing context and reads the
+                      body only when the model opens the skill.
+
+    So the 1200 and 1500 budgets are both "tokens" and are not the same
+    quantity. On the consolidated seven the gap is 6.4x (1127 by description,
+    7207 by file). Stated here because nothing recorded it and it is the first
+    thing a reader re-derives.
+    """
+    return retrieve.injection_cost(text)
 
 
 def hot_budget():
@@ -374,6 +394,7 @@ def sync(project_root=None):
 
     budget = hot_budget()
     spent = 0
+    full = False          # set once a skill does not fit; see the loop below
     forced = _force_hot()
     for s in trusted:
         if forced and s["name"] == forced:
@@ -391,11 +412,25 @@ def sync(project_root=None):
             s["tier"] = "warm"
             continue
         cost = est_tokens(s["description"])
-        if spent + cost <= budget:
-            s["tier"] = "hot"
-            spent += cost
-        else:
+        if full or spent + cost > budget:
+            # STOP at the first skill that does not fit, rather than skipping
+            # it and letting a cheaper lower-ranked one take the space. Walking
+            # on is not monotone in the budget: bench/hot_check.py measured 2
+            # shrinks and 3 inversions on the consolidated seven, and 23 of 25
+            # random rankings shrinking, which means RAISING the budget could
+            # demote a skill. bench/selector_check.py proved the same defect in
+            # retrieve.run_hook on 2026-09-11 and it was fixed there with a
+            # prefix rule; the identical shape here was never changed.
+            #
+            # The cost of the prefix rule is that one fat description stalls
+            # the tier below it. hot_check.py --threshold reports how fat that
+            # has to be; at the shipped budget the measured descriptions are
+            # 126-218 tokens against 1500, so the block is far off.
+            full = True
             s["tier"] = "warm"
+            continue
+        s["tier"] = "hot"
+        spent += cost
 
     for s in trusted:
         if s["tier"] == "hot":
