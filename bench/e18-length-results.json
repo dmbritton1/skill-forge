@@ -1,0 +1,358 @@
+{
+  "drafts/E14/e14-quote-gate-rewrap-sf.md": {
+    "group": "skill",
+    "bytes": 2012,
+    "calls": [
+      "fail",
+      "fail",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "if len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Measuring the MIN_EVIDENCE_CHARS floor on the whitespace-collapsed evidence (instead of the raw/only-end-stripped evidence) means a byte-exact quote with heavy internal whitespace (e.g. many newlines between two short words) that was already >= the floor and already an exact substring of text can collapse to under 12 chars and get wrongly rejected -- a regression the naive `ev.strip()`-based version did not have, introduced purely by following step 2 as written."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Procedure never states which file/function to edit; the only pointer is the description's hedged example (\"such as validate.verdict_from\"), so a fresh instance must infer the target from frontmatter clues (verification.command's tests/test_validate.py, the MIN_EVIDENCE_CHARS/blocks()/ok-is-not-True identifiers) rather than being told directly."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`; the same words reordered yield `\"fail\"`.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "tests/test_validate.py contains test_a_rewrapped_quote_still_counts_as_evidence and test_reordered_words_are_not_accepted_as_a_quote, which exercise exactly these two claims and would fail against the unpatched byte-exact gate, so the verification command genuinely detects whether the fix was applied."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "No file path is ever given, and the actual target file (scripts/validate.py, verdict_from) no longer contains this 'naive version' verbatim -- it already uses a different _unwrapped/haystack mechanism from an earlier fix (commit c0d7d88), so a fresh instance cannot locate the exact pattern to replace."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "The naive version is",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The procedure asserts a specific starting code state as fact with no instruction to verify it is actually present first, and never names the file/function it lives in, so the reader has no way to confirm the precondition before acting."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "`python3 tests/test_validate.py` exits 0 with every line `PASS`.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "This suite already exits 0 in the current repo without the procedure being applied, because the bug was already fixed differently (raw-length + _unwrapped substring, per commit c0d7d88's explicit 'the length floor is still measured on the raw span so re-wrapping cannot push a quote over or under it') -- so passing verification proves nothing about whether the skill's own (collapsed-length) patch was applied, and applying it verbatim would in fact regress to the rejected approach."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Procedure never names the file (scripts/validate.py) or function to open \u2014 a fresh instance must infer it from the frontmatter description's incidental mention of `validate.verdict_from`, or grep for MIN_EVIDENCE_CHARS, rather than being told directly."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure assumes the reader already has an existing function in view containing `MIN_EVIDENCE_CHARS`, an `ok is not True` check, and a `blocks()` call, but never states where that function lives or shows it in full, so the instance must reconstruct context the text doesn't supply."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "the same words reordered yield `\"fail\"`.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "Confirmed against the repo: tests/test_validate.py contains test_a_rewrapped_quote_still_counts_as_evidence and test_reordered_words_are_not_accepted_as_a_quote, which exercise exactly these two claims and would fail under the naive byte-exact check."
+        }
+      ]
+    ]
+  },
+  "drafts/E14/e14-quote-gate-rewrap-sw.md": {
+    "group": "skill",
+    "bytes": 2025,
+    "calls": [
+      "fail",
+      "fail",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "if len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "ev is already whitespace-collapsed on the line above, so the MIN_EVIDENCE_CHARS floor is checked against the collapsed length; since collapsing whitespace never increases length, a genuinely hard-wrapped/indented real quote (e.g. raw 'call\\n   flush' = 13 chars, collapsed 'call flush' = 10 chars) can drop below the floor and be wrongly rejected as \"fail\" even though it differs from the source only by whitespace, which is exactly the defect the skill claims to fix."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "such as validate.verdict_from",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "the skill never states a file path or confirms the target gate actually uses the variable names ev/f/text/MIN_EVIDENCE_CHARS used in the Procedure's code block, only offering validate.verdict_from as an illustrative example ('such as'), so a fresh instance must guess whether the snippet can be pasted as-is or needs renaming to match the real target."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`;",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "the stated verification only exercises a single-newline rewrap and a reordered-words case, not a whitespace-heavy/indented quote whose collapsed length crosses MIN_EVIDENCE_CHARS, so a run of tests/test_validate.py can exit 0 with every line PASS even when the Procedure's collapsed-length floor bug is present."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The procedure never names a file, module, or function to locate this code in; a fresh instance with no memory of the session has only a generic description ('such as validate.verdict_from') and no way to find where to apply the patch."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "or the comparison is of code where whitespace matters.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "This applicability guard against whitespace-significant code comparisons lives only in the frontmatter description and is never restated as a check inside the numbered Procedure, so a reader following steps 1-3 alone has no prompt to verify the precondition before applying the fix."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Procedure's shown code only ever executes `return \"fail\"`; the success return value \"pass\" that Verification checks for is never shown or defined anywhere in the text, so this expected outcome can't be traced back to the Procedure as given."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure tells the reader to leave the `ok is not True` check and `blocks()` logic alone, but neither is shown or described anywhere in the skill text, so a reader with no other context has no way to confirm what they are or that they are in fact untouched."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "\" \".join(text.split())",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "The target file's real gate (scripts/validate.py verdict_from) already collapses whitespace via a regex helper (_unwrapped, re.sub(r\"\\s+\",\" \")) rather than the `\" \".join(x.split())` idiom these fingerprints look for, so the procedure's premise that the gate still looks like the shown \"naive version\" and the frontmatter's own already-applied detection both fail against the actual code, leaving no way to tell whether to apply, skip, or reconcile with the existing fix."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "`python3 tests/test_validate.py` exits 0 with every line `PASS`.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "tests/test_validate.py already contains test_a_rewrapped_quote_still_counts_as_evidence and test_reordered_words_are_not_accepted_as_a_quote, and the current verdict_from already passes both via its own _unwrapped() implementation, so this verification exits 0 with every line PASS whether or not the skill's procedure is followed -- it does not discriminate applied from skipped."
+        }
+      ]
+    ]
+  },
+  "drafts/E14/e14-quote-gate-rewrap-af.md": {
+    "group": "antiskill",
+    "bytes": 2030,
+    "calls": [
+      "pass",
+      "pass",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "fix_addresses_cause",
+          "ok": true,
+          "evidence": "ev = \" \".join((f.get(\"evidence\") or \"\").split())\nif len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):\n    return \"fail\"",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Collapsing whitespace runs on both the evidence and the source text directly neutralizes the byte-exact newline/indentation mismatch described in Cause."
+        },
+        {
+          "criterion": "symptom_matchable",
+          "ok": true,
+          "evidence": "The gate returns `\"fail\"` for a finding whose quote is visibly in the source\ntext, and no exception is raised.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Ties to the gate's literal 'fail' return value plus the absence of an exception, which is concrete enough to recognize against real tool output."
+        },
+        {
+          "criterion": "trap_falsifiable",
+          "ok": true,
+          "evidence": "models re-wrap hard-wrapped prose when they quote it, so a real quote of\n`flush() before\\n   close().` comes back as\n`flush() before close().`, and the byte-exact test rejects it.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Gives a concrete before/after example that could be directly checked against the byte-exact substring test, not vague advice."
+        }
+      ],
+      [
+        {
+          "criterion": "fix_addresses_cause",
+          "ok": true,
+          "evidence": "ev = \" \".join((f.get(\"evidence\") or \"\").split())\nif len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Collapsing whitespace runs on both the evidence and the source text directly neutralizes the byte-exact-newline mismatch described in Cause."
+        },
+        {
+          "criterion": "symptom_matchable",
+          "ok": true,
+          "evidence": "The gate returns `\"fail\"` for a finding whose quote is visibly in the source\ntext, and no exception is raised.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Specifies an observable return value (verdict==\"fail\") plus the absence of an exception, which is checkable against real gate output rather than vague error prose."
+        },
+        {
+          "criterion": "trap_falsifiable",
+          "ok": true,
+          "evidence": "a real quote of `flush() before\\n   close().` comes back as\n`flush() before close().`, and the byte-exact test rejects it.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Gives a concrete before/after example of the re-wrapping behavior that can be directly tested against the gate, not just general caution."
+        }
+      ],
+      [
+        {
+          "criterion": "fix_addresses_cause",
+          "ok": true,
+          "evidence": "ev = \" \".join((f.get(\"evidence\") or \"\").split())\nif len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The fix collapses whitespace runs on both the evidence and the full source text before the substring/length check, which directly neutralizes the byte-exact newline/indentation mismatch identified as the Cause."
+        },
+        {
+          "criterion": "symptom_matchable",
+          "ok": true,
+          "evidence": "The gate returns `\"fail\"` for a finding whose quote is visibly in the source text, and no exception is raised.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The symptom names the concrete return value ('fail'), the absence of an exception, and the specific condition (quote visibly present in source), which together are enough to recognize this exact failure mode in gate output rather than generic error text."
+        },
+        {
+          "criterion": "trap_falsifiable",
+          "ok": true,
+          "evidence": "models re-wrap hard-wrapped prose when they quote it, so a real quote of `flush() before\n   close().` comes back as `flush() before close().`, and the byte-exact test rejects it",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "The trap makes a concrete, testable claim (a specific hard-wrapped source string re-wrapped by a model and then rejected by a byte-exact 'in' check) that could be verified or refuted by running the described comparison."
+        }
+      ]
+    ]
+  },
+  "drafts/E14/e14-quote-gate-rewrap-aw.md": {
+    "group": "antiskill",
+    "bytes": 2043,
+    "calls": [
+      "pass",
+      "fail",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "fix_addresses_cause",
+          "ok": true,
+          "evidence": "Collapse whitespace runs on BOTH sides, and apply the `MIN_EVIDENCE_CHARS` floor to the collapsed span",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The fix normalizes whitespace on both the evidence and the source text, directly resolving the byte-exact mismatch described in Cause."
+        },
+        {
+          "criterion": "symptom_matchable",
+          "ok": true,
+          "evidence": "The gate returns `\"fail\"` for a finding whose quote is visibly in the source text, and no exception is raised.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Specific enough (exact return value plus absence of an exception) to distinguish from other failure modes like a raised error."
+        },
+        {
+          "criterion": "trap_falsifiable",
+          "ok": true,
+          "evidence": "models re-wrap hard-wrapped prose when they quote it, so a real quote of `flush() before\\n   close().` comes back as `flush() before close().`, and the byte-exact test rejects it",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Gives a concrete before/after example of the claimed model behavior and its effect on the check, which is a testable claim rather than generic advice."
+        }
+      ],
+      [
+        {
+          "criterion": "fix_addresses_cause",
+          "ok": true,
+          "evidence": "Collapse whitespace runs on BOTH sides, and apply the `MIN_EVIDENCE_CHARS` floor to the collapsed span:",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Collapsing whitespace on both the evidence and the source text directly neutralizes the byte-exact newline/indentation mismatch identified as the Cause."
+        },
+        {
+          "criterion": "symptom_matchable",
+          "ok": true,
+          "evidence": "The gate returns `\"fail\"` for a finding whose quote is visibly in the source text, and no exception is raised.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Specific enough (exact return value plus absence of an exception) to be checked against the described buggy code path, though 'visibly in the source' still requires a human eyeball comparison."
+        },
+        {
+          "criterion": "trap_falsifiable",
+          "ok": true,
+          "evidence": "a real quote of `flush() before\n   close().` comes back as `flush() before close().`, and the byte-exact test rejects it.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The concrete example is directly checkable by running the described substring test in Python, and does in fact evaluate to a rejection."
+        }
+      ],
+      [
+        {
+          "criterion": "fix_addresses_cause",
+          "ok": true,
+          "evidence": "ev = \" \".join((f.get(\"evidence\") or \"\").split())\nif len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Collapsing whitespace on both the evidence and the source text directly resolves the stated cause of byte-exact newline/indentation mismatches."
+        },
+        {
+          "criterion": "symptom_matchable",
+          "ok": true,
+          "evidence": "The gate returns `\"fail\"` for a finding whose quote is visibly in the source\ntext, and no exception is raised.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "This is specific and recognizable, though it describes gate behavior rather than literal tool output text; the symptoms list entries like \"evidence not in text\" are more directly matchable strings."
+        },
+        {
+          "criterion": "trap_falsifiable",
+          "ok": true,
+          "evidence": "models re-wrap hard-wrapped prose when they\nquote it, so a real quote of `flush() before\\n   close().` comes back as\n`flush() before close().`, and the byte-exact test rejects it.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Gives a concrete before/after example that could be tested and shown true or false, rather than vague advice."
+        }
+      ]
+    ]
+  }
+}

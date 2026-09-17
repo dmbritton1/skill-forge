@@ -37,6 +37,7 @@ because nothing indexed the data — see "What the register caught".
 | E17 (2026-09-16) | Does the critique conjunct of the `trusted` gate predict whether a skill works? (= brief Q5) | **Answered: no, and its verdict is not even reproducible.** 27 calls over E15's nine frozen drafts. **Stability: 5 of 9 drafts gave different verdicts on unchanged text** (4 unanimous, needs 7) — that half is clean and is the finding. On prediction: V (the six drafts that resolve 18/18) passed **4/18**; B (the three that resolve 0/9) passed **6/9**; d = **−0.44**, the pre-registered "predicts backwards" band, Fisher p = 0.039. **But do not read the direction:** spec threat 4 fires completely — the three B drafts are the three *shortest* and the six V drafts the six longest, a perfect rank separation, r(bytes, passes) = −0.70, and dropping one baseline draft moves d to −0.28 (p = 0.307). What survives: critique does **not** prefer the drafts that work. The spec's §4 prediction of a degenerate d ≈ 0 was wrong | `bench/e17-q5-results.json`; `bench/e17_q5.py --read`; spec `docs/superpowers/specs/2026-09-16-e17-critique-gate-prediction-design.md` + amendment 1 |
 | Hot tier (2026-09-16) | Is the hot promoter monotonic in its budget, and does it charge the right bytes? | **Answered: it was not, and the fix was one already made elsewhere.** `sync.sync()`'s hot loop skipped past a skill too dear for the remaining budget and let a cheaper lower-ranked one take the space — **2 shrinks / 3 inversions** on the consolidated seven, 4 / 10 on the ten, and 23 of 25 random rankings shrinking, so **raising** the budget demoted skills. `selector_check.py` proved the identical defect in `retrieve.run_hook` on 2026-09-11 and it was fixed there; the same shape in `sync` was never touched. Now a prefix rule: **0 shrinks, 0 inversions** on both pools. Stall cost reported, not assumed — a rank-1 description over budget blocks the tier, >1500 tokens against a largest-measured 218 (7x headroom). Two smaller findings: `sync.est_tokens` was a fourth copy of the cost formula and now delegates; and hot charges the **description** while every other path charges the whole file, a 6.4x gap that is deliberate and was recorded nowhere | `bench/hot_check.py` + `tests/test_bench_hot_check.py` — deterministic, 0 sessions; the fix in `scripts/sync.py` |
 | Bench hot eligibility (2026-09-16) | Can a bench arm reach the hot promoter at all? | **It could not, and the handoff named the wrong blocker.** §3.5 said the obstacle was that "the force-hot lever takes a single exact name"; in fact `--plus-skill` already installs N skills, and `--force-hot` is not a narrow version of what is needed — it sets `tier = "hot"` directly and its own comment says it "bypasses kind, bucket, budget", so forcing two names would exercise none of the machinery. The real blocker is **eligibility**: an installed skill lands `unproven` and `sync` gives `unproven` tier `warm`. `--seed-uses N` writes the ledger history a real skill earns (2 reaches `working`) and lets `sync` decide everything after. Also corrected: those mechanisms are unit-tested in `tests/test_sync.py` — what had never happened is a *bench arm* reaching them | `bench/run.py` (`--seed-uses`, rows carry `seed_uses` and `tiers`); `tests/test_bench_run.py`, incl. a mutation-proven contention test — 0 sessions |
+| E18 (2026-09-16) | Is critique's negative direction about length, or about outcome? | **Does not settle it, as pre-registered — and turns up something bigger.** Pe = **2/6 = 0.33** over the two short-and-working skill drafts, between E17's anchors (V 0.22, B 0.67) and inside the spec's "neither cleanly, still confounded" band. Secondary, on `ANTISKILL_CRITERIA` and never pooled: 4/6 — the first anti-skill rubric data this project has. **The finding is stability: 0 of 4 drafts unanimous.** Pooled with E17 that is **9 of 13 (69%) returning different verdicts on byte-identical text**. And both working skill drafts read `fail fail pass`, so the re-ask fix shipped in `79bf414` would still have cached a permanent `fail` for both — the fix reduces the false-cap rate, it does not close it | `bench/e18-length-results.json`; `bench/e18_length.py --read`; spec `docs/superpowers/specs/2026-09-16-e18-critique-length-probe-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -3178,9 +3179,11 @@ working. A future trap-2 qualification must re-pin its own snapshot.
 
 ## Limits and caveats
 
-- **The fix is not measured.** It follows from E17's instability plus a reading
-  of `confidence()`, and no batch has been run against it. What is measured is
-  that the verdict flips; that re-asking helps is arithmetic, not evidence.
+- **The fix is not measured, and E18 found its residue.** It follows from
+  E17's instability plus a reading of `confidence()`. E18 then critiqued two
+  drafts that WORK and got `fail fail pass` from both — so the re-ask would
+  have capped both permanently. The fix cuts the false-cap rate by about 42%;
+  it does not close it. See the E18 section.
 - **The findings were not saved.** The first run kept only verdicts, so this
   experiment cannot say *why* critique failed the drafts that work — which is
   exactly what would separate "length" from "outcome". `bench/critique-calibration/run.py`
@@ -3276,3 +3279,85 @@ budgets named in "tokens" were quietly counting different things. Now in
   is the reason it is not yet motivated.
 - **The stall threshold is arithmetic**, not a measurement of a real oversized
   skill, because none exists in the corpus.
+
+---
+
+# E18 — length or outcome? (2026-09-16)
+
+Spec: `docs/superpowers/specs/2026-09-16-e18-critique-length-probe-design.md`,
+written before any call. A **probe**: 12 calls, and its §3 said in advance it
+could point but not settle.
+
+## The question it was asked, and did not answer
+
+```
+  skill      e14-quote-gate-rewrap-sf.md            fail fail pass
+  skill      e14-quote-gate-rewrap-sw.md            fail fail pass
+  antiskill  e14-quote-gate-rewrap-af.md            pass pass fail
+  antiskill  e14-quote-gate-rewrap-aw.md            pass fail pass
+primary  (skill rubric): 2/6 passes over 2 drafts, 0 unanimous
+secondary (antiskill): 4/6 passes over 2 drafts, 0 unanimous
+
+Pe = 0.33 -- neither cleanly -- still confounded (spec section 3)
+  anchor E17 B (short, does not work)     0.67
+  anchor E17 V (long, works)              0.22
+```
+
+**Pe = 0.33 is the middle band.** The spec fixed that reading before the data
+and §3 said a middle result means "still confounded", not a finding. It leans
+toward the outcome anchor (0.11 away from V, 0.34 from B), and that lean rests
+on six calls, so it is not reported as a direction. **E17's `d = −0.44` keeps
+its threat-4 caveat: length and outcome are still not separated.**
+
+## What it did answer
+
+**Stability, and it is worse than E17's.** Not one of the four drafts returned
+the same verdict three times.
+
+| experiment | unanimous |
+| --- | --- |
+| E17 | 4 of 9 |
+| E18 | **0 of 4** |
+| pooled | **4 of 13 — so 9 of 13 (69%) flip on byte-identical text** |
+
+E17's instability finding drove the fix in `79bf414`. E18 nearly doubles its
+sample and moves it from "5 of 9" to "69% of 13".
+
+**The first anti-skill rubric data.** E17 §6 listed anti-skills as
+unanswerable, because all nine of its drafts were skills. These two run
+through `ANTISKILL_CRITERIA` and pass 4 of 6 — reported, never pooled with the
+primary, and resting on two drafts.
+
+## What it says about the fix shipped an hour earlier
+
+**Both working skill drafts read `fail fail pass`.** Under `79bf414` a `fail`
+is re-asked once and cached if it reproduces — so both would have been given a
+**permanent cap anyway**, and both are drafts that resolve the task (4/6 and
+5/6).
+
+That is exactly what the fix's own arithmetic predicted: for a draft that
+passes a third of the time, two consecutive fails happen 44% of the time. Two
+of two is consistent with it. **The fix reduces the false-cap rate by about
+42% and does not close it**, and E18 is the first data showing the residue is
+not hypothetical.
+
+Whether to go further — a third ask, or not caching `fail` at all — is not
+decided here. Not caching would lose the findings that `library.py show`
+displays, which is a real cost, and the choice deserves its own pre-registration
+rather than a reaction to two drafts.
+
+## Limits
+
+- **The primary is 6 calls over 2 drafts**, because only two of the four E14
+  drafts are `kind: skill`. Stated in the spec before the run, not discovered
+  after it.
+- **Length is not isolated.** These drafts are shorter *and* hand-written *and*
+  differently framed. A reading either way would have been "the short
+  hand-written ones behave like X".
+- **The two rubrics are not comparable** and are never pooled.
+- **The `fail fail pass` pattern is not obviously time-ordered** — `af` reads
+  `pass pass fail` — but with four drafts nothing rules out drift across the
+  run.
+- **Findings were captured this time** (`e18-length-results.json` carries the
+  per-criterion objections), so the "why" is available to a later reading. E17
+  has none.
