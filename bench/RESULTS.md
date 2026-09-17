@@ -40,6 +40,8 @@ because nothing indexed the data — see "What the register caught".
 | E18 (2026-09-16) | Is critique's negative direction about length, or about outcome? | **Does not settle it, as pre-registered — and turns up something bigger.** Pe = **2/6 = 0.33** over the two short-and-working skill drafts, between E17's anchors (V 0.22, B 0.67) and inside the spec's "neither cleanly, still confounded" band. Secondary, on `ANTISKILL_CRITERIA` and never pooled: 4/6 — the first anti-skill rubric data this project has. **The finding is stability: 0 of 4 drafts unanimous.** Pooled with E17 that is **9 of 13 (69%) returning different verdicts on byte-identical text**. And both working skill drafts read `fail fail pass`, so the re-ask fix shipped in `79bf414` would still have cached a permanent `fail` for both — the fix reduces the false-cap rate, it does not close it | `bench/e18-length-results.json`; `bench/e18_length.py --read`; spec `docs/superpowers/specs/2026-09-16-e18-critique-length-probe-design.md` |
 | E19 (2026-09-17) | Does critique's verdict move with length when content is held fixed? | **No large effect — so length does not explain E17's direction.** Five short drafts critiqued bare and again with a constant 1395-byte neutral block appended, 30 calls, one batch. **d = −0.15** (Fisher p = 0.476), the pre-registered "no large effect" band; under E17's strict inconclusive rule, −0.08 (p = 1.000). The dose matters: 1395 bytes is **2.4× E17's natural V−B gap** of 587 bytes, and it produced about a third of E17's −0.44. Length is at most a minor contributor. Two things came with it: pooled stability is now **16 of 23 forms (70%) flipping on identical text**, including **across batches** — `e14-...-sw` read `fail fail pass` in E18 and `pass pass fail` here; and `learn-nogate/2`, a draft that resolves **0/9**, read `pass pass pass` in *both* arms — the one draft critique is certain about is a broken one | `bench/e19-length-results.json`; `bench/e19_length.py --read`; spec `docs/superpowers/specs/2026-09-16-e19-length-manipulation-design.md` |
 | Critique mechanism (2026-09-17) | WHY does critique reject working drafts and accept a broken one? | **Found, and `verdict_from` is not the culprit.** Reading the 42 captured calls from E18/E19: **`fail` ⟺ at least one objection graded `textual`+`blocking`, 40 of 40 on the skill rubric** (the 2 exceptions are anti-skill, a different rubric). So the gating code does exactly what it was built to do. The instability is one step earlier, in the **grading**: the same draft draws 3 objections on one call that are all `empirical/blocking` (→ pass) and on the next call textual ones (→ fail). Same criticism, different label, opposite verdict. And the selection pressure is **claim density, not length**: `learn-nogate/2`, which resolves **0/9**, draws the fewest objections of any skill-rubric draft (0.33–0.67 per call) and passes 6/6, while the working E14 drafts draw 1.67–3.00 and fail. A draft that says less has less to object to | `bench/e18-length-results.json`, `bench/e19-length-results.json` (`findings` per call) — deterministic re-read, 0 calls |
+| Evidence floor defeated (2026-09-17) | Can a too-short quote get past `verdict_from`'s 12-character evidence floor? | **Yes — live defect in shipped code, found by following critique's objection.** `ev.strip()` removes only leading/trailing whitespace, so internal runs survive and inflate `len(ev)`. `'fn now'` (6 chars) correctly fails; the same quote padded to `'fn' + ' '*12 + 'now'` **passes**, because the raw length is 17 while the span that is actually matched normalises to 6. The comment above the check — *"Length is measured on the raw span, so re-wrapping cannot shrink a quote under the floor **or pad one over it**"* — is false in its second half. This is the anti-sycophancy gate: an unquotable pass is supposed to be impossible, and whitespace padding makes it possible | `scripts/validate.py::verdict_from`; reproduced in three lines, 0 calls |
+| Critique was right (2026-09-17) | Why does critique reject six drafts that resolve the task 18/18? | **Because their verification does not check their own procedure — a correct `checkable` objection, 16 of 18 calls.** Every E15 draft states as step 3 "apply the minimum-length floor to the **normalised** evidence, otherwise padding with whitespace gets a too-short quote past the floor", and every draft's `verification.command` asserts only the wrap / reorder / absent cases, never a padded short span. Critique says exactly that, in the same words, every time. **This corrects my own earlier framing in this file**: E17's "the gate predicts backwards" and "the one draft critique is certain about is a broken one" described a real anti-correlation but the wrong cause — the gate was not malfunctioning, it was measuring internal consistency, which is not what the bench's `resolved` measures. The instability finding (70% of 23 forms flip) is independent and stands | `bench/e17-capture-results.json` (18 calls, E17 spec amendment 2); the objection text quoted in the section below |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -3518,3 +3520,89 @@ what it showed.
 - **"Claim density" is measured as objections drawn**, which is critique's own
   output, not an independent property of the text. A less circular measure
   would count checkable assertions directly, and nothing here does.
+
+---
+
+# Critique was right, and it found a real bug (2026-09-17)
+
+E17 spec amendment 2: the six V drafts re-critiqued with findings capture, 18
+calls. Per that amendment the verdicts are **not** pooled with E17's rates;
+only the objection text is read.
+
+## The objection is the same every time, and it is correct
+
+`checkable` drew an objection in **16 of 18 calls**, and `fail ⟺ a
+textual+blocking objection` held **18 of 18**. The complaint, in the model's
+own words on draft 5:
+
+> "None of the four verification evidences … contain internal whitespace runs,
+> so an implementation that measures the length floor on the raw (merely
+> end-stripped) span instead of the normalised span — exact…"
+
+Every E15 draft states this as **step 3 of its own procedure**:
+
+> "Apply the minimum-length floor (`MIN_EVIDENCE_CHARS`) to the normalised
+> evidence. Otherwise padding with whitespace gets a too-short quote past the
+> floor."
+
+And every draft's `verification.command` asserts only the rewrapped, reordered
+and absent cases. **Step 3 is never checked by the skill's own verification.**
+That is exactly the defect class the calibration corpus was built around — case
+02, "the verification is weaker than the procedure it checks".
+
+## Following the objection found a live defect in `validate.py`
+
+The drafts describe a hardening the shipped code does not have.
+`verdict_from` does:
+
+```python
+ev = (f.get("evidence") or "").strip()
+# Length is measured on the raw span, so re-wrapping cannot shrink a
+# quote under the floor or pad one over it.
+if len(ev) < MIN_EVIDENCE_CHARS or _unwrapped(ev) not in haystack:
+```
+
+`.strip()` removes leading and trailing whitespace only. **Internal runs
+survive and inflate `len(ev)`.** Reproduced against the shipped module:
+
+```
+text = 'Please fn now, then stop.'
+'fn now'                  -> raw 6    -> fail   (correct: under the 12-char floor)
+'fn' + ' '*12 + 'now'     -> raw 17   -> PASS   (normalises to 'fn now', 6 chars)
+```
+
+The comment's second clause — "or pad one over it" — is **false**. This is the
+anti-sycophancy gate, whose stated purpose is that "an unquotable PASS is the
+sycophancy case, and it is gated regardless": a padded six-character quote now
+carries a criterion.
+
+## Correcting this file
+
+Two earlier entries in this register framed the same data wrongly, and the
+framing was mine:
+
+- **"the gate predicts backwards"** (E17) and **"the one draft critique is
+  certain about is a broken one"** (E19). The anti-correlation is real and the
+  numbers stand. The **cause** was wrong. Critique was not malfunctioning on
+  these drafts; it was measuring whether a skill's verification checks its own
+  procedure, which is a different property from "does this skill make the task
+  pass", and the bench's `resolved` cannot see it. On this corpus the two
+  properties happen to point opposite ways.
+- **`learn-nogate/2` passing 6 of 6 while resolving 0/9** is still true and
+  still a weakness, but the mechanism is that it makes fewer checkable claims,
+  so it draws no `checkable` objection. **Vagueness passes.** That is a real
+  limitation of the criterion, not evidence the criterion is inverted.
+
+**The instability finding is independent and stands**: 70% of 23 forms return
+different verdicts on byte-identical text, including across batches.
+
+## Limits
+
+- **One trap.** All six drafts describe the same fix, so "the same objection
+  every time" partly reflects six drafts saying the same thing.
+- **Whether the floor SHOULD be on the normalised span** is a design question
+  this does not settle. What is settled is that the code does not do what its
+  own comment claims, and that a short quote can be padded past the gate.
+- **The re-run verdicts are not pooled** with E17's, per amendment 2. Draft 1
+  reproduced `fail fail fail` exactly; drafts 2 and 3 came out worse than in
+  E17, which is more cross-batch instability, reported qualitatively only.

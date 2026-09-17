@@ -1,0 +1,530 @@
+{
+  "distilled/C/learn-e15-nogate/1/SKILL.md": {
+    "bytes": 3351,
+    "calls": [
+      "fail",
+      "fail",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise both sides the same way before the containment test: `\" \".join(s.split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure plus the two fingerprint snippets give enough shape (normalize evidence into ev, compare against a normalized haystack) that an instance with the actual scripts/validate.py open could implement it correctly."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "for c in v.SKILL_CRITERIA",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification.command references v.SKILL_CRITERIA and MIN_EVIDENCE_CHARS as if pre-existing, but the skill text never states these are already defined in scripts/validate.py nor what MIN_EVIDENCE_CHARS's value is, even though assertion 3's correctness (a 7-char quote failing the floor) silently depends on that value being >7."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Otherwise padding with whitespace gets a too-short quote past the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "None of the three assertions ever puts internal whitespace/newlines inside a floor-adjacent evidence string, so an implementation that (like the floor check actually shipped in this repo's verdict_from) measures MIN_EVIDENCE_CHARS on the raw stripped span instead of the normalised one passes all three assertions unchanged, meaning the verification cannot detect a violation of the very rule it claims to test."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise both sides the same way before the containment test: `\" \".join(s.split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Step 4's shown snippet `ev not in \" \".join(text.split())` normalizes only the text side inline, but read together with step 2 (normalize both sides before the test) a careful implementer would still normalize ev first, so it's followable with mild ambiguity."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Apply the minimum-length floor (`MIN_EVIDENCE_CHARS`) to the normalised evidence.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The skill never states MIN_EVIDENCE_CHARS's value or confirms it already exists in the codebase above 7 chars, yet the Verification's third assertion (`ok('flush()')` must fail) only holds if that pre-existing constant is greater than len('flush()')=7, an unstated precondition."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Normalising only the evidence and not the text (or the reverse) still misses: the source keeps its newline plus indentation, and the quote has one space.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "All three evidence strings used in verification.command are already single-spaced with no embedded newlines/runs, so an implementation that normalizes only `text` and never normalizes `ev` (the exact regression this Gotcha warns about) would still pass all three assertions, making the check not genuinely test that half of the procedure."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise both sides the same way before the containment test: `\" \".join(s.split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The four numbered steps (normalize both sides, apply floor to normalized evidence, substring test, leave rest fail-closed) give a fresh implementer enough concrete direction to locate and rewrite the matching logic in verdict_from."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Apply the minimum-length floor (`MIN_EVIDENCE_CHARS`) to the normalised evidence.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "Neither the Procedure nor the verification states the actual value of MIN_EVIDENCE_CHARS, yet the verification fixture's success depends on 24 chars clearing the floor and 7 chars falling below it \u2014 an unstated assumption that could make a correct implementation fail verification or a broken one pass it."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "A quote below the length floor fails.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The third assertion uses evidence 'flush()', which contains no internal whitespace, so its raw length equals its normalized length; an implementation that (in violation of step 3) applies the floor to the raw, unnormalized evidence instead of the normalized one would still pass all three assertions, so the verification never actually exercises the whitespace-padding-bypasses-floor defect the Procedure warns about."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-e15-nogate/2/SKILL.md": {
+    "bytes": 3782,
+    "calls": [
+      "fail",
+      "fail",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise the skill text the same way (`\" \".join(text.split())`) and do\n   a plain substring test (`ev in normalised_text`).",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The core steps (normalise evidence, normalise text, substring test, floor check) are concrete Python-level operations a fresh instance can implement directly from the prose without needing to see the pre-existing file."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "`python3 -c \"\u2026\"` (the `verification.command` above), run from the repo\n  root, should exit 0.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Working directory and module location (scripts/validate.py, module name validate, function signature verdict_from(findings, text)) are all recoverable from the frontmatter verification.command and description, so nothing essential is left unstated."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "It checks four cases: a quote of wrapped text rewritten on one line passes; the same words reordered fail; a quote that isn't in the text fails; a quote shorter than the floor fails.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "None of the four cases contain internal whitespace runs inside the evidence string, so the suite cannot distinguish a correct implementation (floor applied to the fully normalised span, per step 3) from a broken one that applies MIN_EVIDENCE_CHARS to only a `.strip()`ed span \u2014 exactly the 'padding a short quote with whitespace cannot get it past the floor' failure step 3 warns against would slip through undetected."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "\" \".join(ev.split())",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Steps 1-2 give a literal, unambiguous normalization formula and step 4 spells out exactly what must not change, so a fresh instance can write the diff without further context."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "assert v.verdict_from(ok('flush()'), t) == 'fail', 'short quote accepted'",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification's correctness depends on MIN_EVIDENCE_CHARS already being set higher than 7 in the target repo, but the skill never states this value or that it must exceed the length of the 'flush()' test string."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "case-insensitive matching), the second assert fails instead.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "None of the four test evidence strings vary only in case (ev2 differs by word order, not case), so a case-insensitive-but-order-preserving implementation would still correctly fail ev2 and the command would exit 0 even though the Gotchas' explicit case-folding warning was violated."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "in validate.verdict_from (the critique anti-sycophancy gate)",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The function and module to edit are named explicitly, so a fresh instance can locate verdict_from via grep even though no file path is spelled out in the Procedure itself."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "run from the repo root",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The execution context (repo root, scripts/ layout) needed to run the verification command is stated explicitly."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the *normalised* span, so padding a short quote with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "None of the four verification assertions actually pads a short quote with extra whitespace to inflate its raw length past MIN_EVIDENCE_CHARS (the 'flush()' case is short but unpadded), so an implementation that applies the floor to the raw, un-normalised evidence length would pass all four asserts despite violating this exact requirement in step 3 \u2014 the Verification checks less than the Procedure promises."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-e15-nogate/3/SKILL.md": {
+    "bytes": 3212,
+    "calls": [
+      "fail",
+      "pass",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise the quoted evidence by collapsing every whitespace run\n   (spaces, tabs, newlines) to one space and trimming the ends:\n   `ev = \" \".join((f.get(\"evidence\") or \"\").split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Steps 1-2 give literal, unambiguous code a fresh instance can transcribe directly into verdict_from."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Leave the other gates as they are: `ok is not True` still fails closed,\n   and a span that appears nowhere in the text still fails.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The skill explicitly names the pre-existing gates it depends on and tells the editor to preserve rather than rederive them, so nothing load-bearing is left unstated."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised `ev`, so padding a\n   short span with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The verification command only asserts the wrap/reorder/absent cases (a)-(c) and never constructs a short span padded with whitespace to inflate its raw length past MIN_EVIDENCE_CHARS, so an implementation that floors on the raw (un-normalised) span instead of the normalised one -- exactly the bug step 3 warns against -- still passes verification."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "ev = \" \".join((f.get(\"evidence\") or \"\").split())",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Steps 1-2 give literal code for the core change and steps 3-5 give clear directives, so a fresh instance with the target file open can implement the fix."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised `ev`, so padding a short span with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure assumes a MIN_EVIDENCE_CHARS floor already exists somewhere in validate.py and just needs relocating, but never states its current value, location, or confirms its presence, so a fresh instance can't verify this assumption from the text alone."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "assert v.verdict_from(ok('flush() before close().'),t)=='pass'; assert v.verdict_from(ok('close() before Call flush().'),t)=='fail'; assert v.verdict_from(ok('appears nowhere in the skill'),t)=='fail'",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "The three assertions are internally consistent with the described normalisation logic and would raise AssertionError under byte-exact matching as claimed, but the result also silently depends on the unstated runtime value of MIN_EVIDENCE_CHARS in validate.py, which the text never gives."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise the quoted evidence by collapsing every whitespace run",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure gives literal code and names the function (validate.verdict_from via the frontmatter description), so a fresh instance can locate and apply the edit even though no explicit file path like scripts/validate.py appears in the Procedure body."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Leave the other gates as they are: `ok is not True` still fails closed, and a span that appears nowhere in the text still fails.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The skill correctly frames itself as an amendment to an existing verdict_from with pre-existing gates and constants (MIN_EVIDENCE_CHARS, SKILL_CRITERIA), which is a reasonable assumption for a project-scope skill and is confirmed to hold in this repo's scripts/validate.py."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "(a) a quote whose line break the file has but the quote\n  replaces with a space grades `pass`; (b) the same words reordered grade\n  `fail`; (c) a span absent from the text grades `fail`.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Verification's three checks only exercise hard-wrap normalisation, ordering, and absence \u2014 none constructs a short evidence span padded with extra internal whitespace to test step 3's claim that the MIN_EVIDENCE_CHARS floor must be applied to the normalised span, so an implementation that (like this repo's actual verdict_from) measures the floor on the merely-.strip()'d raw span instead still exits 0 despite violating step 3."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-e15-nogate/4/SKILL.md": {
+    "bytes": 3435,
+    "calls": [
+      "fail",
+      "fail",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Collapse every whitespace run to a single space on BOTH sides before the containment check: `ev = \" \".join((f.get(\"evidence\") or \"\").split())` and compare against `\" \".join(text.split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure gives concrete, self-contained code for the normalisation and containment check, so a fresh instance can implement it directly against verdict_from without needing anything the text omits."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Run the `verification.command` above from the repo root. It should exit 0.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The text states the working-directory assumption for the verification command, and the procedure's other assumptions (an existing verdict_from, MIN_EVIDENCE_CHARS, an `ok is not True` gate) are the ordinary starting state for a repair-scoped skill editing a named existing function."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "It asserts that a quote of `flush() before\n   close().` written with a single space passes, that the same words reordered fail, and that a span absent from the text fails.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The verification only exercises normalisation, reordering, and absence; it never constructs a short evidence span padded with whitespace to exceed MIN_EVIDENCE_CHARS, so an implementation that skips step 3 (applies the floor to the raw span instead of the normalised one, as the current pre-fix code literally does) still passes all three assertions and the command still exits 0."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Collapse every whitespace run to a single space on BOTH sides before the",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Each transformation is given as a literal code snippet, so a fresh instance can locate and apply them to verdict_from() without needing prior session memory."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "sys.path.insert(0, 'scripts'); import validate as v",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification command pins the file's location (scripts/validate.py) and step 4 names the pre-existing 'ok is not True' check literally enough to be found by search."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised evidence, so padding\n   a short span with whitespace cannot get it over the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The verification.command's three assertions only exercise rewrapping, reordering, and absence, never a short quote padded with extra internal whitespace/newlines to inflate its raw length past MIN_EVIDENCE_CHARS while its normalised form stays under the floor, so the command would still exit 0 even if step 3 were implemented against the raw (merely-stripped) span instead of the normalised one."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised evidence, so padding",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "The live validate.py measures the floor on `ev` (only `.strip()`-ed, not whitespace-collapsed) and its own comment says this is deliberate ('measured on the raw span, so re-wrapping cannot shrink a quote under the floor or pad one over it'), so a fresh instance following step 3 literally would normalise before measuring length and produce code that behaves differently from the implementation this skill is supposed to describe."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check ahead of the evidence check unchanged:",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Procedure never states which file/function to open (only the verification.command's `sys.path.insert(0, 'scripts')` implies scripts/validate.py) and assumes the reader can already identify 'the ok is not True check' and 'the evidence check' in code it never shows or locates."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "single space passes, that the same words reordered fail, and that a span",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Every finding built by the verification command's `ok` lambda hard-codes `'ok': True`, so step 4 (the `ok is not True` precedence) is never exercised, and all three evidence strings are 20+ characters, so step 3 (the MIN_EVIDENCE_CHARS floor) is also never exercised \u2014 the command would still exit 0 if either step were skipped."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-e15-nogate/5/SKILL.md": {
+    "bytes": 3672,
+    "calls": [
+      "fail",
+      "fail",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise the model's evidence span by collapsing every whitespace run\n   (spaces, tabs, newlines) to a single space and stripping the ends:\n   `ev = \" \".join((f.get(\"evidence\") or \"\").split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Each step gives literal, unambiguous code to write against named existing identifiers (verdict_from, MIN_EVIDENCE_CHARS, blocks()), so a fresh instance with the file open can execute the procedure without needing prior session memory."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "assert v.verdict_from(ok('flush()'),t)=='fail'",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "This assertion only proves the floor is enforced if MIN_EVIDENCE_CHARS is greater than len('flush()')==7, but the skill never states that constant's value, so the text alone can't confirm the check is even calibrated to fire."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Apply the minimum-length floor (`MIN_EVIDENCE_CHARS`) to the normalised span, not the raw one, so padding a two-character quote with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "None of the four verification evidences ('flush() before close().', 'close() before flush().', 'a span that appears nowhere', 'flush()') contain internal whitespace runs, so an implementation that measures the length floor on the raw (merely end-stripped) span instead of the normalised span -- exactly the mistake step 3 warns against -- produces identical results on all four assertions and still exits 0, so the Verification cannot actually catch a violation of step 3."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise the model's evidence span by collapsing every whitespace run",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The described edits are concrete enough (named function, named constant, exact expressions) that an instance with access to the target file could apply them, even though only fragments of the surrounding function are shown."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Apply the minimum-length floor (`MIN_EVIDENCE_CHARS`) to the normalised span, not the raw one",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The skill treats MIN_EVIDENCE_CHARS as an already-existing constant without stating its value, but since this is an edit to existing code the instance is expected to read, that's a reasonable assumption rather than a missing precondition."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "assert v.verdict_from(ok('flush()'),t)=='fail'\"",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The only floor test case ('flush()') contains no internal whitespace, so its raw length equals its normalised length \u2014 it cannot distinguish an implementation that applies MIN_EVIDENCE_CHARS to the raw span from one that applies it to the normalised span, so an instance that ignores step 3's 'normalised span, not the raw one' requirement (e.g. keeps `len(ev) < MIN_EVIDENCE_CHARS` on the raw, unnormalised string) still passes verification, defeating the stated purpose of blocking a whitespace-padding attack."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "ev = \" \".join((f.get(\"evidence\") or \"\").split())",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The literal code snippets in steps 1-3 map cleanly onto the real verdict_from (confirmed in scripts/validate.py), so a fresh instance with repo access can apply the edit, though the procedure never mentions the existing `_unwrapped` helper it should reuse rather than re-deriving inline."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Leave the `ok is not True` check and the blocks() severity/basis filter before the evidence check untouched",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "This assumes an `ok is not True` check and a `blocks()` severity/basis filter already exist verbatim in scripts/validate.py, which is true in the current repo but is never stated as a precondition, so the instruction would silently mis-fire against a drifted copy of the file."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "so padding a two-character quote with whitespace cannot get it past the floor",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "None of the verification command's four evidence strings ('flush() before close().', 'close() before flush().', 'a span that appears nowhere', 'flush()') contain internal whitespace runs that normalisation would collapse, so the floor-on-raw-vs-floor-on-normalised distinction step 3 exists to fix is never exercised and a regression back to raw-length flooring (which is exactly what MIN_EVIDENCE_CHARS is checked against on line 445 of the real file) would still pass every assertion."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-e15-nogate/6/SKILL.md": {
+    "bytes": 3192,
+    "calls": [
+      "fail",
+      "fail",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "In `verdict_from`, for every finding that has `ok is True`, normalise the\n   evidence by collapsing all runs of whitespace to one space",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The step gives the exact code transformation to apply, so a fresh instance can implement it without ambiguity."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Run `verification.command` from the repo root.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The file location and pre-existing symbols (verdict_from, SKILL_CRITERIA) are inferable from the verification.command's `sys.path.insert(0,'scripts'); import validate as v`, and scope: project reasonably implies repo access."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised span, so padding\n   a short span with whitespace cannot get past it.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The verification.command's four asserts (rewrapped-pass, reordered-fail, not-found-fail, 'Call'-fail) never construct a short span padded with internal whitespace to inflate its raw length past MIN_EVIDENCE_CHARS, so an implementation that checks the floor on the un-normalised span (which is what this repo's actual scripts/validate.py:442-445 does) still exits 0, meaning skipping this specific guarantee is not caught."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "In `verdict_from`, for every finding that has `ok is True`, normalise the",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The five numbered steps give exact, unambiguous code snippets and a named target function, so a fresh instance with repo access could locate and apply them without prior session memory."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalized span, so padding",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "MIN_EVIDENCE_CHARS is referenced but not defined here; this is acceptable since it is scoped as a pre-existing module constant the skill deliberately doesn't touch, and is discoverable by search."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "If the procedure is skipped and matching stays byte-exact, the first assert\n  fails (AssertionError, exit 1). If the matching is loosened to word sets,\n  the second assert fails.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Verification section itself only claims to catch two failure modes (byte-exact matching, word-set matching) and all four test evidences are single-line/single-spaced with no internal padding or multi-line quoting, so an implementation that violates step 3 (measuring MIN_EVIDENCE_CHARS on the raw span instead of the normalized span) would still pass verification.command undetected."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "ev = \" \".join(str(f.get(\"evidence\") or \"\").split())",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Both normalization lines and the target function name (verdict_from) are given as literal code, so a fresh instance can locate and insert the edit without inventing logic."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "the `MIN_EVIDENCE_CHARS` floor to the normalised span",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure and its own verification command depend on MIN_EVIDENCE_CHARS's actual value/comparison operator (needed for the 4-character 'Call' case to fail) and on v.SKILL_CRITERIA, but neither symbol is ever defined or given a value anywhere in the skill text."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "Run `verification.command` from the repo root. It exits 0 when a rewrapped",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The command asserts both a rewrapped-quote pass and a reordered-words fail, so skipping either normalization step (byte-exact matching, or loosening to word-set comparison) demonstrably breaks a specific assert as the Verification section explains."
+        }
+      ]
+    ]
+  }
+}
