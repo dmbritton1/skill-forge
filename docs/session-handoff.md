@@ -2,6 +2,41 @@
 
 > **Newer:** `docs/handoff-2026-09-15-e15.md` covers the bench sandbox, E14 and
 > E15 (built, not yet run), with step-by-step instructions for E15's real run.
+>
+> **Newest — 2026-09-16/17.** That session ran E16, answered brief Q4 and Q5,
+> ran E18 and E19, shipped three `scripts/` fixes and one bench lever, and
+> corrected several claims in this file and in `bench/RESULTS.md`. It left no
+> handoff of its own; the summary below is it, and the register at the top of
+> `bench/RESULTS.md` is the index.
+>
+> **What changed, shortest form:**
+>
+> - **Brief agenda closed.** Q1, Q3 already answered; **Q4** answered
+>   (~1,100 tokens per additional resolved run, two traps agreeing to within
+>   nine); **Q5** answered (the critique conjunct does not predict outcome);
+>   **Q2** is a replicated null at 0/15 and not worth more runs.
+> - **Three shipped fixes.** A critique `fail` is re-asked before it is cached
+>   (`79bf414`); the hot promoter stops at the first skill that does not fit
+>   (`79bf414`, the defect `bench/hot_check.py` found); the evidence floor is
+>   measured on the normalised span (`734c2d9`), which closed a live hole in
+>   the anti-sycophancy gate.
+> - **Two corrections in `RESULTS.md` are corrections of entries written the
+>   same day.** E17's "the gate predicts backwards" and E19's "the one draft
+>   critique is certain about is a broken one" report a real anti-correlation
+>   with the **wrong cause**. Do not cite them without the "Critique was right"
+>   section that follows them. The **instability** finding is independent and
+>   stands: 70% of 23 texts return different critique verdicts on identical
+>   input, including across batches.
+> - **Trap supply is a dead end in its current shape**, and §3.8 below says so
+>   with the numbers. E16 spent 15 sessions for no new trap.
+> - **Open and pre-registered, not run:** `E20`
+>   (`docs/superpowers/specs/2026-09-17-e20-verification-coverage-rule-design.md`)
+>   — a fourth distiller rule. The rule is deliberately **not** in
+>   `skills/distilling-skills/SKILL.md`; E15's precedent is that a rule ships
+>   only after its probe reads.
+> - **Still parked, with reasons in `RESULTS.md`:** a hot-tier session arm
+>   (possible now via `bench/run.py --seed-uses`, unmotivated by E5's null),
+>   more traps, and any further change to the critique caching rule.
 
 Written 2026-09-11, at the end of the session that answered E7, E8 and E9,
 built `/consolidate`, and ended by diagnosing a defect in the injection
