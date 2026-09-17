@@ -35,6 +35,8 @@ because nothing indexed the data — see "What the register caught".
 | E16 screen (2026-09-16) | Do either of the two remaining well-shaped fix commits (F `read_markers`, G `event_totals`) have a zero control floor? | **Answered: no — both rejected.** G 6/6, ceiling, like E13's D and E. F **1/6**, and the five unresolved sessions each failed **exactly** `test_read_markers_skips_junk_without_losing_good_lines` and nothing else — the trap springs, but not reliably, and a non-zero floor rejects. Same-batch reference 0/3 (**0/28** lifetime), so the screen is valid. First batch to pause at the session limit and resume (E15 amendment 4): one environment across a 2h45m gap. Corrects the register: the bench had **two** working traps before this screen, not one | `results.jsonl`, the 16 rows after 2026-09-16T11:44:14 (one `session_ok: false` limit cut-off, re-run in place); spec `docs/superpowers/specs/2026-09-16-e16-author-traps-design.md`; `bench/e16_preflight.py`, `bench/e16_screen.sh`, `bench/e16_screen_read.py` |
 | Q4 token cost (2026-09-16) | What does a unit of benefit cost in injected tokens? (= brief Q4) | **Answered, and the two traps agree without being made to: ~1,100 tokens per additional resolved run** — 1,100 on `fingerprint_preexisting`, 1,091 on `verdict_from`, across five experiments. Hand-written drafts are the cheapest by far (E14's four at 503–510 tokens, 42% of budget, best price **507**); distilled drafts cost 647–1,192 (up to **99% of the 1,200 budget**, eight tokens of headroom). Two E13 baseline drafts are bill-only: ~18,500 tokens for zero resolutions | `bench/q4_token_cost.py` — deterministic, 0 sessions. Prices only tasks whose control floor is measured at zero, which it derives rather than hardcodes |
 | E17 (2026-09-16) | Does the critique conjunct of the `trusted` gate predict whether a skill works? (= brief Q5) | **Answered: no, and its verdict is not even reproducible.** 27 calls over E15's nine frozen drafts. **Stability: 5 of 9 drafts gave different verdicts on unchanged text** (4 unanimous, needs 7) — that half is clean and is the finding. On prediction: V (the six drafts that resolve 18/18) passed **4/18**; B (the three that resolve 0/9) passed **6/9**; d = **−0.44**, the pre-registered "predicts backwards" band, Fisher p = 0.039. **But do not read the direction:** spec threat 4 fires completely — the three B drafts are the three *shortest* and the six V drafts the six longest, a perfect rank separation, r(bytes, passes) = −0.70, and dropping one baseline draft moves d to −0.28 (p = 0.307). What survives: critique does **not** prefer the drafts that work. The spec's §4 prediction of a degenerate d ≈ 0 was wrong | `bench/e17-q5-results.json`; `bench/e17_q5.py --read`; spec `docs/superpowers/specs/2026-09-16-e17-critique-gate-prediction-design.md` + amendment 1 |
+| Hot tier (2026-09-16) | Is the hot promoter monotonic in its budget, and does it charge the right bytes? | **Answered: it was not, and the fix was one already made elsewhere.** `sync.sync()`'s hot loop skipped past a skill too dear for the remaining budget and let a cheaper lower-ranked one take the space — **2 shrinks / 3 inversions** on the consolidated seven, 4 / 10 on the ten, and 23 of 25 random rankings shrinking, so **raising** the budget demoted skills. `selector_check.py` proved the identical defect in `retrieve.run_hook` on 2026-09-11 and it was fixed there; the same shape in `sync` was never touched. Now a prefix rule: **0 shrinks, 0 inversions** on both pools. Stall cost reported, not assumed — a rank-1 description over budget blocks the tier, >1500 tokens against a largest-measured 218 (7x headroom). Two smaller findings: `sync.est_tokens` was a fourth copy of the cost formula and now delegates; and hot charges the **description** while every other path charges the whole file, a 6.4x gap that is deliberate and was recorded nowhere | `bench/hot_check.py` + `tests/test_bench_hot_check.py` — deterministic, 0 sessions; the fix in `scripts/sync.py` |
+| Bench hot eligibility (2026-09-16) | Can a bench arm reach the hot promoter at all? | **It could not, and the handoff named the wrong blocker.** §3.5 said the obstacle was that "the force-hot lever takes a single exact name"; in fact `--plus-skill` already installs N skills, and `--force-hot` is not a narrow version of what is needed — it sets `tier = "hot"` directly and its own comment says it "bypasses kind, bucket, budget", so forcing two names would exercise none of the machinery. The real blocker is **eligibility**: an installed skill lands `unproven` and `sync` gives `unproven` tier `warm`. `--seed-uses N` writes the ledger history a real skill earns (2 reaches `working`) and lets `sync` decide everything after. Also corrected: those mechanisms are unit-tested in `tests/test_sync.py` — what had never happened is a *bench arm* reaching them | `bench/run.py` (`--seed-uses`, rows carry `seed_uses` and `tiers`); `tests/test_bench_run.py`, incl. a mutation-proven contention test — 0 sessions |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -3207,3 +3209,70 @@ working. A future trap-2 qualification must re-pin its own snapshot.
   verdicts, no model.
 - The corpus is unmodified: `bench/distilled/C/learn-e15-nogate/1..6/SKILL.md`
   and `bench/distilled/C/learn-nogate/1..3/SKILL.md`.
+
+---
+
+# Hot tier — is the promoter monotonic, and does it charge the right bytes? (2026-09-16)
+
+`bench/hot_check.py`. Deterministic, 0 sessions. No tool in this directory
+covered the hot path before it: `selector_check`, `budget_sweep`, `rank_check`,
+`gate_analysis` and `real_path_check` all analyse `retrieve`/`detect`.
+
+## Headline
+
+**The hot promoter had the same non-monotonicity `selector_check.py` found in
+the warm selector in September, and that fix was never applied here.**
+
+| pool | rule | shrinks | inversions | demoted by a *bigger* budget |
+| --- | --- | --- | --- | --- |
+| ten | continue (pre-2026-09-16) | 4 | 10 | `truncated-scan-reports-unknown`, `truncation-reports-unknown` |
+| ten | prefix/break (today) | **0** | **0** | — |
+| seven | continue (pre-2026-09-16) | 2 | 3 | `capped-scan-reports-unknown-not-absent`, `truncated-scan-reports-unknown` |
+| seven | prefix/break (today) | **0** | **0** | — |
+
+`sync.sync()` walked the ranked list and skipped any skill too dear for the
+remaining budget, so a cheaper lower-ranked skill took space a dearer
+higher-ranked one would have had — and which skills are hot depended on the
+budget in a way that is not monotone. **Raising the budget demoted skills.**
+
+Checked for robustness rather than asserted: across **25 random rankings** of
+the same pool, `continue` shrinks in 23 and the prefix rule in 0. Structural,
+not an artifact of the tool's synthetic rank order.
+
+## What the fix costs, measured
+
+The prefix rule means one fat description stalls the tier below it, so
+`hot_check` reports the threshold:
+
+```
+a RANK-1 description over the budget blocks the whole tier: > 1500 tokens (~6000 chars)
+largest description measured in `seven`: 218 tokens -- 7x headroom
+all seven together: 1127 tokens, 75% of the budget
+```
+
+## Two smaller findings
+
+**`sync.est_tokens` was a fourth copy of `max(1, len(t) // 4)`.** Handoff §3.3
+made `retrieve.injection_cost` the single definition *because* that expression
+had been duplicated and could drift. `sync` kept its own anyway. It delegates
+now, and a test fails the day the two disagree.
+
+**Hot charges the description; every other path charges the whole file.** On
+the seven that is 1127 against 7207, a 6.4× gap. This is **deliberate and
+correct** — the harness loads a native skill's description into standing
+context and reads the body only on demand, while a warm skill is injected as
+preamble text and costs every byte. It was recorded nowhere, so the two
+budgets named in "tokens" were quietly counting different things. Now in
+`est_tokens`' docstring.
+
+## Limits
+
+- **The pool's ranking inputs are synthetic.** Costs and descriptions are the
+  real archived skills; buckets and success counts are assigned by the tool and
+  it says so. The 25-ordering check is what makes the finding order-independent.
+- **No session ran, and none is implied.** This says the promoter's *set* is
+  now stable under a growing budget. Whether a model behaves differently when
+  two skills contend is untested — `--seed-uses` makes that arm possible, E5
+  is the reason it is not yet motivated.
+- **The stall threshold is arithmetic**, not a measurement of a real oversized
+  skill, because none exists in the corpus.

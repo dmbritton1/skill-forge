@@ -374,10 +374,26 @@ control look like 44% and makes E4 look unblocked. It is not.
 ### 3.5 The hot tier: 4 of 5 mechanisms still unevidenced
 
 Delivery is confirmed (2026-09-08). Promotion order, the 1,500-token budget,
-`confidence × recent usage` ranking, and eviction pressure have never been
-exercised against a model that could see the result. Needs an arm with two or
-more hot-eligible skills that together exceed the budget; the force-hot lever
-takes a single exact name and cannot express that.
+ranking and eviction have never been exercised against a model that could see
+the result.
+
+**Corrected 2026-09-16 — the blocker named here was wrong.** It was not that
+"the force-hot lever takes a single exact name": `--plus-skill` already
+installs N skills, and `--force-hot` is not a narrow version of what is needed
+— it assigns `tier = "hot"` directly and its own comment says it "bypasses
+kind, bucket, budget", so forcing two names would exercise none of the
+machinery. The real blocker was **eligibility**: an installed skill lands
+`unproven`, and `sync` gives `unproven` tier `warm`. `bench/run.py --seed-uses N`
+now writes the ledger history a real skill earns and lets `sync` decide.
+
+Also: this logic is **not** untested. `tests/test_sync.py` covers budget
+overflow, promotion order, the unproven gate and eviction. What has never
+happened is a *bench arm* reaching it.
+
+Reading the code while building that lever found a real defect — the promoter
+was non-monotonic in its budget, fixed 2026-09-16 (`bench/hot_check.py`, and
+the Hot tier section of `bench/RESULTS.md`). An arm is now possible; E5's
+null on delivery path is why it is not yet motivated.
 
 ### 3.6 `/consolidate` has never been run end to end against a real library
 
@@ -400,9 +416,25 @@ untested in anger.
 
 ### 3.8 Trap supply is the binding constraint
 
-One usable trap, `fingerprint_preexisting`, floor 0/21. `response_text` retired
-by E10; both repair-mode candidates rejected by E11 at 6/6. Any experiment
-needing two traps is blocked until new tasks exist.
+**Corrected 2026-09-16: there are TWO usable traps, not one.**
+
+| task | control | with a good skill |
+| --- | --- | --- |
+| `sf-author-fingerprint-preexisting` | 0/28 lifetime | pilot 5/6 |
+| `sf-author-verdict-from` | 0/23 lifetime | E15 variant drafts 18/18 |
+
+E13 §6 read trap C as serving neither of its traps; that measured E13's own
+drafts, not the task, and E15 then took the same task to 18/18. A task with a
+zero floor that a good skill takes to ceiling is a working trap. `response_text`
+is retired by E10; both repair-mode candidates were rejected by E11 at 6/6.
+
+**The trap well is dry in this shape, and E16 is the evidence.** Of five
+candidates ever screened by stubbing a function under its own docstring, three
+resolved at ceiling (D, E, G), one floored at 1/6 (F) and one was admitted (C).
+E16 spent 15 sessions for no new trap. `2026-09-16-e16-author-traps-design.md`
+§1.1 records why each of the other 27 open fix commits fails the shape, so the
+field is exhausted for this construction. More traps need a different
+construction, not a longer commit list.
 
 What E11 established about what to write:
 
