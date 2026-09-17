@@ -179,3 +179,34 @@ resumes from them.
 
 This changes no reading rule, no band, no count and no group. It was written
 before the first call, so no E17 data existed to contaminate it.
+
+## Amendment 2 (2026-09-17): a findings-capture re-run
+
+E17 recorded only verdicts. Its sharpest result — **three drafts that resolve
+`sf-author-verdict-from` 18/18 fail critique 3 of 3**, p = 0, which E19 then
+showed is not explained by length — therefore has no recorded reason. E18 and
+E19 capture findings; E17 cannot be read that way.
+
+The six V drafts are re-critiqued, 3 calls each, **18 calls**, with capture on.
+
+**What this is and is not.** It is a data-capture gap-fill, not a new
+comparison, and it is pre-registered as such before it runs:
+
+- **The new verdicts are NOT pooled with E17's rates.** They are a separate
+  batch, and this project does not stitch batches — E10's break was caught only
+  because a same-batch control existed. E17's `V 4/18`, its `d = −0.44` and
+  every pooled stability figure stand on their original rows and are not
+  recomputed.
+- **Only the findings text is read**, to answer one question: when critique
+  rejects a draft that works, what does it object to, and is it the same
+  objection every time? A stable objection is a real (if misdirected)
+  criterion; different ones each time are rationalisations of a coin flip.
+- **The new verdicts are still recorded**, because discarding the numbers that
+  came with the data would be choosing what to keep after seeing it. They are
+  reported as their own batch and may be compared with E17's *qualitatively*,
+  as further cross-batch stability evidence (E19 already found the verdict
+  unstable across batches), never pooled into a rate.
+
+Method, containment and amendment 1's transport guard are unchanged. Results in
+`bench/e17-capture-results.json`, separate from `e17-q5-results.json`, which is
+not modified.
