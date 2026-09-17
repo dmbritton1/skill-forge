@@ -1,6 +1,7 @@
 """Tests for bench/e13_qualify.py. Run from the repo root: python3 tests/test_bench_e13_qualify.py"""
 import json
 import pathlib
+import subprocess
 import sys
 import tempfile
 
@@ -49,10 +50,22 @@ def test_first_qualifying_takes_the_earliest_in_order():
 
 
 def test_plugin_drift_flags_a_ref_that_differs_under_scripts_or_hooks():
-    """06885c0 differs from HEAD in scripts/retrieve.py (the tokenizer fix);
-    9cbb472 (NEW_REF) does not, as of 2026-09-14 -- the guard this protects."""
+    """06885c0 differs from HEAD in scripts/retrieve.py (the tokenizer fix).
+
+    NEW_REF no longer matches HEAD either, as of 2026-09-16: the E17 fix to
+    scripts/validate.py moved scripts/ past 9cbb472. e13_qualify.main() now
+    refuses to run with its FATAL, which is the guard WORKING -- qualification
+    would no longer match the plugin under test. A future trap-2 qualification
+    must re-pin NEW_REF to its own snapshot rather than assume HEAD.
+    """
     assert q.plugin_drift("06885c0") is True
-    assert q.plugin_drift(q.NEW_REF) is False
+    assert q.plugin_drift(q.NEW_REF) is True
+    # Both directions, or a plugin_drift that always returned True would pass.
+    # HEAD is the only ref the tree can equal, and only while it is clean under
+    # those paths -- true in CI and a fresh checkout, false mid-edit.
+    if subprocess.run(["git", "diff", "--quiet", "HEAD", "--", "scripts", "hooks"],
+                      cwd=str(q.ROOT)).returncode == 0:
+        assert q.plugin_drift("HEAD") is False
 
 
 def test_counted_drafts_flag_a_tainted_draft():

@@ -3144,8 +3144,41 @@ everything or fail everything, d ≈ 0 — because critique passed all 4 Q1 draf
 and failed all 9 hand-written calibration skills. It did neither. Recording
 that here because §4 existed precisely so the prediction could be scored.
 
+## What it changed in the shipped path
+
+E17's stable half is a defect, not a curiosity, and `scripts/validate.py` now
+carries the fix. `main()` cached any non-`inconclusive` verdict against the
+content hash and early-returned on it forever after, so **one unlucky critique
+capped a skill permanently, for that text**, with editing the file the only
+escape — and the notice from `3095587` told the author to "read the findings,
+fix the skill", advice that is wrong when the failure was noise.
+
+A critique `fail` is now **re-asked once, and cached only if it reproduces.**
+
+The asymmetry is deliberate and only the veto is re-asked. `critique == "pass"`
+is necessary but **not sufficient** in `ledger.confidence()` — promotion still
+needs an executable pass or organic trust, plus `fresh` — so a false pass costs
+nothing on its own, while a false fail is an unconditional cap. Re-asking is
+also strictly more protective than a best-of-three majority at a third of the
+cost: for a draft that passes a third of the time, two consecutive fails happen
+44% of the time against a majority-of-three's 74%. The cost is one extra call,
+on the failing path only, once per content hash.
+
+This is the same rule R12 already applied to `inconclusive` — a transient must
+not become permanent — extended to the other answer E17 showed is not
+reproducible. `executable` mode is untouched: its transient failures are
+already `inconclusive`, and a re-ask would spend a second worktree and model
+call on every one.
+
+Knock-on: `bench/e13_qualify.py` guards on `plugin_drift(NEW_REF)` and now
+refuses to run, because `scripts/` has moved past `9cbb472`. That is the guard
+working. A future trap-2 qualification must re-pin its own snapshot.
+
 ## Limits and caveats
 
+- **The fix is not measured.** It follows from E17's instability plus a reading
+  of `confidence()`, and no batch has been run against it. What is measured is
+  that the verdict flips; that re-asking helps is arithmetic, not evidence.
 - **The findings were not saved.** The first run kept only verdicts, so this
   experiment cannot say *why* critique failed the drafts that work — which is
   exactly what would separate "length" from "outcome". `bench/critique-calibration/run.py`

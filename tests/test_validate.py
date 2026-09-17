@@ -1302,6 +1302,93 @@ def test_the_follow_run_asks_for_edits_and_the_commit_command():
     in_sandbox(check)
 
 
+# --- a critique `fail` must reproduce before it is cached (E17) ---------------
+#
+# E17 measured critique returning different verdicts for byte-identical text on
+# 5 of 9 drafts. main() caches any non-inconclusive verdict against the content
+# hash and early-returns on it forever after, and `critique == "pass"` is a
+# required conjunct of `trusted` -- so one unlucky roll capped a skill
+# permanently, for that text. A `pass` needs no such care: it is necessary but
+# not sufficient for promotion (ledger.confidence also demands an executable
+# pass or organic trust), so the conjunct is a veto and only the veto can fire
+# falsely at no further cost.
+
+
+def _critique_main(home, verdicts, mode="critique"):
+    """Drive main() with critique scripted to return `verdicts` in order.
+
+    Returns (number of critique calls, the verdict recorded or None).
+    """
+    skill_dir = home / "skill"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    skill_file = skill_dir / "SKILL.md"
+    text = "---\nname: w\n---\nbody\n"
+    skill_file.write_text(text, encoding="utf-8")
+    put_index(home, [{"name": "w", "path": str(skill_file)}])
+
+    calls = []
+
+    def fake(t, entry, plugin_root):
+        calls.append(1)
+        return verdicts[len(calls) - 1], "detail %d" % len(calls)
+
+    real_critique, real_executable = validate.critique, validate.executable
+    validate.critique = fake
+    validate.executable = lambda t, entry: (verdicts[0], "detail 1")
+    try:
+        with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            validate.main([mode, "--skill", "w"])
+    finally:
+        validate.critique, validate.executable = real_critique, real_executable
+    h = trust.content_hash(text)
+    return len(calls), ledger.validations_for({"w": h}).get("w", {}).get(mode)
+
+
+def test_a_critique_fail_that_does_not_reproduce_is_not_cached():
+    def check(home):
+        calls, recorded = _critique_main(home, ["fail", "pass"])
+        assert calls == 2, "a fail must be re-asked before it is believed"
+        assert recorded == "pass", recorded
+    in_sandbox(check)
+
+
+def test_a_critique_fail_that_reproduces_is_cached_as_fail():
+    def check(home):
+        calls, recorded = _critique_main(home, ["fail", "fail"])
+        assert calls == 2, calls
+        assert recorded == "fail", recorded
+    in_sandbox(check)
+
+
+def test_a_critique_pass_is_taken_at_face_value_and_spends_one_call():
+    def check(home):
+        calls, recorded = _critique_main(home, ["pass", "fail"])
+        assert calls == 1, "a pass must not cost a second call"
+        assert recorded == "pass", recorded
+    in_sandbox(check)
+
+
+def test_a_fail_then_inconclusive_records_nothing_and_keeps_the_retry():
+    # R12 still governs the second call: an inconclusive is the absence of a
+    # result, so a fail that comes back inconclusive on re-ask settles nothing.
+    def check(home):
+        calls, recorded = _critique_main(home, ["fail", "inconclusive"])
+        assert calls == 2, calls
+        assert recorded is None, recorded
+    in_sandbox(check)
+
+
+def test_executable_mode_does_not_re_ask():
+    # The measurement is about critique. executable's transient failures are
+    # already `inconclusive` by R12, and a re-ask would spend a second worktree
+    # and model call on every one of them.
+    def check(home):
+        calls, recorded = _critique_main(home, ["fail", "pass"], mode="executable")
+        assert calls == 0, "executable must not call critique"
+        assert recorded == "fail", recorded
+    in_sandbox(check)
+
+
 if __name__ == "__main__":
     failures = 0
     for name in sorted(list(globals())):

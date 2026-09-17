@@ -814,6 +814,26 @@ def main(argv=None):
                 return 0
             if args.mode == "critique":
                 verdict, detail = critique(text, entry, args.plugin_root)
+                if verdict == "fail":
+                    # A `fail` must reproduce before it is believed. E17
+                    # measured critique returning different verdicts for
+                    # byte-identical text on 5 of 9 drafts, and the verdict
+                    # recorded below is cached against the content hash and
+                    # early-returned on forever -- so one unlucky roll capped a
+                    # skill permanently, for that text, with editing the file
+                    # the only escape. R12 already refuses to cache an
+                    # `inconclusive` because a transient must not become
+                    # permanent; this is the same rule applied to the other
+                    # non-reproducible answer.
+                    #
+                    # Asymmetric on purpose, and only the veto is re-asked.
+                    # `critique == "pass"` is necessary but NOT sufficient in
+                    # ledger.confidence() -- promotion still needs an
+                    # executable pass or organic trust -- so a false pass costs
+                    # nothing on its own while a false fail is an unconditional
+                    # cap. The cost is one extra call, on the failing path
+                    # only, once per content hash.
+                    verdict, detail = critique(text, entry, args.plugin_root)
             else:
                 verdict, detail = executable(text, entry)
             # Ruling R12: an `inconclusive` is the ABSENCE of a result, not a

@@ -182,7 +182,11 @@ def test_a_critique_that_finds_a_problem_blocks_promotion():
         save(home, [])
         calls = []
         run_critique(bad_findings(), calls)
-        assert len(calls) == 1
+        # TWO calls: a critique `fail` is re-asked before it is cached (E17 --
+        # the verdict is not reproducible on unchanged text). The spy returns
+        # the same bad findings both times, so the fail reproduces and is
+        # recorded, which is what the rest of this test is about.
+        assert len(calls) == 2
         for i in range(2):
             ledger.log_event("detection", "widget-flush", outcome="success",
                              session="s%d" % i, project="/repo/%d/.git" % i)
