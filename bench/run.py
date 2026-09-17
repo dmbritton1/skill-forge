@@ -78,6 +78,7 @@ SKILL_FROM = None
 # E6: an ADDITIONAL skill installed beside the task's own, to ask whether an
 # irrelevant one riding along dilutes a relevant one. Off = None.
 PLUS_SKILL = None
+SEED_USES = 0
 #: Test-only (E10): per-run override for retrieve.py's injection budget, in
 #: tokens. None = the shipped 1200. arm_segment carries it into the clone
 #: path, because a batch runs two budgets and they must not share a clone.
@@ -511,6 +512,8 @@ def arm_segment(arm):
     n = len(PLUS_SKILL or ())
     if n:
         seg += "-plus" + (str(n) if n > 1 else "")
+    if SEED_USES:
+        seg += "-seed%d" % SEED_USES
     if INJECT_BUDGET:
         seg += "-b%d" % INJECT_BUDGET
     seg += PLUGIN_SEGMENT
@@ -644,6 +647,31 @@ def extra_skill_names():
     return [skill_name(Path(p).resolve()) for p in (PLUS_SKILL or ())]
 
 
+def seed_uses(names, n):
+    """Give each skill `n` clean sessions so confidence() makes it hot-eligible.
+
+    The bench's honest way into sync's hot path. `--force-hot` is not one: it
+    assigns tier = "hot" directly and its own comment says it "bypasses kind,
+    bucket, budget", so an arm built on it exercises none of the machinery
+    handoff 3.5 lists as unevidenced -- and forcing two names hot would
+    exercise none of it twice. This writes the ledger history a real skill
+    earns, the same shape tests/test_sync.py::earn_success uses, and leaves
+    every decision to sync.
+
+    A DISTINCT project per session, not just a distinct session: V16 keys
+    corroboration on project, so n sessions in one repo would log n rows and
+    still never reach `trusted`.
+    """
+    if n <= 0:
+        return
+    import ledger
+    for name in names:
+        for i in range(n):
+            ledger.log_event("detection", name, detection="verification",
+                             outcome="success", session="seed-%s-%d" % (name, i),
+                             project="/seed/%s/%d/.git" % (name, i))
+
+
 def install_skill(task, dest, plugin_dir):
     """Put the skill in the clone's PROJECT store via the enforced save path.
 
@@ -739,8 +767,16 @@ def one(task, arm, run_idx, plugin_dir):
     trust_before = libguard.snapshot()
     skill_note = install_skill(task, dest, plugin_dir) if arm == "treatment" else ""
     installed = skill_name(skill_src(task)) if arm == "treatment" else None
+    if arm == "treatment" and SEED_USES:
+        # Seed AFTER the save (which syncs) and re-sync, or the index keeps the
+        # `unproven` tiers it was written with. sync() then makes every hot
+        # decision itself -- bucket rank, the 1500-token budget, eviction --
+        # which is the whole point of seeding instead of forcing.
+        import sync
+        seed_uses([n for n in ([installed] + extra_skill_names()) if n], SEED_USES)
+        sync.sync()
     tier_at_install = tier_of(installed) if installed else None
-    if arm == "treatment" and tier_at_install != "warm":
+    if arm == "treatment" and not SEED_USES and tier_at_install != "warm":
         print("  WARNING: %s installed at tier %r, not warm -- retrieve.eligible()"
               " will skip it and no injection row will be logged"
               % (installed, tier_at_install))
@@ -755,6 +791,11 @@ def one(task, arm, run_idx, plugin_dir):
            "env": ENV,
            "inject_budget": INJECT_BUDGET,
            "delivery": "hot" if os.environ["SKILLFORGE_FORCE_HOT"] else "warm",
+           "seed_uses": SEED_USES,
+           # Every installed skill's tier as sync decided it. A seeded arm is
+           # only evidence about the budget if this shows it actually bound.
+           "tiers": ({n: tier_of(n) for n in ([installed] + extra_skill_names()) if n}
+                     if arm == "treatment" else {}),
            "skill_note": skill_note, "test_tail": tail,
            "injections": injections(ledger_db),
            "ts": time.strftime("%Y-%m-%dT%H:%M:%S")}
@@ -791,6 +832,10 @@ def main(argv=None):
     ap.add_argument("--force-hot", action="store_true",
                     help="E5 arm H: deliver the treatment skill hot, with its"
                          " symptom triggers suppressed (test-only)")
+    ap.add_argument("--seed-uses", type=int, default=0,
+                    help="give each installed skill N clean sessions so sync's"
+                         " real hot path runs (2 reaches `working`); unlike"
+                         " --force-hot this bypasses nothing")
     ap.add_argument("--plus-skill", action="append", default=None,
                     help="install this SKILL.md IN ADDITION to the task's own."
                          " Repeatable: E6 passed one, E8 passes nine"
@@ -812,11 +857,12 @@ def main(argv=None):
                     help="zero sessions: verify the sandbox denies the checkout and"
                          " other clones and allows the clone and plugin, then exit")
     args = ap.parse_args(argv)
-    global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL, INJECT_BUDGET, SANDBOX
+    global MODEL, FORCE_HOT, SKILL_FROM, PLUS_SKILL, INJECT_BUDGET, SANDBOX, SEED_USES
     MODEL = args.model
     FORCE_HOT = args.force_hot
     SKILL_FROM = args.skill_from
     PLUS_SKILL = args.plus_skill
+    SEED_USES = args.seed_uses
     INJECT_BUDGET = args.inject_budget
     SANDBOX = not args.no_sandbox
     if INJECT_BUDGET is not None and INJECT_BUDGET <= 0:

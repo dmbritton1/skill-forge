@@ -952,3 +952,134 @@ if __name__ == "__main__":
                 failures += 1
                 print("FAIL %s: %r" % (name, err))
     sys.exit(1 if failures else 0)
+
+
+# --- honest hot eligibility for the bench (handoff 3.5) ----------------------
+#
+# sync's hot budget, promotion order and eviction are unit-tested in
+# tests/test_sync.py, but no BENCH arm has ever exercised them, because an
+# installed skill lands `unproven` and sync gives `unproven` tier "warm".
+# --force-hot is not a way in: it sets tier = "hot" directly and its own
+# comment says it "bypasses kind, bucket, budget", so forcing two names hot
+# would still exercise none of them. The bench needs the same thing
+# test_sync.py's earn_success() gives: real ledger history, so
+# ledger.confidence() returns a hot-eligible bucket on its own.
+
+
+def sync_hot_eligible():
+    """sync's own HOT_ELIGIBLE, not a copy -- a bench arm is only honest while
+    it agrees with the gate it is trying to exercise."""
+    import sync
+    return sync.HOT_ELIGIBLE
+
+
+def _seed_env(tmp):
+    os.environ["SKILLFORGE_LEDGER"] = str(pathlib.Path(tmp) / "l.db")
+
+
+def test_seeding_two_uses_makes_a_skill_hot_eligible():
+    _reset()
+    with tempfile.TemporaryDirectory() as tmp:
+        _seed_env(tmp)
+        sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "scripts"))
+        import ledger
+        bench_run.seed_uses(["alpha"], 2)
+        # `hashes` is required for a `bucket`: confidence() omits it otherwise
+        # on purpose, so a caller that forgets gets a KeyError rather than the
+        # weaker pre-D2 answer. "working" is hot-eligible, which is the point.
+        stats = ledger.confidence(hashes={"alpha": "deadbeef"})
+        assert stats["alpha"]["organic_bucket"] == "trusted", stats
+        assert stats["alpha"]["bucket"] == "working", stats
+        assert stats["alpha"]["bucket"] in sync_hot_eligible(), stats
+
+
+def test_seeding_nothing_leaves_a_skill_unproven():
+    _reset()
+    with tempfile.TemporaryDirectory() as tmp:
+        _seed_env(tmp)
+        import ledger
+        bench_run.seed_uses(["alpha"], 0)
+        assert ledger.confidence().get("alpha") is None, "no events, no bucket"
+
+
+def test_seeded_uses_land_in_distinct_sessions_and_projects():
+    # V16: corroboration is keyed on PROJECT, not session. Seeding two uses
+    # into one project would log two rows and still not reach `trusted`.
+    _reset()
+    with tempfile.TemporaryDirectory() as tmp:
+        _seed_env(tmp)
+        import ledger
+        bench_run.seed_uses(["alpha"], 3)
+        con = ledger.connect()
+        try:
+            rows = con.execute(
+                "SELECT DISTINCT session, project FROM events"
+                " WHERE skill = 'alpha'").fetchall()
+        finally:
+            con.close()
+        assert len(rows) == 3, rows
+        assert len({r[0] for r in rows}) == 3, "sessions must differ"
+        assert len({r[1] for r in rows}) == 3, "projects must differ"
+
+
+def test_arm_segment_marks_the_seeded_arm():
+    _reset()
+    try:
+        bench_run.SEED_USES = 2
+        assert bench_run.arm_segment("treatment") == "-seed2"
+        assert bench_run.arm_segment("control") == "", "control seeds nothing"
+    finally:
+        bench_run.SEED_USES = 0
+
+
+def test_seeding_puts_the_bench_into_syncs_real_budget_contention():
+    """The whole point of the lever: two seeded skills, a budget too small for
+    both, and sync -- not the bench -- decides which is hot.
+
+    --force-hot could never produce this. It assigns tier = "hot" directly and
+    skips the budget, so two forced names would both be hot and the 1500-token
+    budget would still have run zero times against a bench arm.
+    """
+    _reset()
+    import sync, trust
+    old_home, old_cwd = os.environ["HOME"], os.getcwd()
+    old_budget = os.environ.get("SKILLFORGE_HOT_BUDGET")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["HOME"] = tmp
+        os.environ["SKILLFORGE_LEDGER"] = str(pathlib.Path(tmp) / "l.db")
+        os.environ["SKILLFORGE_FORCE_HOT"] = ""          # no bypass in play
+        os.chdir(tmp)
+        try:
+            base = pathlib.Path(tmp)
+            for name in ("alpha", "beta"):
+                d = base / ".claude" / "skillforge" / "skills" / name
+                d.mkdir(parents=True, exist_ok=True)
+                text = ("---\nname: %s\nkind: skill\ndescription: >\n"
+                        "  Does %s things. Use when: %s. Do NOT use when: never.\n"
+                        "---\n## Procedure\n1. Do it.\n" % (name, name, name))
+                (d / "SKILL.md").write_text(text, encoding="utf-8")
+                trust.record(name, text, "self")
+            # beta earns more sessions, so bucket rank -- not file order --
+            # decides who gets the one slot.
+            bench_run.seed_uses(["alpha"], 1)
+            bench_run.seed_uses(["beta"], 2)
+            os.environ["SKILLFORGE_HOT_BUDGET"] = "10"   # room for neither body
+            sync.sync()
+            idx = json.loads((base / ".claude" / "skillforge" / "index.json")
+                             .read_text(encoding="utf-8"))
+            tiers = {e["name"]: e["tier"] for e in idx["entries"]}
+            assert tiers == {"alpha": "warm", "beta": "warm"}, tiers
+
+            os.environ["SKILLFORGE_HOT_BUDGET"] = "100000"  # room for both
+            sync.sync()
+            idx = json.loads((base / ".claude" / "skillforge" / "index.json")
+                             .read_text(encoding="utf-8"))
+            tiers = {e["name"]: e["tier"] for e in idx["entries"]}
+            assert tiers == {"alpha": "hot", "beta": "hot"}, tiers
+        finally:
+            os.chdir(old_cwd)
+            os.environ["HOME"] = old_home
+            if old_budget is None:
+                os.environ.pop("SKILLFORGE_HOT_BUDGET", None)
+            else:
+                os.environ["SKILLFORGE_HOT_BUDGET"] = old_budget
