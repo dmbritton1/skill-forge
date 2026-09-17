@@ -48,9 +48,20 @@ def test_stale_names_a_draft_changed_since_it_was_recorded():
 
 
 def test_drifted_is_false_for_a_commit_with_no_scripts_hooks_changes_since():
+    # HEAD against itself is the stable negative, and it is what keeps a
+    # drifted() stuck at True from passing this file.
     assert ed.drifted(HEAD, ROOT) is False
+
+
+def test_the_frozen_e14_record_has_drifted_since_the_e17_fix():
+    """E14's delivery record pins 36977b5. scripts/ moved past it on
+    2026-09-16 when the E17 fix landed in scripts/validate.py, so
+    e14_deliver.check_frozen() now refuses with a FATAL. That is the guard
+    WORKING: E14's delivery check no longer describes the current plugin.
+    Re-running that check would have to re-freeze the record at a new commit.
+    """
     record = json.loads(ed.RECORD.read_text(encoding="utf-8"))
-    assert ed.drifted(record["commit"], ROOT) is False
+    assert ed.drifted(record["commit"], ROOT) is True
 
 
 def test_drifted_is_true_for_a_commit_that_differs_under_scripts():
