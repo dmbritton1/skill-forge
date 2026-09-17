@@ -1,0 +1,842 @@
+{
+  "distilled/C/learn-nogate/1/SKILL.md|bare": {
+    "arm": "bare",
+    "bytes": 2590,
+    "calls": [
+      "fail",
+      "pass",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised span, so padding a short\n   quote with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Step 1 identifies the original check as only `ev = (f.get(\"evidence\") or \"\").strip()` followed by `ev not in text`, with no mention of any pre-existing MIN_EVIDENCE_CHARS floor, yet step 3 tells the follower to 'apply' that floor to the normalised span as though it already exists somewhere in the original code \u2014 the text never says whether MIN_EVIDENCE_CHARS is a constant already defined elsewhere in validate.py or something the follower must invent, leaving the actual merge into the real file ambiguous."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "provenance:\n  repo: /private/tmp/skillforge-bench/sf-repair-verdict-from-distill-learn-nogate-1",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Procedure references scripts/validate.py and tests/test_validate.py as if they are simply present in whatever repo the follower is working in, but the only location given for these files is the provenance sandbox path from a different bench run, and the skill never states that the follower must be inside that specific repo (or one with an identical file layout and a pre-existing MIN_EVIDENCE_CHARS constant) for the steps to apply."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "python3 tests/test_validate.py` should exit 0 with every line `PASS`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification command is concrete and its failing/passing conditions (exit 1 on the rewrapped-quote test without the fix, exit 1 on the reordered/absent-evidence tests if over-relaxed) directly correspond to the fix being applied or skipped, so it would genuinely distinguish a correct fix from no fix or an over-fix, assuming the referenced test file exists as described."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "`ev = (f.get(\"evidence\") or \"\").strip()` followed by `ev not in text`.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "In this repo, scripts/validate.py's verdict_from already reads `if len(ev) < MIN_EVIDENCE_CHARS or _unwrapped(ev) not in haystack:` (grep for 'ev not in text' returns nothing) \u2014 the literal target string step 1 tells the agent to find does not exist, because a different whitespace-tolerant fix (using a `_unwrapped` regex helper) is already in place."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Find the substring check in `verdict_from` in `scripts/validate.py`:",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "The procedure assumes the file is still in the pre-fix byte-exact-`in` state and never instructs the agent to first confirm the failing symptom exists; in the current codebase it doesn't, and applying the patch anyway would silently replace the existing `_unwrapped`-based implementation (whose own comment says length is deliberately measured on the raw span) with the skill's normalized-length variant, reversing an intentional design choice with no acknowledgement in the skill's 'Do NOT use when' section."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Without the fix it exits 1 with",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "Tracing verdict_from/_unwrapped by hand against test_a_rewrapped_quote_still_counts_as_evidence shows the current, unpatched code already normalizes both sides via `_unwrapped` and would pass that test, so `python3 tests/test_validate.py` would not actually exit 1 today if the procedure were skipped, contradicting the stated verification behavior."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "`ev = (f.get(\"evidence\") or \"\").strip()` followed by `ev not in text`.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Step 1's description of the code to locate omits any MIN_EVIDENCE_CHARS floor check, yet step 2's replacement and step 3 assume such a check already exists nearby and must be folded into the normalised comparison, leaving a fresh instance unable to tell whether to move an existing line or is inventing a new one."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised span, so padding a short quote with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The skill never states that MIN_EVIDENCE_CHARS is already defined elsewhere in validate.py (nor its value or scope), leaving an unstated precondition the reader must discover by inspecting the file themselves."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "If you over-relax the fix (fuzzy or order-insensitive matching), it still exits 1,\n  this time through the reordered-words or absent-evidence tests.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Verification section only names failure modes for the rewrapped-quote fix and for over-relaxed matching, never a test that would fail if step 3's whitespace-padding/floor requirement is skipped, so that part of the Procedure isn't demonstrably checked."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-nogate/1/SKILL.md|padded": {
+    "arm": "padded",
+    "bytes": 3985,
+    "calls": [
+      "fail",
+      "fail",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "Find the substring check in `verdict_from` in `scripts/validate.py`:",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Step 1 identifies only two anchor lines (the assignment and the `ev not in text` check) but step 3 talks about relocating an existing `MIN_EVIDENCE_CHARS` floor check onto the normalised span, without ever showing where that pre-existing floor-check line lives, leaving a fresh instance to guess what else in the function needs to change."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised span, so padding a short",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure assumes a `MIN_EVIDENCE_CHARS` constant and an existing (pre-fix) length-floor check already exist in `scripts/validate.py`, but never states this precondition explicitly or shows the original floor-check code, so a fresh instance can't confirm the assumption holds before editing."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "so padding a short\n   quote with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Verification section only names test_a_rewrapped_quote_still_counts_as_evidence, test_reordered_words_are_not_accepted_as_a_quote, and test_evidence_absent_from_the_text_still_fails, none of which exercise the whitespace-padding-bypasses-the-floor scenario step 3 requires, so an implementation that checks MIN_EVIDENCE_CHARS against the raw (unnormalised) span instead of the normalised one would still pass verification."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Find the substring check in `verdict_from` in `scripts/validate.py`",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure gives a concrete anchor (exact original line plus the neighboring `ev not in text` fragment) that is specific enough for a fresh instance to locate and patch even without prior session memory."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Leave the rest of the gate alone: the `ok is not True` check and the\n`blocks()` severity/basis logic come before this and still apply.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "MIN_EVIDENCE_CHARS and the surrounding ok/blocks() logic are referenced as pre-existing without being defined in the skill, but this is consistent with editing an existing function and doesn't block the patch."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised span, so padding a short quote\nwith whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Verification section names only three test failure modes (rewrapped quote, reordered words, absent evidence) and never names a test tied to this specific whitespace-padding-past-the-floor requirement, so a fix that applies MIN_EVIDENCE_CHARS to the raw (unnormalised) span instead of the normalised one is not shown to be caught by the stated verification."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Find the substring check in `verdict_from` in `scripts/validate.py`:",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure names the exact fragment to locate and gives the exact replacement code, so a fresh instance can apply the edit without needing memory of the original session."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Apply the `MIN_EVIDENCE_CHARS` floor to the normalised span, so padding a short quote with whitespace cannot get it past the floor.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Step 3 assumes a pre-existing MIN_EVIDENCE_CHARS-based floor check that Step 1's locator text never mentions finding, so the reader is told to 'apply' something whose prior presence and scope (is it already imported/defined at that point in verdict_from?) is never established in the text."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "`python3 tests/test_validate.py` should exit 0 with every line `PASS`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification gives a concrete, runnable command with a specific pass/fail signature and explicitly states the failure mode (and error text) that occurs when the fix is skipped, so it would genuinely catch a skipped or over-relaxed fix."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-nogate/2/SKILL.md|bare": {
+    "arm": "bare",
+    "bytes": 3116,
+    "calls": [
+      "pass",
+      "pass",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "flat_text = \" \".join(text.split())",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Steps give exact, unambiguous code to locate and change, so a fresh instance can follow it provided scripts/validate.py still matches the quoted original lines verbatim."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "`verdict_from(findings, text)` had\n   `ev = (f.get(\"evidence\") or \"\").strip()` and",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure assumes the reader's copy of scripts/validate.py still contains this exact original code (function signature, variable names, `.strip()` line) but never states what to do if the file has since diverged from this snapshot, only presenting it as settled fact via 'had'."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "`python3 tests/test_validate.py` should print only `PASS` lines and exit 0.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The command is concrete and runnable and the text explains a plausible failure mode if the flatten step is skipped, though no test is named that specifically exercises the whitespace-padding-evades-the-length-floor claim made in the Gotchas section."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Before the loop over findings, flatten the source text once:\n   `flat_text = \" \".join(text.split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Steps give exact code lines and file/function locations, so a fresh instance can apply them without external context."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "That is a byte-exact substring test, so a hard-wrapped line quoted as\n   one line never matches.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure assumes the existing verdict_from code matches the quoted snippet exactly but never tells the agent what to do if the current source differs (e.g. already partially refactored), leaving no fallback."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "`python3 tests/test_validate.py` should print only `PASS` lines and exit 0.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification command is concrete and the failure modes described (byte-exact test failing, or over-loose matching failing other tests) correspond to skipping or misapplying the procedure, so it is genuinely checkable."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "verdict_from(findings, text)` had",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure names the exact function, file, and before/after code snippets, so a fresh instance can locate and apply the edit without prior session context."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "MIN_EVIDENCE_CHARS",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "MIN_EVIDENCE_CHARS is used without being defined in the skill, but it is presented as part of the pre-existing code being quoted, not something the procedure must supply, so this is not an unstated assumption that blocks execution."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "`python3 tests/test_validate.py` should print only `PASS` lines and exit 0.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Verification names a concrete command and explains which named test fails (byte-exact match) or which fail (word-set/reorder matching) if the fix is missing or overcorrected, so it is a real, runnable check tied to the procedure."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-nogate/2/SKILL.md|padded": {
+    "arm": "padded",
+    "bytes": 4511,
+    "calls": [
+      "pass",
+      "pass",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Before the loop over findings, flatten the source text once:\n   `flat_text = \" \".join(text.split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure gives exact before/after code for each edit, so a fresh instance can apply it mechanically without additional judgment calls."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "In `scripts/validate.py`,\n   `verdict_from(findings, text)` had\n   `ev = (f.get(\"evidence\") or \"\").strip()` and\n   `if len(ev) < MIN_EVIDENCE_CHARS or ev not in text: return \"fail\"`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The skill states the exact starting code it assumes is present, so the one real precondition (matching source) is spelled out rather than left implicit; only the working-directory/repo-root assumption for the relative paths is left unstated, which is a minor omission at most."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "If the procedure was NOT applied (byte-exact `ev not in text`),\n  `test_a_rewrapped_quote_still_counts_as_evidence` prints\n  `FAIL ... AssertionError()` and the script exits 1.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification command is concrete and runnable, and the text explains a specific failure mode that would occur if the procedure were skipped, so it is a genuine test of the change rather than a vacuous check."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "`ev = (f.get(\"evidence\") or \"\").strip()` and\n   `if len(ev) < MIN_EVIDENCE_CHARS or ev not in text: return \"fail\"`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The exact original and target code lines are given verbatim, so a fresh instance can locate and edit the function mechanically without needing outside context."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "verification.command: \"python3 tests/test_validate.py\"",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure never states, as an explicit precondition, that tests/test_validate.py must already contain test_a_rewrapped_quote_still_counts_as_evidence, test_reordered_words_are_not_accepted_as_a_quote, and test_evidence_absent_from_the_text_still_fails, nor that commands should be run from the repo root \u2014 both are only inferable from the frontmatter description and Verification narrative, not stated as setup requirements."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "If the procedure was NOT applied (byte-exact `ev not in text`),\n  `test_a_rewrapped_quote_still_counts_as_evidence` prints\n  `FAIL ... AssertionError()` and the script exits 1.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The described test genuinely distinguishes applied-vs-not-applied and over-loosened matching (word-set/reordering), so running it would catch a skipped or botched procedure, assuming the referenced tests already exist as implied by the skill's trigger condition."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Before the loop over findings, flatten the source text once:\n   `flat_text = \" \".join(text.split())`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure names the exact file, function, original lines, and replacement lines, so a fresh instance can locate and apply the edit without needing session memory."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "In `scripts/validate.py`,\n   `verdict_from(findings, text)` had\n   `ev = (f.get(\"evidence\") or \"\").strip()` and\n   `if len(ev) < MIN_EVIDENCE_CHARS or ev not in text: return \"fail\"`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The assumed pre-existing code (variable names, MIN_EVIDENCE_CHARS, the surrounding loop) is spelled out explicitly rather than left implicit, so the assumption is stated even though it presumes an exact byte-for-byte match to the current file."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "If the procedure was NOT applied (byte-exact `ev not in text`),\n  `test_a_rewrapped_quote_still_counts_as_evidence` prints\n  `FAIL ... AssertionError()` and the script exits 1.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "The verification command is concrete and runnable, and the text asserts a specific, distinguishable failure mode if the fix is skipped, though this claim about the test file's actual behavior can't be confirmed from the skill text alone."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-nogate/3/SKILL.md|bare": {
+    "arm": "bare",
+    "bytes": 2856,
+    "calls": [
+      "fail",
+      "pass",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Find the containment check on the model's quote, e.g.\n   `ev = (f.get(\"evidence\") or \"\").strip()` followed by `ev not in text`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The pattern is given as an illustrative example and the description names 'validate.verdict_from', which is enough for a fresh instance to locate the real check in a target repo."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "verification.command: \"python3 tests/test_validate.py\"",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Procedure never instructs the reader to create tests/test_validate.py or its named test functions, silently assuming a specific pre-existing test suite that a fresh target repo is unlikely to have."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "`test_a_rewrapped_quote_still_counts_as_evidence`\n  prints `FAIL ... AssertionError()` and the script exits non-zero. It did\n  exactly that at commit 55820b9 before the fix.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The claimed pre/post-fix failure behavior was only demonstrated in the provenance repo at a specific commit; nothing in the text has the reader (re)create that test file, so in a fresh repo the command errors out on a missing file rather than genuinely exercising the fix."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Find the containment check on the model's quote, e.g.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "No file path is given, but the example pattern plus the description's 'validate.verdict_from' name are enough to locate the target via a grep-style search."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "`python3 tests/test_validate.py` should exit 0 with every line `PASS`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure never states, as an assumed precondition, that a tests/test_validate.py file with these exact four test names must already exist in the target repo before this verification command means anything."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "so padding a short quote with spaces cannot get past it.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "None of the four named tests ever construct a short quote padded with whitespace to inflate its raw length, and the repo's own verdict_from applies MIN_EVIDENCE_CHARS to the raw stripped span (not the normalised one) with a comment defending that choice, so implementing step 3 exactly as written or skipping it yields the same test outcome -- the stated Verification cannot actually catch a violation of the property step 3 claims to guarantee."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Find the containment check on the model's quote, e.g.\n   `ev = (f.get(\"evidence\") or \"\").strip()` followed by `ev not in text`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The steps are self-contained (find the check, normalise both sides with a given one-liner, keep the floor) and locatable via the description's `validate.verdict_from` anchor, so a fresh instance can execute them without the original session or the ephemeral provenance repo."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Use when: an LLM-judge / critique verdict fails a quote that is really in the source text but differs by a newline or indentation; editing\n  validate.verdict_from or any `evidence in text` containment check over\n  model-written spans.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The scope line states the assumed starting state (an existing byte-exact `evidence in text` gate) precisely enough that Procedure step 3's reference to a pre-existing MIN_EVIDENCE_CHARS floor is a reasonable, stated assumption rather than a silent one."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "Apply the minimum-length floor (e.g. `MIN_EVIDENCE_CHARS`) to the\n   normalised span, so padding a short quote with spaces cannot get past it.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The repo's own tests/test_validate.py has only test_evidence_shorter_than_the_floor_still_fails, which uses a quote that is short both raw and normalised, and its matching validate.py measures the floor on the raw stripped span (len(ev)) rather than the normalised one (per its own comment 'Length is measured on the raw span'); an implementation that does exactly this -- letting whitespace padding inflate a short quote's raw length past MIN_EVIDENCE_CHARS while the normalised form stays trivially short -- still makes `python3 tests/test_validate.py` exit 0 with every line PASS, so the verification does not actually catch a skipped or wrong step 3."
+        }
+      ]
+    ]
+  },
+  "distilled/C/learn-nogate/3/SKILL.md|padded": {
+    "arm": "padded",
+    "bytes": 4251,
+    "calls": [
+      "pass",
+      "fail",
+      "pass"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Find the containment check on the model's quote, e.g.\n   `ev = (f.get(\"evidence\") or \"\").strip()` followed by `ev not in text`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Procedure never states a file path, but the frontmatter description names the target ('validate.verdict_from') and the verification command implies the test location, so a fresh instance can locate and adapt the pattern."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Leave every other gate unchanged: the `ok is not True` check and the\n   blocking-severity logic have nothing to do with whitespace.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "These two checks are named without definition, but since the instruction is only 'leave unchanged' rather than 'modify', the reader does not need their internals to complete the procedure correctly."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "If the procedure is skipped, `test_a_rewrapped_quote_still_counts_as_evidence`\n  prints `FAIL ... AssertionError()` and the script exits non-zero.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "The claim that this specific test distinguishes skipped-vs-applied is plausible and internally consistent with the described fix, but its truth rests on the actual test file's behavior, which cannot be confirmed from the text alone."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Find the containment check on the model's quote, e.g.\n   `ev = (f.get(\"evidence\") or \"\").strip()` followed by `ev not in text`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "No file path is given, but the example pattern plus the description's mention of validate.verdict_from is enough for a fresh instance to grep it down."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "verification.command: \"python3 tests/test_validate.py\"",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The skill's description says it applies to 'any `evidence in text` containment check over model-written spans', but the hardcoded verification path assumes the exact SkillForge repo layout from provenance, and the text never states that tests/test_validate.py must exist for the procedure to be checkable in whatever repo the fresh instance is actually working in."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "If the procedure is skipped, `test_a_rewrapped_quote_still_counts_as_evidence`\n  prints `FAIL ... AssertionError()` and the script exits non-zero. It did\n  exactly that at commit 55820b9 before the fix.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "Given the test file is present, the verification command and its documented pass/fail behavior line up with every step of the procedure (rewrap, dual-side normalization, floor, no fuzzy matching), so it would genuinely catch a skipped fix."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "Normalise BOTH sides the same way: collapse every whitespace run to a\n   single space with `\" \".join(s.split())`",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The steps are concrete, self-contained, and give exact code patterns, so a fresh instance can locate and edit the containment check without prior session memory."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "should exit 0 with every line `PASS`.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "The skill assumes tests/test_validate.py already contains the four named tests rather than instructing their creation, but this repo does in fact already contain them, so the assumption holds in the stated project scope."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "so padding a short quote with spaces cannot get past it.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "The repo's actual verdict_from applies MIN_EVIDENCE_CHARS to the raw, non-normalised evidence string (`len(ev) < MIN_EVIDENCE_CHARS`) rather than the normalised span the Procedure prescribes, and none of the four named tests (test_a_rewrapped_quote_still_counts_as_evidence, test_evidence_absent_from_the_text_still_fails, test_evidence_shorter_than_the_floor_still_fails, test_reordered_words_are_not_accepted_as_a_quote) exercises a whitespace-padded short quote, so an implementer who does exactly what step 3 warns against (floors on the raw span, letting padding buy length) still gets every line PASS."
+        }
+      ]
+    ]
+  },
+  "drafts/E14/e14-quote-gate-rewrap-sf.md|bare": {
+    "arm": "bare",
+    "bytes": 2012,
+    "calls": [
+      "pass",
+      "inconclusive",
+      "inconclusive"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "if len(ev) < MIN_EVIDENCE_CHARS or ev not in text",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "The target file (scripts/validate.py:442-445) no longer contains this naive condition \u2014 it already reads `_unwrapped(ev) not in haystack` \u2014 so a fresh instance cannot locate the literal pattern Step 1 tells it to find and replace."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "apply the `MIN_EVIDENCE_CHARS` floor to the collapsed span",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "The current code deliberately measures the length floor on the raw, uncollapsed span (with a comment explaining this prevents re-wrapping from shrinking or padding a quote past the floor); the skill never accounts for this existing invariant and instructs moving the floor onto the collapsed span, silently reverting it."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`; the same words reordered yield `\"fail\"`",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "tests/test_validate.py already contains test_a_rewrapped_quote_still_counts_as_evidence and test_reordered_words_are_not_accepted_as_a_quote, which assert exactly these outcomes against the current (already-fixed) implementation, so `python3 tests/test_validate.py` passes whether or not this skill's procedure is applied at all."
+        }
+      ],
+      [],
+      []
+    ]
+  },
+  "drafts/E14/e14-quote-gate-rewrap-sf.md|padded": {
+    "arm": "padded",
+    "bytes": 3407,
+    "calls": [
+      "fail",
+      "pass",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "No file path or module location is ever given for this check, and the description hedges with \"such as validate.verdict_from\" rather than naming the actual target, leaving a fresh instance to guess where the naive code lives."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The procedure instructs the reader to preserve two named checks that are never shown or described anywhere in the skill text, including the \"naive version\" snippet in step 1, so a fresh instance has no way to recognize them or confirm they were left intact."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "`python3 tests/test_validate.py` exits 0 with every line `PASS`.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "The command is runnable and genuinely exercises the described rewrap-vs-reorder distinction, so skipping the fix would produce a failing line and nonzero exit."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "such as validate.verdict_from",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The Procedure never states which file or function to open; the only pointer is this hedged example in the description, so a fresh instance must locate the gate purely by grepping for the naive code shown in step 1."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "These two pieces of surrounding logic are referenced as if already known to the reader but are never introduced or explained anywhere earlier in the skill text."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "`python3 tests/test_validate.py` exits 0 with every line `PASS`.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "The command is well-formed and would plausibly fail under the naive byte-exact implementation and pass after the fix, but whether tests/test_validate.py actually exercises the line-break and reordered-quote cases described can't be confirmed from the text alone."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Procedure never states which file or function contains \"the gate\" (the description's \"such as validate.verdict_from\" is hedged as an example, not an assertion about this repo), so a fresh instance with no session memory has no stated location to open and edit."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The text assumes these constructs already exist adjacent to the gate and that the reader can recognize them, but neither is shown or described anywhere in the skill, so a fresh instance must locate and identify them purely from an unfamiliar codebase."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`;\n  the same words reordered yield `\"fail\"`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "Tracing the naive check shows it would return \"fail\" for a line-break-only difference (byte-exact substring test fails), so the stated verification genuinely distinguishes fixed from unfixed behavior."
+        }
+      ]
+    ]
+  },
+  "drafts/E14/e14-quote-gate-rewrap-sw.md|bare": {
+    "arm": "bare",
+    "bytes": 2025,
+    "calls": [
+      "pass",
+      "pass",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": true,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "No explicit file path is named, but the verbatim naive-code snippet given is specific enough to locate via search, and the description's 'Use when' clause identifies the target context, so a fresh instance can still find and edit the right spot."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "This assumes an `ok is not True` check and a `blocks()` function already exist adjacent to the gate, which is a reasonable precondition clearly implied by 'leave ... unchanged' rather than left unstated."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`; the same words reordered yield `\"fail\"`.",
+          "basis": "empirical",
+          "severity": "minor",
+          "note": "Inspecting tests/test_validate.py confirms it contains test_a_rewrapped_quote_still_counts_as_evidence and test_reordered_words_are_not_accepted_as_a_quote, which exercise exactly this contrast and would fail against the naive byte-exact check, so the verification is real and would catch a skipped fix."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure never names the file or function to open (e.g. validate.py / verdict_from), leaving a fresh instance to locate the naive pattern by search rather than by direct reference."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure assumes these two pieces of surrounding logic already exist and are recognizable, but never defines what they are or where they sit relative to the quote check."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "`python3 tests/test_validate.py` exits 0 with every line `PASS`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The verification is a concrete, runnable command whose stated pass/fail examples (line-break quote passes, reordered quote fails) directly exercise the fix and would genuinely fail under the naive byte-exact version."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The floor is measured on the whitespace-collapsed span, so a genuine re-wrapped quote can lose enough characters to collapsing (multi-space/newline runs shrinking to one space) that it drops below MIN_EVIDENCE_CHARS and is wrongly rejected -- the very false-negative this skill exists to eliminate."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "The gate is the check on each passing finding's quote.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "No file, module, or function is ever named for \"the gate\" -- only the frontmatter description's \"such as validate.verdict_from\" gestures at an example -- so the procedure assumes the reader already knows where this code lives."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "`python3 tests/test_validate.py` exits 0 with every line `PASS`.",
+          "basis": "empirical",
+          "severity": "blocking",
+          "note": "In the repository this skill targets, tests/test_validate.py already exercises a whitespace-collapsing verdict_from (via a differently-implemented _unwrapped helper) and passes with the procedure never applied, so the verification cannot tell a followed skill from a skipped one."
+        }
+      ]
+    ]
+  },
+  "drafts/E14/e14-quote-gate-rewrap-sw.md|padded": {
+    "arm": "padded",
+    "bytes": 3420,
+    "calls": [
+      "fail",
+      "fail",
+      "fail"
+    ],
+    "findings": [
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "apply the `MIN_EVIDENCE_CHARS` floor to the collapsed span",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Measuring the length floor on the whitespace-collapsed span (rather than the raw stripped span) means a genuinely long, hard-wrapped quote can have its apparent length shrunk below MIN_EVIDENCE_CHARS by collapsing alone, so a fresh instance following this instruction exactly can still wrongly reject a real re-wrapped quote -- the very bug the skill exists to fix -- for evidence whose raw whitespace happens to be substantial relative to its collapsed content."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The procedure assumes a specific surrounding structure -- an `ok is not True` branch and a `blocks()` call sitting immediately before the evidence check in the same function -- but never shows, defines, or states this as an assumption anywhere in the text, so a reader has no way to confirm the assumption holds before editing."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`;\n  the same words reordered yield `\"fail\"`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The stated verification only exercises a rewrap case whose collapsed length sits comfortably above MIN_EVIDENCE_CHARS, so it would still report PASS even if the procedure is implemented exactly as step 2 instructs and thereby carries the collapsed-span floor regression described above -- the check does not cover the one place the procedure's own instructions are unsound."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "Leave the `ok is not True` check and the `blocks()` logic unchanged.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The procedure references an `ok is not True` check and `blocks()` logic that must be preserved, but neither is ever shown or located in the skill text, so a fresh instance cannot know what it is preserving or where the surrounding function lives."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": false,
+          "evidence": "if len(ev) < MIN_EVIDENCE_CHARS or ev not in \" \".join(text.split()):",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "MIN_EVIDENCE_CHARS is used as if already defined and in scope, and no file path or module is ever named for where the gate function (or this constant) lives, so the procedure assumes context it never supplies."
+        },
+        {
+          "criterion": "checkable",
+          "ok": true,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`; the same words reordered yield `\"fail\"`.",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "This pair of behavioral assertions would genuinely fail under the byte-exact naive check (line-break quote wrongly fails) and correctly distinguishes the fix from a skip."
+        }
+      ],
+      [
+        {
+          "criterion": "followable",
+          "ok": false,
+          "evidence": "apply the `MIN_EVIDENCE_CHARS`\n   floor to the collapsed span",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "Measuring the length floor on the whitespace-collapsed span (rather than the raw span) means a real quote whose raw text is long enough only because of hard-wrap whitespace (e.g. many newlines/indent) can collapse to fewer characters than MIN_EVIDENCE_CHARS and be wrongly rejected, defeating the skill's own stated purpose of accepting real quotes that differ from the source only by whitespace."
+        },
+        {
+          "criterion": "preconditions",
+          "ok": true,
+          "evidence": "such as validate.verdict_from,",
+          "basis": "textual",
+          "severity": "minor",
+          "note": "The gate's identity and the pre-existing helpers it assumes (`blocks()`, the `ok is not True` check, `MIN_EVIDENCE_CHARS`) are all either named or explicitly left untouched, so no unstated dependency is required to apply the diff."
+        },
+        {
+          "criterion": "checkable",
+          "ok": false,
+          "evidence": "A quote that differs from the source only by a line break yields `\"pass\"`;\n  the same words reordered yield `\"fail\"`.",
+          "basis": "textual",
+          "severity": "blocking",
+          "note": "The Verification only exercises the line-break-tolerance and word-reorder-rejection cases, never a whitespace-heavy quote whose raw length clears MIN_EVIDENCE_CHARS but whose collapsed length does not, so running it would not reveal the collapsed-span length-floor bug that step 2 introduces."
+        }
+      ]
+    ]
+  }
+}

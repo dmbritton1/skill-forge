@@ -38,6 +38,7 @@ because nothing indexed the data — see "What the register caught".
 | Hot tier (2026-09-16) | Is the hot promoter monotonic in its budget, and does it charge the right bytes? | **Answered: it was not, and the fix was one already made elsewhere.** `sync.sync()`'s hot loop skipped past a skill too dear for the remaining budget and let a cheaper lower-ranked one take the space — **2 shrinks / 3 inversions** on the consolidated seven, 4 / 10 on the ten, and 23 of 25 random rankings shrinking, so **raising** the budget demoted skills. `selector_check.py` proved the identical defect in `retrieve.run_hook` on 2026-09-11 and it was fixed there; the same shape in `sync` was never touched. Now a prefix rule: **0 shrinks, 0 inversions** on both pools. Stall cost reported, not assumed — a rank-1 description over budget blocks the tier, >1500 tokens against a largest-measured 218 (7x headroom). Two smaller findings: `sync.est_tokens` was a fourth copy of the cost formula and now delegates; and hot charges the **description** while every other path charges the whole file, a 6.4x gap that is deliberate and was recorded nowhere | `bench/hot_check.py` + `tests/test_bench_hot_check.py` — deterministic, 0 sessions; the fix in `scripts/sync.py` |
 | Bench hot eligibility (2026-09-16) | Can a bench arm reach the hot promoter at all? | **It could not, and the handoff named the wrong blocker.** §3.5 said the obstacle was that "the force-hot lever takes a single exact name"; in fact `--plus-skill` already installs N skills, and `--force-hot` is not a narrow version of what is needed — it sets `tier = "hot"` directly and its own comment says it "bypasses kind, bucket, budget", so forcing two names would exercise none of the machinery. The real blocker is **eligibility**: an installed skill lands `unproven` and `sync` gives `unproven` tier `warm`. `--seed-uses N` writes the ledger history a real skill earns (2 reaches `working`) and lets `sync` decide everything after. Also corrected: those mechanisms are unit-tested in `tests/test_sync.py` — what had never happened is a *bench arm* reaching them | `bench/run.py` (`--seed-uses`, rows carry `seed_uses` and `tiers`); `tests/test_bench_run.py`, incl. a mutation-proven contention test — 0 sessions |
 | E18 (2026-09-16) | Is critique's negative direction about length, or about outcome? | **Does not settle it, as pre-registered — and turns up something bigger.** Pe = **2/6 = 0.33** over the two short-and-working skill drafts, between E17's anchors (V 0.22, B 0.67) and inside the spec's "neither cleanly, still confounded" band. Secondary, on `ANTISKILL_CRITERIA` and never pooled: 4/6 — the first anti-skill rubric data this project has. **The finding is stability: 0 of 4 drafts unanimous.** Pooled with E17 that is **9 of 13 (69%) returning different verdicts on byte-identical text**. And both working skill drafts read `fail fail pass`, so the re-ask fix shipped in `79bf414` would still have cached a permanent `fail` for both — the fix reduces the false-cap rate, it does not close it | `bench/e18-length-results.json`; `bench/e18_length.py --read`; spec `docs/superpowers/specs/2026-09-16-e18-critique-length-probe-design.md` |
+| E19 (2026-09-17) | Does critique's verdict move with length when content is held fixed? | **No large effect — so length does not explain E17's direction.** Five short drafts critiqued bare and again with a constant 1395-byte neutral block appended, 30 calls, one batch. **d = −0.15** (Fisher p = 0.476), the pre-registered "no large effect" band; under E17's strict inconclusive rule, −0.08 (p = 1.000). The dose matters: 1395 bytes is **2.4× E17's natural V−B gap** of 587 bytes, and it produced about a third of E17's −0.44. Length is at most a minor contributor. Two things came with it: pooled stability is now **16 of 23 forms (70%) flipping on identical text**, including **across batches** — `e14-...-sw` read `fail fail pass` in E18 and `pass pass fail` here; and `learn-nogate/2`, a draft that resolves **0/9**, read `pass pass pass` in *both* arms — the one draft critique is certain about is a broken one | `bench/e19-length-results.json`; `bench/e19_length.py --read`; spec `docs/superpowers/specs/2026-09-16-e19-length-manipulation-design.md` |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -3111,8 +3112,10 @@ d = −0.44 lands in the pre-registered "predicts backwards" band, and it is
 reported because it was pre-registered. **It should not be believed as a claim
 about outcome**, for two reasons decided before the data:
 
-**Threat 4 fired completely.** Draft length is perfectly rank-separated from
-group — the three B drafts are the three shortest files, the six V drafts the
+**Threat 4 fired completely** — and was answered later by E19, which found no
+large length effect (d = −0.15 at 2.4× the natural gap), so length is at most a
+minor contributor to the direction below. Draft length is perfectly
+rank-separated from group — the three B drafts are the three shortest files, the six V drafts the
 six longest, with no overlap:
 
 | bytes | group | passes |
@@ -3361,3 +3364,79 @@ rather than a reaction to two drafts.
 - **Findings were captured this time** (`e18-length-results.json` carries the
   per-criterion objections), so the "why" is available to a later reading. E17
   has none.
+
+---
+
+# E19 — does the verdict move with length? (2026-09-17)
+
+Spec: `docs/superpowers/specs/2026-09-16-e19-length-manipulation-design.md`,
+written before any call. 30 calls, zero sessions.
+
+## Result
+
+```
+  draft                                  bare               padded
+  1                                      fail pass fail     fail fail pass
+  2                                      pass pass pass     pass pass pass
+  3                                      fail pass fail     pass fail pass
+  e14-quote-gate-rewrap-sf.md            pass inconc inconc fail pass fail
+  e14-quote-gate-rewrap-sw.md            pass pass fail     fail fail fail
+stability: 3 of 10 forms unanimous over 3 calls
+bare 8/13  padded 7/15  delta = -0.15 -- no large effect of length at this size (Fisher p = 0.476)
+```
+
+**d = −0.15 is the pre-registered middle band.** Robust to how the one
+inconclusive-heavy form is handled: under E17's strict rule (a form with ≥2
+inconclusive is dropped, and in a paired design its pair with it) the corpus is
+4 pairs and **d = −0.08, p = 1.000**. Both are far from the ≤ −0.30 the length
+hypothesis predicted.
+
+## Length does not explain E17
+
+The dose is what makes this readable. E17's V drafts average 3441 bytes and its
+B drafts 2854 — a natural gap of **587 bytes**, across which `d = −0.44`. E19
+added **1395 bytes, 2.4× that gap**, and moved the verdict by about a third as
+much in the same direction.
+
+A mechanism that produces −0.15 at 2.4× the dose does not produce −0.44 at 1×.
+**Length is at most a minor contributor to E17's direction**, and threat 4's
+confound is substantially weakened — though not resolved *in favour of* outcome,
+because the spec's "length is not the driver" band required d ≥ +0.30 and this
+is not that either.
+
+## Two findings that were not the question
+
+**Instability now crosses batches.** Pooled over E17, E18 and E19, **16 of 23
+forms (70%)** return different verdicts on byte-identical text. E19 also
+re-critiqued two drafts E18 had already done, and the same file read
+differently in the two batches:
+
+| draft | E18 | E19 `bare` |
+| --- | --- | --- |
+| `e14-…-sf` | `fail fail pass` | `pass inconclusive inconclusive` |
+| `e14-…-sw` | `fail fail pass` | `pass pass fail` |
+
+Every earlier instability measurement was *within* one batch and one sitting.
+This is the first showing the verdict is not stable across them either, which
+removes "something about that run" as an explanation.
+
+**The one draft critique is certain about is a broken one.**
+`learn-nogate/2` resolves the task **0 of 9**. It read `pass pass pass` bare
+and `pass pass pass` padded — six of six, unanimous, and unmoved by the
+manipulation. Nothing else in the corpus is that consistent.
+
+## Limits
+
+- **5 drafts, 28 graded calls, one trap.** p = 0.476 is reported and not
+  thresholded. This rules out a large length effect; it does not rule out a
+  small one.
+- **The manipulation is not pure length** (spec §2): a document cannot be
+  lengthened without being changed, and what is measured is "this draft plus a
+  fixed neutral addendum versus this draft".
+- **The padded forms were never run on the task.** Nothing claims they would
+  still resolve it.
+- **It does not explain the p = 0 drafts.** Three drafts that resolve 18/18
+  fail critique 3 of 3. Length is now a weaker candidate for that than it was,
+  and no candidate has replaced it.
+- **Δ is measured through the same 70% noise** it reports, which is why the
+  bands were set at ±0.30 rather than tighter.
