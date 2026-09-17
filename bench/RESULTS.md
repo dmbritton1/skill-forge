@@ -39,6 +39,7 @@ because nothing indexed the data — see "What the register caught".
 | Bench hot eligibility (2026-09-16) | Can a bench arm reach the hot promoter at all? | **It could not, and the handoff named the wrong blocker.** §3.5 said the obstacle was that "the force-hot lever takes a single exact name"; in fact `--plus-skill` already installs N skills, and `--force-hot` is not a narrow version of what is needed — it sets `tier = "hot"` directly and its own comment says it "bypasses kind, bucket, budget", so forcing two names would exercise none of the machinery. The real blocker is **eligibility**: an installed skill lands `unproven` and `sync` gives `unproven` tier `warm`. `--seed-uses N` writes the ledger history a real skill earns (2 reaches `working`) and lets `sync` decide everything after. Also corrected: those mechanisms are unit-tested in `tests/test_sync.py` — what had never happened is a *bench arm* reaching them | `bench/run.py` (`--seed-uses`, rows carry `seed_uses` and `tiers`); `tests/test_bench_run.py`, incl. a mutation-proven contention test — 0 sessions |
 | E18 (2026-09-16) | Is critique's negative direction about length, or about outcome? | **Does not settle it, as pre-registered — and turns up something bigger.** Pe = **2/6 = 0.33** over the two short-and-working skill drafts, between E17's anchors (V 0.22, B 0.67) and inside the spec's "neither cleanly, still confounded" band. Secondary, on `ANTISKILL_CRITERIA` and never pooled: 4/6 — the first anti-skill rubric data this project has. **The finding is stability: 0 of 4 drafts unanimous.** Pooled with E17 that is **9 of 13 (69%) returning different verdicts on byte-identical text**. And both working skill drafts read `fail fail pass`, so the re-ask fix shipped in `79bf414` would still have cached a permanent `fail` for both — the fix reduces the false-cap rate, it does not close it | `bench/e18-length-results.json`; `bench/e18_length.py --read`; spec `docs/superpowers/specs/2026-09-16-e18-critique-length-probe-design.md` |
 | E19 (2026-09-17) | Does critique's verdict move with length when content is held fixed? | **No large effect — so length does not explain E17's direction.** Five short drafts critiqued bare and again with a constant 1395-byte neutral block appended, 30 calls, one batch. **d = −0.15** (Fisher p = 0.476), the pre-registered "no large effect" band; under E17's strict inconclusive rule, −0.08 (p = 1.000). The dose matters: 1395 bytes is **2.4× E17's natural V−B gap** of 587 bytes, and it produced about a third of E17's −0.44. Length is at most a minor contributor. Two things came with it: pooled stability is now **16 of 23 forms (70%) flipping on identical text**, including **across batches** — `e14-...-sw` read `fail fail pass` in E18 and `pass pass fail` here; and `learn-nogate/2`, a draft that resolves **0/9**, read `pass pass pass` in *both* arms — the one draft critique is certain about is a broken one | `bench/e19-length-results.json`; `bench/e19_length.py --read`; spec `docs/superpowers/specs/2026-09-16-e19-length-manipulation-design.md` |
+| Critique mechanism (2026-09-17) | WHY does critique reject working drafts and accept a broken one? | **Found, and `verdict_from` is not the culprit.** Reading the 42 captured calls from E18/E19: **`fail` ⟺ at least one objection graded `textual`+`blocking`, 40 of 40 on the skill rubric** (the 2 exceptions are anti-skill, a different rubric). So the gating code does exactly what it was built to do. The instability is one step earlier, in the **grading**: the same draft draws 3 objections on one call that are all `empirical/blocking` (→ pass) and on the next call textual ones (→ fail). Same criticism, different label, opposite verdict. And the selection pressure is **claim density, not length**: `learn-nogate/2`, which resolves **0/9**, draws the fewest objections of any skill-rubric draft (0.33–0.67 per call) and passes 6/6, while the working E14 drafts draw 1.67–3.00 and fail. A draft that says less has less to object to | `bench/e18-length-results.json`, `bench/e19-length-results.json` (`findings` per call) — deterministic re-read, 0 calls |
 | Critique calibration | Does the critique rubric agree with hand-established verdicts? | **Run.** 6/7 before a rubric change, 7/7 after | `bench/critique-calibration/` (own README, `expected.json`, 8 result files) |
 
 ## The brief's five questions, which are the actual agenda
@@ -3440,3 +3441,80 @@ manipulation. Nothing else in the corpus is that consistent.
   and no candidate has replaced it.
 - **Δ is measured through the same 70% noise** it reports, which is why the
   bands were set at ±0.30 rather than tighter.
+
+---
+
+# Critique's mechanism, from the captured findings (2026-09-17)
+
+No new calls. E18 and E19 recorded every rubric finding — `criterion`, `ok`,
+`basis`, `severity`, `evidence`, `note` — for 42 calls, and nothing had read
+them. E17's nine have none; that omission is what amendment 2 is fixing.
+
+## 1. `verdict_from` is doing exactly what it was designed to do
+
+**A call fails if and only if at least one objection is graded `textual` **and**
+`blocking` — 40 of 40 calls under the skill rubric.** The two exceptions across
+all 42 are both anti-skills, which `rubric_for` answers with a different
+criteria set.
+
+That matters because it clears the code. `171a63e` added `basis` and `severity`
+precisely so an unverifiable or minor complaint would not gate, and the gate
+honours that perfectly. **The defect is not in `verdict_from`.**
+
+## 2. The instability is in the grading, one step earlier
+
+Same file, three calls, `learn-nogate/1` bare:
+
+| call | objections raised | how they were graded | verdict |
+| --- | --- | --- | --- |
+| 1 | 2 | `textual/blocking` ×2 | fail |
+| 2 | 3 | `empirical/blocking` ×3 | **pass** |
+| 3 | 3 | `textual/blocking`, `textual/minor` ×2 | fail |
+
+Call 2 raised *more* objections than call 1 and passed, because every one was
+labelled `empirical` rather than `textual`. **The same criticism, relabelled,
+flips the verdict.** That is where the 70% flip rate lives — not in which
+criteria are checked, and not in the arithmetic that combines them.
+
+## 3. The selection pressure is claim density, not length
+
+Objections raised per call, every skill-rubric form in E18 and E19:
+
+| draft | objections/call | verdicts | resolves the task |
+| --- | --- | --- | --- |
+| `learn-nogate/2` (padded) | **0.33** | pass pass pass | **0 of 9** |
+| `learn-nogate/2` (bare) | **0.67** | pass pass pass | **0 of 9** |
+| `learn-nogate/3` (padded) | 0.67 | pass fail pass | 0 of 9 |
+| `e14-…-sf` (bare) | 1.00 | pass · · | 4 of 6 |
+| `learn-nogate/1` (bare) | 2.67 | fail pass fail | 0 of 9 |
+| `e14-…-sw` (padded) | 2.33 | fail fail fail | 5 of 6 |
+| `e14-…-sw` (E18) | 3.00 | fail fail pass | 5 of 6 |
+
+The draft critique is most confident about — `learn-nogate/2`, passing 6 of 6
+across both E19 arms — is the one that **draws almost nothing to object to**,
+and it resolves the task zero times in nine. The drafts that work state
+specific, checkable things, some of which get graded `textual/blocking`.
+
+**A draft that says less has less to be objected to, and passes.** That is a
+coherent explanation for the inverted direction E17 measured, and it is about
+claim density rather than byte count — consistent with E19 finding that
+padding with *non-instructional* prose moved the verdict little.
+
+## 4. A caveat on E19's null
+
+E19's pooled `d = −0.15` hides opposite-signed per-draft effects. Padding
+roughly doubled the objections drawn by the two E14 drafts (1.00 → 2.00,
+1.67 → 2.33, both toward failing) while *reducing* them for `learn-nogate/1`
+and `/3`. The pooled null is real at that n; "padding never matters" is not
+what it showed.
+
+## Limits
+
+- **Read from 42 calls over 7 distinct texts, one trap.** The `fail ⟺
+  textual+blocking` rule is the strongest claim here and rests on a clean 40/40;
+  everything about *why* a label is chosen rests on far less.
+- **E17's nine drafts contribute nothing**, because their findings were not
+  captured. Amendment 2's re-run addresses the three `fail fail fail` drafts.
+- **"Claim density" is measured as objections drawn**, which is critique's own
+  output, not an independent property of the text. A less circular measure
+  would count checkable assertions directly, and nothing here does.
