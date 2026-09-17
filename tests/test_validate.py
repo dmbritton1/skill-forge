@@ -959,6 +959,44 @@ def test_evidence_shorter_than_the_floor_still_fails():
     assert validate.verdict_from(_all_ok(short), SKILL_TEXT) == "fail"
 
 
+def test_whitespace_padding_cannot_inflate_a_short_quote_past_the_floor():
+    """The floor is the anti-sycophancy gate's size half, and `.strip()` only
+    removes whitespace at the ENDS -- internal runs survive and inflate
+    len(ev). So a span too short to quote could be padded until its RAW length
+    cleared MIN_EVIDENCE_CHARS while the span actually matched stayed tiny.
+
+    Found by following critique's own objection: all six E15 drafts state
+    "apply the floor to the NORMALISED evidence, otherwise padding with
+    whitespace gets a too-short quote past the floor", and none of their
+    verification commands ever tested it. Neither did this suite.
+    """
+    # A span whose NORMALISED form really is in the text, so the containment
+    # half of the check passes and the floor is the only thing left to decide
+    # it. A first version of this test padded "Call" into "Ca<pad>ll", which
+    # normalises to "Ca ll" -- absent from the text -- so it passed on
+    # containment and proved nothing about the floor.
+    short = "Use when"
+    assert short in validate._unwrapped(SKILL_TEXT)
+    assert len(short) < validate.MIN_EVIDENCE_CHARS
+    padded = short.replace(" ", " " * 12)
+    assert len(padded.strip()) >= validate.MIN_EVIDENCE_CHARS, "precondition: raw length clears the floor"
+    assert validate._unwrapped(padded) == short, "precondition: it still matches"
+    assert validate.verdict_from(_all_ok(padded), SKILL_TEXT) == "fail"
+
+
+def test_a_rewrapped_quote_at_the_floor_is_measured_after_normalising():
+    """The cost of the line above, made explicit: the floor now applies to the
+    normalised span, so a quote whose whitespace collapses below the floor is
+    rejected. That is the fail-closed direction, and this module's every other
+    decision fails closed."""
+    span = SKILL_TEXT[SKILL_TEXT.index("Call"):][:validate.MIN_EVIDENCE_CHARS + 2]
+    assert validate.verdict_from(_all_ok(span), SKILL_TEXT) == "pass"
+    rewrapped = span.replace(" ", "\n   ", 1)
+    assert len(validate._unwrapped(rewrapped)) >= validate.MIN_EVIDENCE_CHARS
+    assert validate.verdict_from(_all_ok(rewrapped), SKILL_TEXT) == "pass", \
+        "an honest re-wrap that stays over the floor must still pass"
+
+
 def test_reordered_words_are_not_accepted_as_a_quote():
     """Whitespace-insensitive, not word-order-insensitive: the anti-sycophancy
     property is that a real quote cannot be produced without reading."""

@@ -439,10 +439,21 @@ def verdict_from(findings, text):
             if blocks(f):
                 return "fail"
             continue        # reported by `library show`, does not gate
-        ev = (f.get("evidence") or "").strip()
-        # Length is measured on the raw span, so re-wrapping cannot shrink a
-        # quote under the floor or pad one over it.
-        if len(ev) < MIN_EVIDENCE_CHARS or _unwrapped(ev) not in haystack:
+        # Normalised ONCE, and both halves of the check use it. The floor used
+        # to be measured on the raw span, under a comment claiming that stopped
+        # a quote being padded over it. It did the opposite: `.strip()` removes
+        # whitespace only at the ENDS, so internal runs survived and inflated
+        # len(ev) while the span actually matched stayed tiny --
+        # "Use<12 spaces>when" cleared a 12-character floor on a span that
+        # matches as the 8-character "Use when".
+        #
+        # The cost is the case that comment was reaching for: a quote whose
+        # whitespace collapses below the floor is now rejected. That is the
+        # fail-closed direction, which is the one every other decision in this
+        # module takes, and padding past the anti-sycophancy gate is the worse
+        # failure -- it is the gate's entire purpose.
+        ev = _unwrapped((f.get("evidence") or "").strip())
+        if len(ev) < MIN_EVIDENCE_CHARS or ev not in haystack:
             # An unquotable PASS is the sycophancy case, and it is gated
             # regardless of how the model graded it -- severity and basis
             # describe an objection, and this finding is not objecting.
